@@ -1,0 +1,6 @@
+{
+  "_comment": "ORNEK. Bu dosyayi https://bogahost.com/native/latest.json adresine ELLE yukleyin. Masaustu uygulamalari acilista bu adresi okur (bkz. docs/UPDATE.md).",
+  "version": "1.1.0",
+  "notes": "Uygulamalar arasi gecis menusu, bildirim izni ve surum denetimi eklendi.",
+  "url": "https://github.com/orginscorel/bogahost-native/releases/latest"
+}

@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-dcim"
-version = "1.0.0"
+version = "1.1.0"
 description = "Bogahost DCIM — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
@@ -20,6 +20,9 @@ tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Surum denetimi (docs/UPDATE.md) icin HTTP istemcisi. Varsayilan TLS
+# (Windows: schannel, macOS: Security.framework) — ek sistem bagimliligi yok.
+reqwest = "0.12"
 
 # Surum binary'sini kucult/optimize et.
 [profile.release]

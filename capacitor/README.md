@@ -17,7 +17,7 @@ kabuğudur. **Backend/frontend koduna dokunulmaz.**
 
 `capacitor.config.ts` içinde:
 - `server.url` → canlı URL (uygulama açılışta doğrudan buraya gider).
-- `server.allowNavigation` → yalnızca kendi host'u.
+- `server.allowNavigation` → **4 Bogahost host'u** (aşağıdaki "Uygulamalar arası geçiş").
 - `server.cleartext: false` + `network_security_config` → sadece HTTPS.
 - `webDir: 'www'` → uzak sunucu gelene kadar gösterilen yerel bootstrap.
 
@@ -32,6 +32,30 @@ yalnızca kabuk/izin/ikon değişince gerekir.
 | dcim   | com.bogahost.dcim     | https://dcim.bogahost.com/admin       | — |
 | chat   | com.bogahost.chat     | https://chat.bogahost.com/admin       | WebRTC (kamera/mikrofon) |
 | task   | com.bogahost.task     | https://task.bogahost.com/admin       | — |
+
+## Uygulamalar arası geçiş (mobil)
+
+`server.allowNavigation` artık dört host'u da içerir:
+
+```ts
+allowNavigation: [
+  'finans.bogahost.com',
+  'dcim.bogahost.com',
+  'chat.bogahost.com',
+  'task.bogahost.com',
+],
+```
+
+Bu sayede panellerin içindeki bir bağlantı diğer sisteme gittiğinde WebView **aynı
+kabukta** gezinir; sistem tarayıcısına atılmaz ve oturum/çerez akışı bozulmaz.
+`android-overrides/res/xml/network_security_config.xml` de tek host yerine
+`bogahost.com` (alt alan adları dâhil, yalnız HTTPS) için tanımlıdır.
+
+**Mobilde ayrı bir geçiş menüsü eklenmedi** — masaüstünde (Tauri) tepsi/menü çubuğu
+menüsü vardır; mobilde geçiş panellerin kendi arayüzünden yapılır. Bu bilinçli bir
+tercihtir: kabuk üstüne native bir menü eklemek, canlı paneldeki navigasyonla
+çakışan ikinci bir gezinme katmanı yaratırdı. Dış (3. taraf) adresler hâlâ
+`allowNavigation` dışında olduğu için sistem tarayıcısında açılır.
 
 ## Klasör düzeni (her uygulama)
 

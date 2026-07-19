@@ -14,6 +14,7 @@ Proje özeti ve mimari için kök [`../README.md`](../README.md).
 | [PUBLISH.md](PUBLISH.md) | Google Play, App Store/TestFlight, Microsoft Store/MSI, macOS notarize+DMG |
 | [PWA.md](PWA.md) | Mağazasız PWA kurulumu + `.well-known` (assetlinks / AASA) adımı |
 | [PUSH.md](PUSH.md) | Bildirim gerçeği: web-push vs. native FCM/APNs |
+| [UPDATE.md](UPDATE.md) | Masaüstü sürüm denetimi: neden tam updater değil, `latest.json`, yeni sürüm yayınlama |
 | [TROUBLESHOOT.md](TROUBLESHOOT.md) | Yaygın hatalar ve çözümleri |
 
 ## CI iş akışları (`.github/workflows/`)

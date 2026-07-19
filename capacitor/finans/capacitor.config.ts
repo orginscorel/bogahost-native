@@ -15,8 +15,15 @@ const config: CapacitorConfig = {
   server: {
     // CANLI URL — WebView doğrudan buraya gider.
     url: 'https://finans.bogahost.com/admin',
-    // Yalnızca kendi HTTPS host'una gezinmeye izin ver.
-    allowNavigation: ['finans.bogahost.com'],
+    // 4 Bogahost sistemi arasında AYNI kabukta geçiş yapılabilsin diye
+    // dördünün de host'u izinli (bkz. capacitor/README.md "Uygulamalar arası geçiş").
+    // Dışarıya (3. taraf) gezinme hâlâ engelli — sistem tarayıcısında açılır.
+    allowNavigation: [
+      'finans.bogahost.com',
+      'dcim.bogahost.com',
+      'chat.bogahost.com',
+      'task.bogahost.com',
+    ],
     // Düz HTTP yok — sadece TLS.
     cleartext: false,
     androidScheme: 'https',

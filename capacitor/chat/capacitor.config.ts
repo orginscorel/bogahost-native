@@ -18,7 +18,12 @@ const config: CapacitorConfig = {
   backgroundColor: '#0e1015',
   server: {
     url: 'https://chat.bogahost.com/admin',
-    allowNavigation: ['chat.bogahost.com'],
+    allowNavigation: [
+      'finans.bogahost.com',
+      'dcim.bogahost.com',
+      'chat.bogahost.com',
+      'task.bogahost.com',
+    ],
     cleartext: false,
     androidScheme: 'https',
   },

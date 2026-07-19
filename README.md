@@ -68,4 +68,15 @@ Windows+Rust gerektirir. İmzalama ve mağaza dağıtımı için:
 - [`docs/PUBLISH.md`](docs/PUBLISH.md) — Play / App Store / Microsoft Store / macOS
 - [`docs/PWA.md`](docs/PWA.md) — mağazasız PWA kurulumu
 - [`docs/PUSH.md`](docs/PUSH.md) — bildirimler (web-push vs. native FCM/APNs)
+- [`docs/UPDATE.md`](docs/UPDATE.md) — masaüstü sürüm denetimi + yeni sürüm yayınlama
 - [`docs/TROUBLESHOOT.md`](docs/TROUBLESHOOT.md) — yaygın hatalar
+
+Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
+
+## Uygulamalar arası geçiş
+
+Masaüstünde (Tauri) sistem tepsisi menüsünde ve macOS menü çubuğunda
+**"Uygulamalar"** alt menüsü vardır: *Finans · DCIM · Chat · Görevler*. Seçilen
+uygulama **mevcut pencerede** açılır. Mobilde (Capacitor) ayrı menü yoktur; dört
+host da `server.allowNavigation` içinde olduğu için geçiş aynı kabukta gerçekleşir.
+Ayrıntı: [`tauri/README.md`](tauri/README.md) ve [`capacitor/README.md`](capacitor/README.md).

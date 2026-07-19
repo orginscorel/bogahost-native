@@ -23,24 +23,66 @@ tamamen sunucudan gelir.
   makul bir politika tanımlıdır.
 - **Çevrimdışı fallback:** `dist/index.html` küçük bir "Bağlanılıyor…" splash
   sayfasıdır (bundler + manuel çevrimdışı kullanım için). Normalde görünmez.
-- **Otomatik güncelleme KAPALI:** `tauri-plugin-updater` dahil edilmedi.
-  Dağıtım manueldir (yeni sürüm = yeni installer).
+- **Güncelleme:** Tam otomatik (indir-kur) `tauri-plugin-updater` **dahil edilmedi**;
+  yerine açılışta çalışan bir **sürüm denetimi** vardır (yeni sürüm varsa bildirim +
+  indirme sayfası). Gerekçe ve yayın akışı: [`../docs/UPDATE.md`](../docs/UPDATE.md).
 
 ## Native davranış (`src-tauri/src/lib.rs`)
 
-- **Sistem tepsisi (tray):** Göster / Gizle / Çıkış menüsü + tepsi ikonuna sol
-  tık ile pencereyi geri getirme.
+> `lib.rs` 4 uygulamada **birebir aynıdır**; yalnızca `APP_KEY` / `APP_TITLE`
+> sabitleri farklıdır. Birini değiştirirken dördünü birlikte güncelleyin.
+
+- **Sistem tepsisi (tray):** Göster / Gizle / **Uygulamalar ▸** / Güncellemeleri
+  denetle / İndirme sayfasını aç / Çıkış menüsü + tepsi ikonuna sol tık ile
+  pencereyi geri getirme.
 - **Kapatınca gizle:** Pencere "X" ile kapatılınca uygulama sonlanmaz, tepsiye
   gizlenir (masaüstü app hissi). Gerçek çıkış tepsi menüsünden.
 - **Harici linkler:** `tauri-plugin-shell` (`shell:allow-open`) kayıtlı;
   admin panelleri kendi origin'lerinde SPA olduğu için iç gezinme uygulama
   içinde kalır.
 
+## Uygulamalar arası geçiş
+
+Tepsi menüsündeki (ve macOS'ta menü çubuğundaki) **"Uygulamalar"** alt menüsünden
+Finans / DCIM / Chat / Görevler arasında geçilir:
+
+- Geçiş **mevcut pencerede** olur (`WebviewWindow::navigate`) — yeni pencere açılmaz.
+- Aktif uygulama **işaretli + pasif (gri)**; geçişten sonra işaret ve pencere
+  başlığı güncellenir.
+- Hedef URL'ler `lib.rs` içindeki `APPS` tablosundadır ve
+  [`../apps.config.json`](../apps.config.json) ile **birebir aynı** olmalıdır.
+- Bunun çalışması için `tauri.conf.json > app.security.csp` **4 host'u da**
+  (+ `wss://`) kapsar; `capabilities/remote.json` zaten `https://*.bogahost.com`
+  için tanımlıdır.
+- macOS'ta varsayılan menü (Uygulama/Düzen/Pencere) `Menu::default()` ile korunur,
+  "Uygulamalar" alt menüsü sonuna eklenir. Windows'ta pencere içi menü çubuğu
+  eklenmez — geçiş tepsiden yapılır.
+
+## Sürüm denetimi
+
+Açılışta sessiz, tepsi menüsünden ("Güncellemeleri denetle") manuel çalışır.
+`https://bogahost.com/native/latest.json` okunur; yeni sürüm varsa bildirim
+gösterilir ve "İndirme sayfasını aç" ilgili adrese götürür. **İndirme/kurulum
+otomatik değildir.** Ayrıntı ve `latest.json` biçimi:
+[`../docs/UPDATE.md`](../docs/UPDATE.md).
+
 ## Bildirimler (native vs web-push)
 
 - `tauri-plugin-notification` eklidir. Canlı admin paneli (kendi origin'imiz),
   `capabilities/remote.json` sayesinde `window.__TAURI__.notification` ile
   **native masaüstü bildirimi** tetikleyebilir (`withGlobalTauri: true`).
+- **İzin isteği:** Uygulama açılışında izin durumu sorulur, gerekirse
+  `request_permission()` çağrılır ve izin alındıysa **yalnızca ilk çalıştırmada**
+  "Bildirimler açıldı" test bildirimi gösterilir (uygulama veri klasöründeki
+  `notify-intro.flag` dosyası tekrarı engeller).
+  Masaüstünde Tauri'nin izin API'si genelde doğrudan "granted" döner; macOS'ta
+  sistem onay penceresini asıl tetikleyen şey **ilk bildirimin gösterilmesidir** —
+  bu yüzden tek seferlik test bildirimi kasıtlıdır.
+- **İmzasız macOS uygulaması:** Uygulama imzalı/notarize değilse ilk açılışta
+  Gatekeeper uyarısı çıkar (sağ tık → Aç). Bildirimler bu durumda da çalışır,
+  ancak imzasız paketlerde macOS'un bildirim davranışı sürüme göre değişebilir —
+  **garanti verilmiyor.** Kalıcı çözüm: Developer ID ile imzalama + notarization
+  (aşağıdaki "MANUEL kalan adımlar").
 - **Uyarı — web-push:** Uzak PWA'nın Service Worker tabanlı Web Push aboneliği
   masaüstü WebView'de (WebView2 / WKWebView) **güvenilir çalışmaz**; arka planda
   push teslimi platforma bağlı ve sınırlıdır. Masaüstünde bildirim istiyorsanız

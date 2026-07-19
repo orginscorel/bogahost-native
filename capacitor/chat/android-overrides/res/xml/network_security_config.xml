@@ -7,7 +7,7 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">chat.bogahost.com</domain>
+        <domain includeSubdomains="true">bogahost.com</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
