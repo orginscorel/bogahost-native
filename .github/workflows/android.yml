@@ -7,6 +7,8 @@ name: Android (APK + AAB)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - native-apps
     tags:
       - 'v*'
   # release.yml bu workflow'u yeniden kullanabilsin diye:

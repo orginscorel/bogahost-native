@@ -7,6 +7,8 @@ name: Windows (MSI + EXE)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - native-apps
     tags:
       - 'v*'
   workflow_call:

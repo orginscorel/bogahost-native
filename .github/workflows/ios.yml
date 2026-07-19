@@ -9,6 +9,8 @@ name: iOS (Archive + IPA)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - native-apps
     tags:
       - 'v*'
   workflow_call:

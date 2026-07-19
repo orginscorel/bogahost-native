@@ -8,6 +8,8 @@ name: macOS (DMG + App)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - native-apps
     tags:
       - 'v*'
   workflow_call:
