@@ -81,9 +81,16 @@ jobs:
             echo "::warning title=Unsigned macOS build::APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY eksik. ${{ matrix.app }} için imzasız/notarize edilmemiş DMG üretildi (Gatekeeper uyarısı). Dağıtım için docs/SIGNING.md."
           fi
 
-      # Tauri, aşağıdaki env değişkenleri set edilirse otomatik imzalar + notarize eder.
-      # Değişkenler boşsa (secret yoksa) Tauri imzasız derler — job FAIL etmez.
-      - name: Tauri build
+      # ÖNEMLİ: APPLE_* env değişkenleri BOŞ da olsa TANIMLIYSA Tauri codesign dener ve
+      # "failed to import keychain certificate" ile patlar. Bu yüzden imzasız yolda bu
+      # değişkenler HİÇ tanımlanmaz — iki ayrı adım.
+      - name: Tauri build (imzasız)
+        if: steps.sign.outputs.signed == 'false'
+        working-directory: tauri/${{ matrix.app }}
+        run: npm run tauri:build:mac
+
+      - name: Tauri build (imzalı + notarize)
+        if: steps.sign.outputs.signed == 'true'
         working-directory: tauri/${{ matrix.app }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
