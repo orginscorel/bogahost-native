@@ -1,21 +1,31 @@
-# Bağımlılıklar
+# ============================================================
+# Bogahost Native — GÜVENLİ .gitignore
+# Hassas hiçbir dosya GitHub'a gitmez.
+# ============================================================
+
+# --- Bağımlılıklar / build ---
 node_modules/
 **/node_modules/
+vendor/
+**/vendor/
+.cache/
+**/.cache/
+cache/
 
-# Capacitor üretilen platform çıktıları (CI'da regenerate edilir)
+# --- Capacitor üretilen platform çıktıları (CI'da regenerate edilir) ---
 capacitor/**/android/app/build/
 capacitor/**/android/.gradle/
+capacitor/**/android/build/
 capacitor/**/android/local.properties
 capacitor/**/ios/App/Pods/
 capacitor/**/ios/App/build/
-# NOT: capacitor/<key>/www/ el ile yazılan bootstrap kaynağıdır (server.url uzak
-# yüklenene kadar gösterilir) — üretilmez, bu yüzden ignore EDİLMEZ.
+# NOT: capacitor/<key>/www/ el ile yazılan bootstrap kaynağıdır — izlenir (ignore EDİLMEZ).
 
-# Tauri
+# --- Tauri ---
 tauri/**/target/
 tauri/**/src-tauri/target/
 
-# Build çıktıları
+# --- Build artefaktları ---
 dist/
 out/
 *.apk
@@ -25,20 +35,66 @@ out/
 *.msi
 *.dmg
 *.app.tar.gz
+*.xcarchive/
 
-# İmzalama sırları — ASLA commit edilmez
-*.keystore
-!debug.keystore
-*.jks
-*.p12
-*.mobileprovision
-*.cer
-*.p8
-keystore.properties
-signing/
+# --- SIRLAR / KİMLİK / İMZALAMA (asla commit edilmez) ---
 .env
 .env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.crt
+*.der
+*.pem
+*.key
+*_rsa
+*_dsa
+*_ed25519
+*_ecdsa
+id_rsa*
+id_dsa*
+id_ed25519*
+keystore.properties
+signing/
+secrets/
+*.secret
+credentials.json
+google-services.json
+GoogleService-Info.plist
+AuthKey_*.p8
 
-# OS
+# --- Veritabanı yedekleri / dökümler ---
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.dump
+*.mdb
+*.bak
+db_backup*/
+backups/
+
+# --- Loglar ---
+*.log
+logs/
+**/logs/
+npm-debug.log*
+
+# --- Müşteri / upload edilen özel dosyalar ---
+uploads/
+storage/app/
+storage/framework/
+public/uploads/
+
+# --- OS / editör ---
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+*.swp

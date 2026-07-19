@@ -48,14 +48,20 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Install dependencies
+      # Kök bağımlılıklar: scripts/ (gen-icons → sharp) + @capacitor/cli.
+      - name: Install root dependencies
         run: npm ci
 
-      - name: Generate icons
-        run: npm run icons
+      # Per-app bağımlılıklar: @capacitor/ios|core + eklentiler.
+      - name: Install app dependencies (${{ matrix.app }})
+        working-directory: capacitor/${{ matrix.app }}
+        run: npm install
 
-      - name: Ensure webDir exists (canlı-URL kabuğu için güvenlik ağı)
-        run: mkdir -p "capacitor/${{ matrix.app }}/www"
+      # Platformu üret (cap add ios) + Info.plist/entitlements override + AppIcon.
+      # Taze checkout'ta ios/ klasörü YOKTUR; bu adım onu oluşturur.
+      # PlistBuddy macOS runner'da mevcuttur.
+      - name: Prepare iOS platform (cap add + overrides + icons)
+        run: node scripts/prepare.mjs --app ${{ matrix.app }} --platform ios
 
       - name: Capacitor sync (ios)
         working-directory: capacitor/${{ matrix.app }}

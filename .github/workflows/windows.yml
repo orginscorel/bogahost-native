@@ -46,15 +46,20 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate icons
-        run: npm run icons
-
-      - name: Tauri build
+      # Per-app Tauri bağımlılıkları (@tauri-apps/cli).
+      - name: Install app dependencies (${{ matrix.app }})
         working-directory: tauri/${{ matrix.app }}
-        run: npx --yes @tauri-apps/cli@^2 build
+        run: npm install
+
+      # src-tauri/icons/ ikon klasörünü doldurur (icon.ico dahil).
+      # tauri.conf.json > bundle.icon buna başvurur; olmadan build "icon not found" verir.
+      - name: Generate Tauri icons
+        working-directory: tauri/${{ matrix.app }}
+        run: npx tauri icon ../../assets/icons/icon-source-${{ matrix.app }}.png
+
+      - name: Tauri build (Windows · MSI + NSIS)
+        working-directory: tauri/${{ matrix.app }}
+        run: npm run tauri:build:win
 
       - name: Detect signing secret
         id: sign
