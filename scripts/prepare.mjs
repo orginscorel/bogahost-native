@@ -35,6 +35,7 @@ import {
   mkdirSync,
   cpSync,
   readdirSync,
+  rmSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
@@ -149,6 +150,29 @@ function mergeColorsXml(overrideFile, targetFile) {
   mkdirSync(dirname(targetFile), { recursive: true });
   writeFileSync(targetFile, lines.join('\n'));
   console.log(`  ✓ colors.xml birleştirildi (${merged.size} renk) → ${targetFile}`);
+
+  // Capacitor bazı renkleri AYRI dosyada üretir (ör. res/values/ic_launcher_background.xml).
+  // Aynı renk hem orada hem colors.xml'de tanımlıysa Gradle "Duplicate resources" ile PATLAR.
+  // colors.xml artık tek doğru kaynak → kardeş dosyalardaki aynı isimli renkleri temizle.
+  const valuesDir = dirname(targetFile);
+  for (const f of readdirSync(valuesDir)) {
+    if (!f.endsWith('.xml') || f === 'colors.xml') continue;
+    const p = join(valuesDir, f);
+    let xml = readFileSync(p, 'utf8');
+    let changed = false;
+    xml = xml.replace(
+      /[ \t]*<color\s+name="([^"]+)"\s*>[^<]*<\/color>[ \t]*\r?\n?/g,
+      (full, name) => (merged.has(name) ? ((changed = true), '') : full)
+    );
+    if (!changed) continue;
+    if (!/<(color|string|dimen|style|bool|integer|array|item|declare-styleable)\b/.test(xml)) {
+      rmSync(p);
+      console.log(`  ✓ yinelenen renk dosyası silindi → ${f}`);
+    } else {
+      writeFileSync(p, xml);
+      console.log(`  ✓ ${f} içinden yinelenen renk(ler) temizlendi`);
+    }
+  }
 }
 
 // ───────────────────────── ANDROID ─────────────────────────
