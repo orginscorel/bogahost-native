@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bogahost Görevler",
+  "version": "1.0.0",
+  "identifier": "com.bogahost.task",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Bogahost Görevler",
+        "url": "https://task.bogahost.com/admin",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "focus": true,
+        "theme": "Dark",
+        "transparent": false,
+        "decorations": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' https://task.bogahost.com; connect-src 'self' https://task.bogahost.com wss://task.bogahost.com; img-src 'self' https://task.bogahost.com data: blob:; script-src 'self' https://task.bogahost.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://task.bogahost.com 'unsafe-inline'; font-src 'self' https://task.bogahost.com data:; media-src 'self' https://task.bogahost.com blob:; frame-src 'self' https://task.bogahost.com"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "msi",
+      "nsis",
+      "dmg",
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "(c) 2026 Bogahost",
+    "category": "Business",
+    "shortDescription": "Bogahost Görevler masaustu uygulamasi",
+    "longDescription": "Bogahost Görevler yonetim panelinin masaustu kabugu (canli URL WebView).",
+    "windows": {
+      "wix": {
+        "language": [
+          "tr-TR"
+        ]
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Turkish",
+          "English"
+        ]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  },
+  "plugins": {}
+}

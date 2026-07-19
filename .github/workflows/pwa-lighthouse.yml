@@ -1,0 +1,50 @@
+name: PWA · Lighthouse CI
+
+# 4 CANLI URL'ye karşı Lighthouse çalıştırır (PWA + performans + erişilebilirlik + SEO).
+# SADECE RAPOR üretir — canlı siteyi HİÇBİR şekilde değiştirmez.
+# Rapor geçici public storage'a yüklenir; link job özetinde ve action log'unda görünür.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Her Pazartesi 06:00 UTC — haftalık sağlık kontrolü
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    name: Lighthouse · ${{ matrix.app.key }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - { key: finans, url: 'https://finans.bogahost.com/' }
+          - { key: dcim,   url: 'https://dcim.bogahost.com/' }
+          - { key: chat,   url: 'https://chat.bogahost.com/' }
+          - { key: task,   url: 'https://task.bogahost.com/' }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Lighthouse CI
+        id: lhci
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: ${{ matrix.app.url }}
+          # Sadece rapor: eşik/assertion YOK → skor düşük olsa da job FAIL etmez.
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Rapor özeti
+        if: always()
+        run: |
+          echo "### Lighthouse · ${{ matrix.app.key }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: ${{ matrix.app.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Public rapor linkleri (varsa):" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.lhci.outputs.links }}' >> "$GITHUB_STEP_SUMMARY"

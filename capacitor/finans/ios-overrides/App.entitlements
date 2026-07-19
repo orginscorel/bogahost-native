@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Finans — iOS entitlements.
+  CI bunu ios/App/App/App.entitlements olarak yerleştirir ve hedefe bağlar.
+  - Associated Domains: Universal Link doğrulaması (apple-app-site-association).
+  - APS Environment: native push (production; CI debug için development yapabilir).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:finans.bogahost.com</string>
+    </array>
+    <key>aps-environment</key>
+    <string>production</string>
+</dict>
+</plist>

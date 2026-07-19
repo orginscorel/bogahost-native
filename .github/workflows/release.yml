@@ -1,0 +1,62 @@
+name: Release
+
+# v* tag push'unda tüm platform workflow'larını (reusable / workflow_call) çağırır,
+# tüm artifact'ları indirir ve tek bir GitHub Release'e toplar.
+# secrets: inherit → imzalama secret'ları tanımlıysa imzalı, değilse imzasız artifact toplanır.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
+  ios:
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+
+  windows:
+    uses: ./.github/workflows/windows.yml
+    secrets: inherit
+
+  macos:
+    uses: ./.github/workflows/macos.yml
+    secrets: inherit
+
+  publish-release:
+    name: GitHub Release oluştur
+    needs: [android, ios, windows, macos]
+    runs-on: ubuntu-latest
+    # Bir platform kısmen başarısız olsa bile toplanan artifact'larla Release oluşturmayı dene.
+    if: always()
+    steps:
+      - name: Tüm artifact'ları indir
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Artifact'ları düzleştir
+        run: |
+          mkdir -p release
+          find dist -type f \
+            \( -name '*.apk' -o -name '*.aab' -o -name '*.ipa' \
+               -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \
+               -o -name '*.zip' -o -name '*.app.tar.gz' \) \
+            -exec cp {} release/ \; 2>/dev/null || true
+          ls -la release || true
+
+      - name: GitHub Release yayınla
+        uses: softprops/action-gh-release@v2
+        with:
+          # Tag dışı (workflow_dispatch) çalıştırmada Release adımı atlanır.
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: release/*

@@ -1,0 +1,113 @@
+name: macOS (DMG + App)
+
+# Tauri 2 macOS kabuklarını derler.
+# Her uygulama için .dmg + .app (tar.gz) üretir.
+# Developer ID sertifikası + notarization secret'ları VARSA imzalanır/notarize edilir;
+# yoksa unsigned artifact üretilir (Gatekeeper "doğrulanamadı" uyarısı verir).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: macOS · ${{ matrix.app }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [finans, dcim, chat, task]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable + apple targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/${{ matrix.app }}/src-tauri
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Detect signing secrets
+        id: sign
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$IDENTITY" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned macOS build::APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY eksik. ${{ matrix.app }} için imzasız/notarize edilmemiş DMG üretildi (Gatekeeper uyarısı). Dağıtım için docs/SIGNING.md."
+          fi
+
+      # Tauri, aşağıdaki env değişkenleri set edilirse otomatik imzalar + notarize eder.
+      # Değişkenler boşsa (secret yoksa) Tauri imzasız derler — job FAIL etmez.
+      - name: Tauri build
+        working-directory: tauri/${{ matrix.app }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx --yes @tauri-apps/cli@^2 build
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          BUNDLE="tauri/${{ matrix.app }}/src-tauri/target/release/bundle"
+          find "$BUNDLE/dmg" -name '*.dmg' -exec cp {} artifacts/ \; 2>/dev/null || true
+          # .app bir klasördür → tar.gz'le
+          if [ -d "$BUNDLE/macos" ]; then
+            for appdir in "$BUNDLE/macos"/*.app; do
+              [ -e "$appdir" ] || continue
+              base="$(basename "$appdir" .app)"
+              tar -czf "artifacts/${base}-${{ matrix.app }}.app.tar.gz" -C "$BUNDLE/macos" "$(basename "$appdir")"
+            done
+          fi
+          ls -la artifacts || true
+
+      - name: Upload DMG + App
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.app }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 30

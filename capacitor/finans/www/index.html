@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#5443D2" />
+  <title>Bogahost Finans</title>
+  <style>
+    :root { --bg: #0e1015; --fg: #e7e9ee; --accent: #5443D2; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    .box { text-align: center; max-width: 320px; }
+    .spinner {
+      width: 42px; height: 42px; margin: 0 auto 20px;
+      border: 3px solid rgba(255,255,255,.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+    p { font-size: 14px; color: #9aa0ad; margin: 0; line-height: 1.5; }
+    #offline { display: none; }
+    #offline.show { display: block; }
+    #loading.hide { display: none; }
+    button {
+      margin-top: 18px; padding: 11px 22px; font-size: 14px; font-weight: 600;
+      color: #fff; background: var(--accent); border: 0; border-radius: 10px;
+      cursor: pointer;
+    }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div id="loading">
+      <div class="spinner" role="status" aria-label="Yükleniyor"></div>
+      <h1>Bogahost Finans</h1>
+      <p>Yükleniyor&hellip;</p>
+    </div>
+    <div id="offline">
+      <h1>Bağlantı yok</h1>
+      <p>İnternet bağlantısı bulunamadı. Bağlantınızı kontrol edip tekrar deneyin.</p>
+      <button type="button" onclick="location.reload()">Tekrar dene</button>
+    </div>
+  </div>
+  <script>
+    // Bu ekran yalnızca uzak sunucu (server.url) yüklenene kadar veya çevrimdışıyken
+    // görünür. Capacitor açılışta doğrudan CANLI URL'ye gider.
+    (function () {
+      function paintOffline() {
+        document.getElementById('loading').classList.add('hide');
+        document.getElementById('offline').classList.add('show');
+      }
+      if (navigator.onLine === false) paintOffline();
+      window.addEventListener('offline', paintOffline);
+      window.addEventListener('online', function () { location.reload(); });
+    })();
+  </script>
+</body>
+</html>

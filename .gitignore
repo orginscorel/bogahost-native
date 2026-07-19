@@ -1,0 +1,44 @@
+# Bağımlılıklar
+node_modules/
+**/node_modules/
+
+# Capacitor üretilen platform çıktıları (CI'da regenerate edilir)
+capacitor/**/android/app/build/
+capacitor/**/android/.gradle/
+capacitor/**/android/local.properties
+capacitor/**/ios/App/Pods/
+capacitor/**/ios/App/build/
+# NOT: capacitor/<key>/www/ el ile yazılan bootstrap kaynağıdır (server.url uzak
+# yüklenene kadar gösterilir) — üretilmez, bu yüzden ignore EDİLMEZ.
+
+# Tauri
+tauri/**/target/
+tauri/**/src-tauri/target/
+
+# Build çıktıları
+dist/
+out/
+*.apk
+*.aab
+*.ipa
+*.exe
+*.msi
+*.dmg
+*.app.tar.gz
+
+# İmzalama sırları — ASLA commit edilmez
+*.keystore
+!debug.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.cer
+*.p8
+keystore.properties
+signing/
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db

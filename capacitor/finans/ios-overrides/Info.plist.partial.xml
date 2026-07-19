@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Finans — iOS Info.plist parçası.
+
+  CI, `npx cap add ios` sonrası bu anahtarları üretilen
+  ios/App/App/Info.plist içindeki kök <dict> öğesine BİRLEŞTİRİR
+  (PlistBuddy veya eşdeğeri ile). Tam bir plist değildir; yalnızca eklenecek çiftlerdir.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Belge ve ekran görüntüsü eklemek için fotoğraf kitaplığına erişim gerekir.</string>
+
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>İndirilen dosyaları fotoğraf kitaplığına kaydetmek için erişim gerekir.</string>
+
+    <!-- Native push (APNs) için arka plan modu. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- Uzak içerik yükleneceğinden ATS gevşetmesine gerek yok: tüm bağlantılar HTTPS. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+</dict>
+</plist>

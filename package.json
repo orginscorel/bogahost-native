@@ -1,0 +1,25 @@
+{
+  "name": "bogahost-native",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bogahost 4 sistemin (Finans/DCIM/Chat/Görevler) native kabukları — Capacitor (Android/iOS) + Tauri (Windows/macOS). Canlı PWA URL'sini yükler; backend/frontend'e dokunmaz.",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs --pwa",
+    "build:android": "node scripts/build.mjs --platform android",
+    "build:ios": "node scripts/build.mjs --platform ios",
+    "build:windows": "node scripts/build.mjs --platform windows",
+    "build:mac": "node scripts/build.mjs --platform mac",
+    "build:all": "node scripts/build.mjs --platform all",
+    "icons": "node scripts/gen-icons.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "clean": "node scripts/clean.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "sharp": "^0.33.0"
+  }
+}

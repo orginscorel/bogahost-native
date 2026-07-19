@@ -1,0 +1,119 @@
+name: Android (APK + AAB)
+
+# Capacitor 7 Android kabuklarını derler.
+# Her uygulama (finans/dcim/chat/task) için ayrı APK + AAB üretir.
+# İmzalama secret'ları varsa imzalanır; yoksa unsigned artifact üretilir (job FAIL etmez).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  # release.yml bu workflow'u yeniden kullanabilsin diye:
+  workflow_call:
+    secrets:
+      SIGNING_KEYSTORE_BASE64:
+        required: false
+      KEY_ALIAS:
+        required: false
+      STORE_PASSWORD:
+        required: false
+      KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Android · ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [finans, dcim, chat, task]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Ensure webDir exists (canlı-URL kabuğu için güvenlik ağı)
+        run: mkdir -p "capacitor/${{ matrix.app }}/www"
+
+      - name: Capacitor sync (android)
+        working-directory: capacitor/${{ matrix.app }}
+        run: npx cap sync android
+
+      - name: Detect signing secrets
+        id: sign
+        env:
+          KS: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned build::SIGNING_KEYSTORE_BASE64 secret bulunamadı. ${{ matrix.app }} için İMZASIZ APK/AAB üretilecek (Play Store'a yüklenemez, yalnızca test)."
+          fi
+
+      - name: Decode keystore & write keystore.properties
+        if: steps.sign.outputs.signed == 'true'
+        working-directory: capacitor/${{ matrix.app }}/android
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > release.keystore
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          echo "keystore.properties yazıldı (build.gradle bu dosya varsa release signingConfig'i devreye alır)."
+
+      - name: Gradle assembleRelease + bundleRelease
+        working-directory: capacitor/${{ matrix.app }}/android
+        run: |
+          chmod +x ./gradlew || true
+          ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Collect artifacts
+        id: collect
+        working-directory: capacitor/${{ matrix.app }}/android
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          find app/build/outputs/apk -name '*.apk' -exec cp {} "$GITHUB_WORKSPACE/artifacts/" \; 2>/dev/null || true
+          find app/build/outputs/bundle -name '*.aab' -exec cp {} "$GITHUB_WORKSPACE/artifacts/" \; 2>/dev/null || true
+          ls -la "$GITHUB_WORKSPACE/artifacts" || true
+
+      - name: Upload APK + AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.app }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 30

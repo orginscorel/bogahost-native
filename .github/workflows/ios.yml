@@ -1,0 +1,174 @@
+name: iOS (Archive + IPA)
+
+# Capacitor 7 iOS kabuklarını derler.
+# İmzalama sertifikaları YOKSA: CODE_SIGNING_ALLOWED=NO ile imzasız .xcarchive üretir
+#   (derleme doğrulaması — App Store'a yüklenemez).
+# İmzalama sertifikaları VARSA: imzalı archive + IPA export yapılır.
+# macOS + Xcode gerektiği için sadece macos-latest runner'da çalışır.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    secrets:
+      APPLE_CERT:
+        required: false
+      APPLE_CERT_PASSWORD:
+        required: false
+      PROVISIONING_PROFILE:
+        required: false
+      TEAM_ID:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: iOS · ${{ matrix.app }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [finans, dcim, chat, task]
+
+    env:
+      WORKSPACE: capacitor/${{ matrix.app }}/ios/App/App.xcworkspace
+      SCHEME: App
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Ensure webDir exists (canlı-URL kabuğu için güvenlik ağı)
+        run: mkdir -p "capacitor/${{ matrix.app }}/www"
+
+      - name: Capacitor sync (ios)
+        working-directory: capacitor/${{ matrix.app }}
+        run: npx cap sync ios
+
+      - name: CocoaPods install
+        working-directory: capacitor/${{ matrix.app }}/ios/App
+        run: pod install
+
+      - name: Detect signing secrets
+        id: sign
+        env:
+          CERT: ${{ secrets.APPLE_CERT }}
+          PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+          TEAM: ${{ secrets.TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned iOS build::APPLE_CERT / PROVISIONING_PROFILE / TEAM_ID secret'ları eksik. ${{ matrix.app }} için imzasız derleme doğrulaması yapılacak, IPA imzalama ATLANACAK. Dağıtım için docs/SIGNING.md."
+          fi
+
+      # ---------- İMZASIZ YOL (doğrulama) ----------
+      - name: Archive (unsigned verification)
+        if: steps.sign.outputs.signed == 'false'
+        run: |
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" \
+            clean archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          echo "İmzasız .xcarchive üretildi — derleme doğrulandı, IPA imzalama atlandı."
+
+      # ---------- İMZALI YOL (IPA) ----------
+      - name: Import signing assets
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          APPLE_CERT: ${{ secrets.APPLE_CERT }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PWD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+
+          echo "$APPLE_CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          echo "$PROVISIONING_PROFILE" | base64 -d > "$PROFILES_DIR/profile.mobileprovision"
+
+      - name: Archive (signed)
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" \
+            clean archive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            -allowProvisioningUpdates
+
+      - name: Export IPA
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -allowProvisioningUpdates
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          # imzalı IPA (varsa)
+          find "$RUNNER_TEMP/ipa" -name '*.ipa' -exec cp {} artifacts/ \; 2>/dev/null || true
+          # imzasız/imzalı archive'ı da paketle (yer kaplamasın diye zip)
+          if [ -d "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" ]; then
+            ( cd "$RUNNER_TEMP" && zip -qry "$GITHUB_WORKSPACE/artifacts/${{ matrix.app }}-xcarchive.zip" "${{ matrix.app }}.xcarchive" )
+          fi
+          ls -la artifacts || true
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ matrix.app }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 30

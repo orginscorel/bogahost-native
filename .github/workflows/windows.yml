@@ -1,0 +1,103 @@
+name: Windows (MSI + EXE)
+
+# Tauri 2 Windows kabuklarını derler.
+# Her uygulama için .msi (WiX) + .exe (NSIS) üretir.
+# Authenticode secret'ları VARSA imzalanır; yoksa unsigned artifact üretilir.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    secrets:
+      WINDOWS_CERTIFICATE:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows · ${{ matrix.app }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [finans, dcim, chat, task]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/${{ matrix.app }}/src-tauri
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Tauri build
+        working-directory: tauri/${{ matrix.app }}
+        run: npx --yes @tauri-apps/cli@^2 build
+
+      - name: Detect signing secret
+        id: sign
+        shell: bash
+        env:
+          CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned Windows build::WINDOWS_CERTIFICATE secret bulunamadı. ${{ matrix.app }} için İMZASIZ MSI/EXE üretildi (SmartScreen uyarısı verir)."
+          fi
+
+      - name: Authenticode sign (opsiyonel)
+        if: steps.sign.outputs.signed == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $bundle = "tauri/${{ matrix.app }}/src-tauri/target/release/bundle"
+          $files = Get-ChildItem -Path $bundle -Recurse -Include *.msi, *.exe -ErrorAction SilentlyContinue
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
+          foreach ($f in $files) {
+            & $signtool.FullName sign /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $f.FullName
+          }
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          BUNDLE="tauri/${{ matrix.app }}/src-tauri/target/release/bundle"
+          find "$BUNDLE/msi" -name '*.msi' -exec cp {} artifacts/ \; 2>/dev/null || true
+          find "$BUNDLE/nsis" -name '*.exe' -exec cp {} artifacts/ \; 2>/dev/null || true
+          ls -la artifacts || true
+
+      - name: Upload MSI + EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.app }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 30
