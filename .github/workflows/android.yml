@@ -52,14 +52,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
 
       # Kök bağımlılıklar: yalnızca scripts/ (gen-icons → sharp) + @capacitor/cli.
       - name: Install root dependencies
-        run: npm ci
+        run: npm install
 
       # Per-app bağımlılıklar: @capacitor/android|core + eklentiler.
-      # cap add/sync bunları gerektirir; kök npm ci bunları KURMAZ.
+      # cap add/sync bunları gerektirir; kök npm install bunları KURMAZ.
       - name: Install app dependencies (${{ matrix.app }})
         working-directory: capacitor/${{ matrix.app }}
         run: npm install
