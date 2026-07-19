@@ -28,6 +28,10 @@ tauri/**/src-tauri/target/
 # --- Build artefaktları ---
 dist/
 out/
+# İSTİSNA: tauri/<app>/dist/ ELLE YAZILMIŞ kaynaktır (tauri.conf.json > frontendDist).
+# Üretilmez; commit edilmezse Tauri "Unable to find your web assets" hatası verir.
+!tauri/*/dist/
+!tauri/*/dist/**
 *.apk
 *.aab
 *.ipa
