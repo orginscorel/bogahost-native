@@ -1,3 +1,37 @@
+## 1.6.0
+
+Sürüm bilgisi artık **her yerde** görünür. Önceki sürümlerde sürüm rozeti yalnızca
+giriş ekranında çiziliyordu; kullanıcı giriş yaptıktan sonra uygulamanın hangi
+sürüm olduğunu hiçbir yerden göremiyordu.
+
+### Eklendi
+- **Tepsi (tray) menüsünde sürüm satırı.** Menünün en üstünde, pasif (tıklanamaz)
+  bilgi öğesi olarak `Bogahost <Uygulama> v<sürüm>` gösterilir. Oturum durumundan
+  ve sayfadan bağımsızdır — en garantili görünürlük yolu.
+- **macOS menü çubuğunda sürüm.** Uygulama menüsünün en üstüne pasif
+  `Sürüm v<x.y.z>` öğesi eklendi.
+- **"Hakkında" diyaloğu.** Hem tepsi menüsünden ("Hakkında…") hem macOS uygulama
+  menüsünden ("Hakkında ve Güncelleme…") açılır; uygulama adı, sürüm ve
+  "Powered by Bogahost" bilgisini gösterir, üzerinde **Güncellemeleri denetle**
+  düğmesi vardır (tepsi menüsündeki denetimin aynısını çalıştırır, aynı tekillik
+  koruması geçerlidir).
+
+### Değişti
+- `window.__BOGAHOST_NATIVE_VERSION__` enjeksiyonu korundu (canlı paneller
+  sidebar'daki "Uygulama v…" satırı için bunu okur). Asıl enjeksiyon
+  `initialization_script` ile **her gezinmede, sayfanın kendi script'lerinden önce**
+  (document-start) yapılır; ek olarak sayfa yüklemesi bittiğinde bir **emniyet ağı**
+  tazelemesi eklendi.
+- Giriş ekranındaki mevcut sürüm rozeti **olduğu gibi bırakıldı**.
+
+### Not
+- Dört uygulamada da `lib.rs` birebir aynıdır; yalnızca `APP_KEY` / `APP_TITLE`
+  sabitleri ve başlık yorumu farklıdır.
+- Canlı panellerin (Finans / DCIM / Chat / Görevler) **Sürüm Notları** sayfasına,
+  panel girdilerinden görsel olarak ayrı bir **"Masaüstü Uygulaması (native)"**
+  bölümü eklendi; bu liste tek ortak kaynaktan (`config/native_changelog.php`)
+  üretilir.
+
 ## 1.5.1
 
 ### Düzeltildi

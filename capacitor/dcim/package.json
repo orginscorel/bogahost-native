@@ -1,6 +1,6 @@
 {
   "name": "@bogahost/native-dcim",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "private": true,
   "description": "Bogahost DCIM — Capacitor WebView kabuğu (canlı https://dcim.bogahost.com/admin yükler).",
   "scripts": {

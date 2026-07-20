@@ -181,6 +181,17 @@ pub fn run() {
             let mut notify_items: Vec<MenuItem<Wry>> = Vec::new();
 
             // ----- Sistem tepsisi (tray) menusu -----
+            // EN USTTE surum satiri: pasif (tiklanamaz) bilgi ogesi.
+            // Kullanici giris yapmis olsun ya da olmasin surum HER ZAMAN buradan
+            // gorunur — giris ekranindaki rozete bagimli degildir.
+            let version_i = MenuItem::with_id(
+                app,
+                "version-info",
+                format!("{APP_TITLE} v{}", env!("CARGO_PKG_VERSION")),
+                false,
+                None::<&str>,
+            )?;
+            let about_i = MenuItem::with_id(app, "about", "Hakkında…", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "Goster / Show", true, None::<&str>)?;
             let hide_i = MenuItem::with_id(app, "hide", "Gizle / Hide", true, None::<&str>)?;
             let notify_i = MenuItem::with_id(
@@ -220,6 +231,7 @@ pub fn run() {
             )?;
             let quit_i = MenuItem::with_id(app, "quit", "Cikis / Quit", true, None::<&str>)?;
 
+            let sep_v = PredefinedMenuItem::separator(app)?;
             let sep_a = PredefinedMenuItem::separator(app)?;
             let sep_b = PredefinedMenuItem::separator(app)?;
             let sep_c = PredefinedMenuItem::separator(app)?;
@@ -231,6 +243,8 @@ pub fn run() {
             let tray_view_sub = build_view_submenu(&handle)?;
 
             let tray_items: Vec<&dyn IsMenuItem<Wry>> = vec![
+                &version_i,
+                &sep_v,
                 &show_i,
                 &hide_i,
                 &sep_a,
@@ -241,6 +255,7 @@ pub fn run() {
                 &dllast_i,
                 &notify_i,
                 &sep_c,
+                &about_i,
                 &upd_i,
                 &dl_i,
                 &sep_d,
@@ -402,7 +417,11 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .visible(false)
         .theme(Some(tauri::Theme::Dark))
         .zoom_hotkeys_enabled(true)
-        // Surum bilgisi (giris ekranindaki rozet icin) JS'e burada aktarilir.
+        // Surum bilgisi (giris ekranindaki rozet + panel sidebar'indaki
+        // "Uygulama v…" satiri) JS'e burada aktarilir.
+        // `initialization_script` HER GEZINMEDE, sayfanin kendi script'lerinden
+        // ONCE (document-start) calisir — dolayisiyla panel kodu calistiginda
+        // `window.__BOGAHOST_NATIVE_VERSION__` HAZIRDIR.
         .initialization_script(init_script().as_str())
         // WebView'in acamayacagi semalar (mailto:, tel:, ...) sistem uygulamasina
         // yollanir — tiklanip hicbir sey olmamasi ENGELLENIR.
@@ -430,6 +449,10 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
                 close_splash(window.app_handle());
                 // Uygulama gecisinde gosterilen "Yükleniyor" katmanini kaldir.
                 let _ = window.eval(HIDE_LOADING_SCRIPT);
+                // EMNIYET AGI: surum degiskenleri asil olarak
+                // `initialization_script` ile (document-start) kurulur; sayfa
+                // bunlari herhangi bir sebeple kaybederse burada tazelenir.
+                let _ = window.eval(version_script().as_str());
                 // "Uygulamalar" menusunden gecildiyse: hedef uygulama 403/401
                 // donuyorsa (yonetimce erisim engellenmis) anlasilir bir ekran goster.
                 if PENDING_ACCESS_CHECK.swap(false, Ordering::SeqCst) {
@@ -1920,6 +1943,23 @@ fn build_menu_bar(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<(String, Che
     let about_label = format!("{APP_TITLE} Hakkında");
     let hide_label = format!("{APP_TITLE} Gizle");
     let about = PredefinedMenuItem::about(app, Some(about_label.as_str()), None)?;
+    // Surum, menu cubugunda da HER ZAMAN gorunur (pasif bilgi ogesi) +
+    // guncelleme dugmeli kendi "Hakkında" diyalogumuz.
+    let version_label = format!("Sürüm v{}", env!("CARGO_PKG_VERSION"));
+    let version_i = MenuItem::with_id(
+        app,
+        "version-info",
+        version_label.as_str(),
+        false,
+        None::<&str>,
+    )?;
+    let about_dlg = MenuItem::with_id(
+        app,
+        "about",
+        "Hakkında ve Güncelleme…",
+        true,
+        None::<&str>,
+    )?;
     let services = PredefinedMenuItem::services(app, Some("Hizmetler"))?;
     let hide = PredefinedMenuItem::hide(app, Some(hide_label.as_str()))?;
     let hide_others = PredefinedMenuItem::hide_others(app, Some("Diğerlerini Gizle"))?;
@@ -1929,7 +1969,9 @@ fn build_menu_bar(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<(String, Che
     let a2 = PredefinedMenuItem::separator(app)?;
     let a3 = PredefinedMenuItem::separator(app)?;
     let app_items: Vec<&dyn IsMenuItem<Wry>> = vec![
+        &version_i,
         &about,
+        &about_dlg,
         &a1,
         &services,
         &a2,
@@ -2079,6 +2121,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let h = app.clone();
             std::thread::spawn(move || refresh_notification_menu(&h));
         }
+        // Pasif bilgi ogesi: tiklanamaz, yine de emniyet icin yutulur.
+        "version-info" => {}
+        "about" => show_about_dialog(app),
         "check-update" => {
             // Ayni olay hem tepsi hem menu cubugundan gelebilir; tek seferde tek denetim.
             if UPDATE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
@@ -2105,6 +2150,38 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
         }
     }
+}
+
+/// "Hakkında" diyalogu — tepsiden ve (macOS) menu cubugundan acilir.
+/// Uygulama adi + surum + "Powered by Bogahost" gosterir; "Güncellemeleri
+/// denetle" dugmesi tepsi menusundeki denetimin AYNISINI calistirir.
+fn show_about_dialog(app: &AppHandle) {
+    let message = format!(
+        "{APP_TITLE}\nSürüm v{}\n\nPowered by Bogahost\nhttps://bogahost.com",
+        env!("CARGO_PKG_VERSION")
+    );
+    let handle = app.clone();
+    app.dialog()
+        .message(message)
+        .title(format!("{APP_TITLE} Hakkında"))
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Güncellemeleri denetle".to_string(),
+            "Kapat".to_string(),
+        ))
+        .show(move |check| {
+            if !check {
+                return;
+            }
+            // Ayni tekillik korumasi: ust uste denetim baslatilmaz.
+            if UPDATE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            tauri::async_runtime::spawn(async move {
+                run_update_flow(handle, true).await;
+                UPDATE_CHECK_RUNNING.store(false, Ordering::SeqCst);
+            });
+        });
 }
 
 fn apply_zoom(app: &AppHandle, delta: f64) {
