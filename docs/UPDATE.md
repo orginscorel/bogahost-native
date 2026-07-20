@@ -11,35 +11,101 @@ gereken GitHub secret'larını ve sorun gidermeyi anlatır.
 
 ## 1. Mimari — kullanıcı tarafında ne oluyor?
 
+**Hedef:** kullanıcı güncelleme için uygulamayı **elle kapatıp açmak zorunda kalmasın.**
+Çalışan bir native sürecin kodu, süreç yeniden başlamadan değiştirilemez — bu
+fiziksel bir sınırdır. Bu yüzden "hiç yeniden başlatma yok" **vaat edilmiyor**;
+yeniden başlatma *tek tıkla*, *kullanıcı uygun olduğunda* ve *kaldığı sayfaya
+geri dönerek* yapılıyor.
+
 ```
 Uygulama açılır
    │
-   ├─ (sessiz) tauri-plugin-updater → https://native.bogahost.com/updates/<app>/<target>/<arch>/latest.json
-   │        │
-   │        ├─ Güncelleme YOK  → hiçbir şey gösterilmez
-   │        │
-   │        └─ Güncelleme VAR  → ONAY DİYALOĞU
-   │                             "Yeni sürüm X hazır (yüklü: Y). Şimdi kurulsun mu?"
-   │                                 ├─ "Şimdi kur"   → indir → imza doğrula → kur → YENİDEN BAŞLAT
-   │                                 └─ "Daha sonra"  → hiçbir kayıt tutulmaz,
-   │                                                    BİR SONRAKİ AÇILIŞTA TEKRAR SORULUR
-   │
-   └─ Updater kullanılamıyorsa (eklenti yüklenmedi / pubkey PLACEHOLDER / ağ hatası)
-            → YEDEK YOL: https://bogahost.com/native/latest.json okunur,
-              yalnızca BİLDİRİM gösterilir (v1.1.0 davranışı korunur).
+   ├─ +5 sn: İLK denetim ─┐
+   │                      │   (sessiz, tauri-plugin-updater)
+   └─ her 45 dk ──────────┤   meşgulse denetim ERTELENİR (5 dk sonra tekrar)
+                          │
+                          ├─ Güncelleme YOK / hata → HİÇBİR ŞEY gösterilmez (yalnızca stderr log)
+                          │
+                          └─ Güncelleme VAR → ARKA PLANDA İNDİR (kullanıcı çalışmaya devam eder)
+                                 │
+                                 │   macOS/Linux: indir + KUR (süreç çalışırken tamamlanır)
+                                 │   Windows:     yalnızca İNDİR (kurulum süreci öldürür — aşağıya bkz.)
+                                 │
+                                 └─ HAZIR → sayfa içinde ŞERİT (sağ alt) + tek masaüstü bildirimi
+                                        "Güncelleme hazır (v1.8.2)"
+                                        ├─ "Şimdi uygula" → sayfa adresi diske yazılır → yeniden başlat
+                                        │                    → yeni sürüm AYNI SAYFADA açılır
+                                        └─ "Sonra"        → şerit kapanır, ISRAR EDİLMEZ
+                                                             (bir sonraki doğal açılışta zaten kurulu)
 ```
 
+### Kullanıcıyı bölmeme kuralı
+
+Güncelleme **hiçbir koşulda kendiliğinden yeniden başlatmaz.** Yeniden başlatmayı
+tetikleyen tek yol, kullanıcının şerittteki **"Şimdi uygula"** düğmesidir.
+
+Buna ek olarak sayfa "meşgul" bildirdiğinde **arka plan indirmesi de** ertelenir
+(bant genişliği/CPU o an kullanıcınındır) ve şerittteki "Şimdi uygula" **ilk
+tıklamada onay ister** ("Yine de uygula"). Meşgul sayılan durumlar:
+
+| Kaynak | Nasıl tespit edilir |
+|---|---|
+| Görüntülü/sesli görüşme | `getUserMedia` ile alınan **canlı** medya track'leri sayılır |
+| Ekran paylaşımı | `getDisplayMedia` aynı şekilde sayılır |
+| Açık WebRTC oturumu | `RTCPeerConnection` örnekleri sarmalanır, `close()`/`failed` ile düşülür |
+| Doldurulmuş form | Kullanıcının değiştirdiği, **`<form>` içindeki** ve henüz gönderilmemiş alanlar |
+| Sayfanın açık beyanı | Panel `window.__bogahostSetBusy(true/false)` çağırabilir (**en güvenilir**) |
+
+Bayrak `bogahost_set_busy` komutuyla Rust'a taşınır. **Varsayılan `false`'tur:**
+sayfa hiç haber vermezse "meşgul değil" kabul edilir. Bu güvenlidir, çünkü
+bayrağın tek etkisi *indirmeyi geciktirmek*tir — yeniden başlatma zaten her
+zaman kullanıcı onayıyla olur. Yeni bir belge yüklendiğinde (`PageLoadEvent::Started`)
+bayrak **sıfırlanır**; aksi halde aramadan çıkıldığında takılı kalırdı.
+
+### Kaldığı yerden devam (bağlam koruma)
+
+Süreç öleceği için bellek işe yaramaz. `bogahost_apply_update` çalışırken açık
+sayfanın adresi **uygulama yapılandırma klasöründeki `resume-url.json`** dosyasına
+`{"url": ..., "ts": ...}` olarak yazılır. Yeni süreç `build_main_window` içinde bu
+dosyayı okur, **siler** (tek seferlik) ve oradan açılır. Doğrulamalar:
+
+* adres 6 saatten eskiyse **kullanılmaz** (panel anasayfası açılır),
+* yalnızca `bogahost.com` ve alt alan adları kabul edilir,
+* PDF/CSV gibi belge adresleri hiç kaydedilmez.
+
+Dosya **yalnızca güncelleme uygulanırken** yazılır; normal çıkışta yazılmaz.
+
+### Windows neden farklı?
+
+`tauri-plugin-updater`ın Windows kurulumu installer'ı çalıştırıp
+`std::process::exit(0)` ile **süreci öldürür**. Yani Windows'ta "sessizce kur,
+sonra sor" mümkün değildir. Bu yüzden Windows'ta arka planda yalnızca
+`Update::download()` yapılır, paket bellekte tutulur ve `Update::install()`
+kullanıcı "Şimdi uygula" dediği an çalıştırılır. macOS/Linux'ta
+`download_and_install()` süreç çalışırken tamamlanır; onay yalnızca
+`AppHandle::restart()` çağırır.
+
+> `restart()` de `RunEvent::ExitRequested` tetikler. Çıkış uyarısı akışı devreye
+> girseydi restart'ı düz bir çıkışa çevirirdi — bu yüzden `RESTART_IN_PROGRESS`
+> bayrağı denetlenir.
+
 - Tepsi (system tray) menüsündeki **"Güncellemeleri denetle"** aynı akışı **elle**
-  tetikler. Elle tetiklenen denetimde güncelleme yoksa da bildirim gösterilir
-  ("En güncel sürümü kullanıyorsunuz").
-- **Hata hâlinde uygulama ASLA kilitlenmez/çökmez.** Tüm hatalar yutulur ve
-  `stderr`'e `[<app>][updater] ...` biçiminde yazılır.
+  tetikler; güncelleme yoksa da bildirim gösterir. Zaten indirilmiş bir güncelleme
+  varsa **ağa çıkmaz**, pencereyi öne alıp şeridi yeniden gösterir (kullanıcı
+  "Sonra" dedikten sonra fikir değiştirirse başvuracağı yol budur). Menüdeki
+  sürüm satırı (`Bogahost <ad> v1.8.1`) korunur.
+- **Hata hâlinde uygulama ASLA kilitlenmez/çökmez** ve **sessiz kalır.** Başarısız
+  indirme/denetim kullanıcıya gösterilmez; `stderr`'e `[<app>][updater] ...`
+  biçiminde yazılır ve bir sonraki periyodik denetimde yeniden denenir.
 - Updater eklentisi `Builder` zincirinde değil, `setup()` içinde `handle.plugin(...)`
   ile kayıt edilir. Böylece `pubkey` PLACEHOLDER veya bozuk olduğunda eklenti
   yüklenmez, hata yutulur ve uygulama normal çalışmaya devam eder.
+- Updater kullanılamıyorsa **YEDEK YOL**: `https://bogahost.com/native/latest.json`
+  okunur, yalnızca BİLDİRİM gösterilir (v1.1.0 davranışı korunur).
 
 Kod: `tauri/<app>/src-tauri/src/lib.rs` → `run_update_flow`, `try_auto_update`,
-`prompt_and_install`, `install_update`, `check_update_legacy`.
+`stage_update`, `show_update_banner`, `bogahost_apply_update`,
+`save_resume_url` / `take_resume_url`, `UPDATE_UI_JS`, `check_update_legacy`.
 Dosya 4 uygulamada **birebir aynıdır**; yalnızca `APP_KEY`/`APP_TITLE` farklıdır.
 
 ---
@@ -273,7 +339,10 @@ sunucu–sunucu istekleri challenge/**403** alır. Bu şunları bozar:
 | Manifest 403 / CI "okunamadi" uyarısı | Cloudflare proxy | Bölüm 7. |
 | Intel Mac güncelleme almıyor | Build yalnızca `aarch64` üretiyor | `macos-latest` runner arm64'tür. Universal binary için `tauri/<app>/package.json` → `"tauri:build:mac": "tauri build --target universal-apple-darwin --bundles dmg app"`. CI, `lipo -archs` ile mimariyi kendisi algılayıp `darwin-x86_64` kaydını da yazar. |
 | Güncelleme indi, kurulmadı | Windows'ta installer izni / macOS'ta `.app` yazma izni | Uygulamayı `/Applications` (macOS) veya kullanıcı dizinine (`installMode: currentUser`) kurun. |
-| Aynı anda iki onay diyaloğu | — | Olmaz: `UPDATE_PROMPT_OPEN` bayrağı tek diyalog garantiler. |
+| Aynı anda iki indirme | — | Olmaz: `UPDATE_INSTALLING` bayrağı tek indirme garantiler. |
+| Güncelleme şeridi hiç çıkmıyor | Kullanıcı sürekli "meşgul" (açık kalmış `RTCPeerConnection`, doldurulmuş form) | Tepsi > "Güncellemeleri denetle" ile elle tetikleyin. Panel `window.__bogahostSetBusy(false)` çağırarak durumu netleştirebilir. |
+| "Sonra" dedim, şerit geri gelmiyor | Karar `sessionStorage`da tutulur | Tepsi > "Güncellemeleri denetle" şeridi zorla gösterir; uygulama yeniden açıldığında zaten yeni sürüm kuruludur. |
+| Yeniden başlattı ama anasayfaya düştü | `resume-url.json` 6 saatten eski / dış alan adı / belge adresi | Beklenen davranış; bkz. Bölüm 1 "Kaldığı yerden devam". |
 
 ### Yayını elle doğrulama
 

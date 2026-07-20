@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -70,6 +70,27 @@ const NETWORK_TIMEOUT: Duration = Duration::from_secs(7);
 /// Acilis surum denetimi bu kadar gecikmeyle baslar (sayfa yuklenmesiyle yarismasin).
 const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(5);
 
+/// UYGULAMA ACIKKEN periyodik surum denetimi araligi.
+///
+/// NEDEN VAR: v1.8.1'e kadar denetim YALNIZCA acilista yapiliyordu; tepside
+/// gunlerce acik duran bir uygulama yeni surumu HIC gormuyordu. 45 dakika
+/// bilincli bir dengedir: gun icinde birkac denetim (sunucuya yuk bindirmez,
+/// istek basina birkac KB JSON) ama pil/veri acisindan ihmal edilebilir.
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(45 * 60);
+
+/// Kullanici MESGULKEN (arama/ekran paylasimi/doldurulmus form) indirme ertelenir;
+/// bu kadar sonra tekrar denenir. Bkz. `page_busy`.
+const UPDATE_BUSY_RETRY: Duration = Duration::from_secs(5 * 60);
+
+/// Yeniden baslatmadan ONCE acik olan sayfa adresi bu dosyada saklanir.
+/// Surec olecegi icin bellek yetmez — kalici depo SART (bkz. `save_resume_url`).
+const RESUME_FILE: &str = "resume-url.json";
+
+/// Saklanan adres bu sureden eskiyse KULLANILMAZ. (Guncelleme yeniden baslatmasi
+/// saniyeler surer; Windows'ta kullanici installer'i bekletirse dakikalar.
+/// Gunler sonra acilan uygulamanin eski bir sayfaya dusmesi ISTENMEZ.)
+const RESUME_MAX_AGE_SECS: u64 = 6 * 60 * 60;
+
 /// Sayfa yuklenmese bile pencere en gec bu sure sonunda gosterilir.
 const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 
@@ -132,8 +153,48 @@ static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
 /// Yuklenmediyse `app.updater()` cagrilmaz (yonetilmeyen state -> panic olurdu).
 static UPDATER_READY: AtomicBool = AtomicBool::new(false);
 
-/// Ayni anda birden fazla "Simdi kurulsun mu?" diyalogu acilmasini engeller.
-static UPDATE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
+// NOT: v1.8.1'e kadar burada bir `UPDATE_PROMPT_OPEN` bayragi vardi; guncelleme
+// bulununca "Şimdi kurulsun mu?" DIYALOGU aciliyordu ve diyalogun cift acilmasini
+// engelliyordu. Diyalog KALDIRILDI (kullaniciyi boluyordu, ozellikle gorusme
+// sirasinda) — yerine sessiz indirme + sayfa ici serit geldi.
+
+/// Arka planda indirme/kurulum SU AN suruyor mu? (ust uste binmeyi onler)
+static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
+
+/// Sayfa "mesgulum" dedi mi? (gorusme / ekran paylasimi / doldurulmus form)
+///
+/// Sayfa tarafindan `bogahost_set_busy` ile bildirilir; bkz. `UPDATE_UI_JS`.
+/// VARSAYILAN `false`'tir: sayfa hic haber vermezse "mesgul degil" kabul edilir.
+/// Bu bilincli bir tercihtir — bayrak yalnizca OTOMATIK indirmeyi geciktirir,
+/// yeniden baslatma zaten HICBIR zaman kendiliginden olmaz.
+static PAGE_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// Yeniden baslatma AKISI basladi mi? Baslamis ise cikis uyarisi GOSTERILMEZ
+/// (`app.restart()` de `ExitRequested` tetikler — uyari akisi restart'i
+/// `handle.exit(0)`'a cevirip uygulamayi geri acmadan kapatirdi).
+static RESTART_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Indirilmis (macOS/Linux'ta ayrica KURULMUS) ve kullanicinin onayini bekleyen surum.
+static PENDING_UPDATE: Mutex<Option<PendingUpdate>> = Mutex::new(None);
+
+/// Ana pencerede SU AN acik olan adres — yeniden baslatmada geri donulecek yer.
+static CURRENT_PAGE_URL: Mutex<Option<String>> = Mutex::new(None);
+
+/// Uygulanmayi bekleyen guncelleme.
+struct PendingUpdate {
+    /// Kullaniciya gosterilen surum ("1.8.2").
+    version: String,
+    /// YALNIZCA WINDOWS'ta doludur.
+    ///
+    /// NEDEN: `tauri-plugin-updater`in Windows kurulumu installer'i calistirip
+    /// `std::process::exit(0)` ile SURECI OLDURUR. Yani Windows'ta "sessiz kur,
+    /// sonra sor" MUMKUN DEGILDIR — arka planda yalnizca INDIRIRIZ, kurulum
+    /// kullanici "Şimdi uygula" dedigi an yapilir.
+    /// macOS/Linux'ta kurulum (uygulama paketinin degistirilmesi) surec
+    /// calisirken tamamlanir, bu alan `None` kalir ve onay yalnizca yeniden
+    /// baslatmayi tetikler.
+    installer: Option<(tauri_plugin_updater::Update, Vec<u8>)>,
+}
 
 /// Pencere bir kez gosterildi mi? (beyaz ekran yerine "yuklenince goster")
 static WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
@@ -217,7 +278,10 @@ pub fn run() {
             bogahost_open_settings,
             bogahost_focus_window,
             bogahost_set_fullscreen,
-            bogahost_reveal_download
+            bogahost_reveal_download,
+            bogahost_set_busy,
+            bogahost_apply_update,
+            bogahost_update_state
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -446,17 +510,38 @@ pub fn run() {
                 });
             }
 
-            // ----- Acilista sessiz guncelleme denetimi -----
-            // Guncelleme varsa onay diyalogu cikar; kullanici "Daha sonra" derse
-            // kalici bir "atla" kaydi TUTULMAZ — bir sonraki acilista tekrar sorulur.
-            // Gecikmeli baslar ki acilis/ilk sayfa yuklemesi yavaslamasin.
+            // ----- Guncelleme denetimi: acilista + UYGULAMA ACIKKEN periyodik -----
+            //
+            // ILK denetim eskisi gibi acilistan `UPDATE_CHECK_DELAY` sonra yapilir
+            // (acilis/ilk sayfa yuklemesi yavaslamasin). SONRASINDA dongu
+            // `UPDATE_CHECK_INTERVAL` araliyla devam eder — boylece tepside
+            // gunlerce acik kalan uygulama da yeni surumu gorur.
+            //
+            // Denetim SESSIZDIR: guncelleme yoksa ya da hata olursa kullaniciya
+            // HICBIR sey gosterilmez, yalnizca stderr'e yazilir. Guncelleme varsa
+            // arka planda indirilir ve HAZIR olunca sayfa icinde serit cikar
+            // (bkz. `stage_update` / `show_update_banner`).
             {
                 let h = handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(UPDATE_CHECK_DELAY);
-                    tauri::async_runtime::spawn(async move {
-                        run_update_flow(h, false).await;
-                    });
+                    loop {
+                        // Kullanici mesgulse (arama/ekran paylasimi/form) hem
+                        // denetim hem indirme ERTELENIR: bant genisligi ve
+                        // CPU o an kullanicinindir.
+                        let busy = page_busy();
+                        if !busy {
+                            let h2 = h.clone();
+                            tauri::async_runtime::spawn(async move {
+                                run_update_flow(h2, false).await;
+                            });
+                        }
+                        std::thread::sleep(if busy {
+                            UPDATE_BUSY_RETRY
+                        } else {
+                            UPDATE_CHECK_INTERVAL
+                        });
+                    }
                 });
             }
 
@@ -488,8 +573,14 @@ pub fn run() {
             // Cmd+Q / tepsi "Cikis": cikis ENGELLENMEZ, yalnizca ILK SEFER
             // kullaniciya kapaliyken bildirim gelmeyecegi hatirlatilir.
             // `mark_once` false donunce bu dal bir daha calismaz.
+            //
+            // `app.restart()` DE bu olayi tetikler. Guncelleme yeniden baslatmasi
+            // sirasinda uyari akisi devreye girseydi, uyari diyalogunun sonundaki
+            // `handle.exit(0)` restart'i duz bir CIKISA cevirir ve uygulama geri
+            // acilmazdi — bu yuzden `RESTART_IN_PROGRESS` denetlenir.
             tauri::RunEvent::ExitRequested { api, .. } => {
-                if mark_once(app_handle, "quit-notice") {
+                if !RESTART_IN_PROGRESS.load(Ordering::SeqCst) && mark_once(app_handle, "quit-notice")
+                {
                     api.prevent_exit();
                     show_quit_notice(app_handle);
                 }
@@ -515,12 +606,22 @@ pub fn run() {
 /// (veya `WINDOW_REVEAL_FALLBACK` dolunca) gosterilir — boylece acilista
 /// beyaz/donuk bir kare gorunmez.
 fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>> {
-    let start = APPS
+    let home = APPS
         .iter()
         .find(|e| e.0 == APP_KEY)
         .map(|e| e.2)
         .unwrap_or("https://bogahost.com/");
-    let url = Url::parse(start).expect("baslangic URL'i gecerli olmali");
+
+    // ----- Guncelleme yeniden baslatmasindan sonra KALDIGI YERE DON -----
+    // `take_resume_url` dosyayi okuyup SILER (tek seferlik) ve yalnizca taze +
+    // ic (bogahost.com) bir adres donerse kullanilir. Yoksa panel anasayfasi.
+    let start = take_resume_url(app).unwrap_or_else(|| home.to_string());
+    let url = Url::parse(&start)
+        .or_else(|_| Url::parse(home))
+        .expect("baslangic URL'i gecerli olmali");
+    if let Ok(mut slot) = CURRENT_PAGE_URL.lock() {
+        *slot = Some(url.to_string());
+    }
     let nav_handle = app.clone();
 
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
@@ -581,6 +682,12 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
             // Pencereyi burada acmak "hicbir sey yok" hissini onler; katman
             // boyanmasi icin kisa bir pay birakilir.
             if matches!(payload.event(), PageLoadEvent::Started) {
+                // Yeni BELGE: onceki sayfanin "mesgulum" bayragi gecersizdir.
+                // (Sayfa kendi bayragini yeniden bildirir; bkz. `UPDATE_UI_JS`.)
+                // Bu sifirlama olmasaydi, arama sayfasindan cikildiginda bayrak
+                // TAKILI kalir ve guncelleme indirmesi sonsuza dek ertelenirdi.
+                PAGE_BUSY.store(false, Ordering::SeqCst);
+                remember_page_url(payload.url());
                 let h = window.app_handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(180));
@@ -588,6 +695,7 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
                 });
             }
             if matches!(payload.event(), PageLoadEvent::Finished) {
+                remember_page_url(payload.url());
                 reveal_window(window.app_handle());
                 // Yukleme katmanini kaldir (katman kendi kendine de kalkar;
                 // bu, sayfa `load` olayini hic vermezse ikinci guvencedir).
@@ -600,6 +708,13 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
                 // donuyorsa (yonetimce erisim engellenmis) anlasilir bir ekran goster.
                 if PENDING_ACCESS_CHECK.swap(false, Ordering::SeqCst) {
                     let _ = window.eval(ACCESS_CHECK_SCRIPT);
+                }
+                // Serit sayfanin DOM'una cizilir; gezinme onu yok eder.
+                // Bekleyen bir guncelleme varsa yeni sayfada TEKRAR cizilir.
+                // (Kullanici "Sonra" dediyse serit kendi kendini gizler —
+                // karar `sessionStorage`da tutulur, bkz. `UPDATE_UI_JS`.)
+                if let Some(version) = pending_version() {
+                    show_update_banner(window.app_handle(), &version, false);
                 }
             }
         })
@@ -1310,6 +1425,8 @@ fn init_script() -> String {
 fn main_init_script() -> String {
     let mut script = init_script();
     script.push_str(&loading_overlay_script());
+    // Guncelleme seridi + "mesgulum" tespiti — YALNIZCA ana pencerede.
+    script.push_str(UPDATE_UI_JS);
     script
 }
 
@@ -2626,6 +2743,353 @@ const EXTRA_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Guncelleme seridi + "mesgulum" tespiti (ANA pencere).
+///
+/// IKI isi vardir:
+///  1. **Mesgul tespiti** — gorusme (getUserMedia/getDisplayMedia), acik
+///     `RTCPeerConnection` ve doldurulmus form alanlari izlenir; durum
+///     degistikce `bogahost_set_busy` ile Rust'a bildirilir. Rust bu bayrakla
+///     arka plan INDIRMESINI erteler.
+///  2. **Serit** — Rust `window.__bogahostUpdateReady(surum, force)` cagirinca
+///     sag altta "Güncelleme hazır (vX) — Şimdi uygula / Sonra" kutusu cizilir.
+///     Serit KENDILIGINDEN hicbir sey yapmaz; mesgulken "Şimdi uygula" ilk
+///     tiklamada ONAY ister (tek tikla gorusme ortasinda yeniden baslatilmasin).
+///
+/// "Sonra" karari `sessionStorage`dadir: sayfa gezinmelerinde korunur, uygulama
+/// yeniden acilinca sifirlanir (o zaman zaten yeni surum kurulu olur).
+const UPDATE_UI_JS: &str = r#"
+(function () {
+  // `initialization_script` Windows'ta (WebView2) ALT CERCEVELERE de enjekte
+  // edilir. Serit ve mesgul bildirimi YALNIZCA en ust cercevede calismalidir.
+  try {
+    if (window.top !== window.self) { return; }
+  } catch (e) { return; }
+  if (window.__BOGAHOST_UPDATE_UI__) { return; }
+  window.__BOGAHOST_UPDATE_UI__ = true;
+
+  function invoke(cmd, args) {
+    try {
+      var t = window.__TAURI__;
+      if (t && t.core && typeof t.core.invoke === 'function') { return t.core.invoke(cmd, args); }
+      if (t && typeof t.invoke === 'function') { return t.invoke(cmd, args); }
+      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+        return window.__TAURI_INTERNALS__.invoke(cmd, args);
+      }
+    } catch (e) {}
+    return Promise.reject(new Error('ipc-yok'));
+  }
+
+  // =========================================================================
+  // 1) "MESGULUM" TESPITI
+  // =========================================================================
+  // Amac: kullanici GORUSMEDEYKEN, EKRAN PAYLASIRKEN ya da FORM DOLDURURKEN
+  // arka planda indirme baslamasin ve serit ISRARCI olmasin.
+  //
+  // Tespit UC kaynaktan beslenir; hicbiri sayfanin isbirligini SART kosmaz:
+  //   a) canli medya yakalama (getUserMedia / getDisplayMedia)
+  //   b) acik RTCPeerConnection (kapatilmamis WebRTC oturumu)
+  //   c) kullanicinin degistirdigi, henuz gonderilmemis form alanlari
+  // Ayrica sayfa isterse `window.__bogahostSetBusy(true/false)` ile ACIKCA
+  // bildirebilir (en guvenilir kaynak; panel kendi arama durumunu bilir).
+
+  var liveTracks = 0;   // (a)
+  var openPeers = 0;    // (b)
+  var dirty = [];       // (c) kullanicinin dokundugu form alanlari
+  var declared = null;  // sayfanin acik beyani (null = beyan yok)
+
+  function watchStream(stream) {
+    try {
+      var tracks = stream.getTracks();
+      for (var i = 0; i < tracks.length; i++) {
+        (function (track) {
+          if (track.__bogahostWatched) { return; }
+          track.__bogahostWatched = true;
+          if (track.readyState === 'ended') { return; }
+          liveTracks++;
+          var done = false;
+          function end() {
+            if (done) { return; }
+            done = true;
+            liveTracks = Math.max(0, liveTracks - 1);
+            report();
+          }
+          track.addEventListener('ended', end);
+          // `stop()` 'ended' olayini TETIKLEMEZ (spec geregi) — sarmalanmali.
+          var origStop = track.stop;
+          track.stop = function () {
+            try { return origStop.apply(track, arguments); } finally { end(); }
+          };
+        })(tracks[i]);
+      }
+    } catch (e) {}
+    report();
+    return stream;
+  }
+
+  try {
+    var md = navigator.mediaDevices;
+    if (md && typeof md.getUserMedia === 'function') {
+      // NOT: bu sarmalayici EXTRA_SCRIPT'in sarmalayicisinin USTUNE gelir
+      // (o hata mesajlarini gosterir, bu yalnizca sayar) — zincir bozulmaz.
+      var gum = md.getUserMedia.bind(md);
+      md.getUserMedia = function () {
+        return gum.apply(null, arguments).then(watchStream);
+      };
+      if (typeof md.getDisplayMedia === 'function') {
+        var gdm = md.getDisplayMedia.bind(md);
+        md.getDisplayMedia = function () {
+          return gdm.apply(null, arguments).then(watchStream);
+        };
+      }
+    }
+  } catch (e) {}
+
+  try {
+    var PC = window.RTCPeerConnection;
+    if (typeof PC === 'function') {
+      var Wrapped = function () {
+        var pc = new (Function.prototype.bind.apply(PC, [null].concat([].slice.call(arguments))))();
+        openPeers++;
+        var closed = false;
+        function shut() {
+          if (closed) { return; }
+          closed = true;
+          openPeers = Math.max(0, openPeers - 1);
+          report();
+        }
+        try {
+          var origClose = pc.close;
+          pc.close = function () {
+            try { return origClose.apply(pc, arguments); } finally { shut(); }
+          };
+          pc.addEventListener('connectionstatechange', function () {
+            if (pc.connectionState === 'closed' || pc.connectionState === 'failed') { shut(); }
+          });
+        } catch (e) {}
+        report();
+        return pc;
+      };
+      Wrapped.prototype = PC.prototype;
+      // `RTCPeerConnection.generateCertificate` gibi statikler kaybolmasin.
+      try {
+        for (var k in PC) { if (!(k in Wrapped)) { Wrapped[k] = PC[k]; } }
+      } catch (e) {}
+      window.RTCPeerConnection = Wrapped;
+      try { window.webkitRTCPeerConnection = Wrapped; } catch (e) {}
+    }
+  } catch (e) {}
+
+  // Form alani: yalnizca GERCEK veri girisi sayilir. Arama/filtre kutulari ve
+  // form disindaki tek tuk input'lar "mesgul" saymaz — aksi halde bayrak surekli
+  // takili kalir ve guncelleme hic inmez.
+  function countsAsForm(el) {
+    try {
+      if (!el || !el.tagName) { return false; }
+      if (el.hasAttribute && el.hasAttribute('data-bhx-nobusy')) { return false; }
+      if (el.isContentEditable) { return true; }
+      var tag = el.tagName.toUpperCase();
+      if (tag === 'TEXTAREA') { return true; }
+      if (tag !== 'INPUT' && tag !== 'SELECT') { return false; }
+      var type = String(el.type || '').toLowerCase();
+      if (type === 'search' || type === 'hidden' || type === 'submit' || type === 'button') { return false; }
+      if (el.readOnly || el.disabled) { return false; }
+      return !!(el.form || (el.closest && el.closest('form')));
+    } catch (e) { return false; }
+  }
+
+  function markDirty(ev) {
+    var el = ev && ev.target;
+    if (!countsAsForm(el)) { return; }
+    if (dirty.indexOf(el) === -1) {
+      dirty.push(el);
+      report();
+    }
+  }
+
+  function clearDirty() {
+    if (dirty.length) { dirty = []; report(); }
+  }
+
+  try {
+    document.addEventListener('input', markDirty, true);
+    document.addEventListener('change', markDirty, true);
+    // Gonderildi -> artik "yarim kalmis is" yok.
+    document.addEventListener('submit', clearDirty, true);
+  } catch (e) {}
+
+  function hasDirty() {
+    // DOM'dan kaldirilmis alanlar (kapanmis modal, yeniden cizilmis liste)
+    // sayilmaz; aksi halde bayrak sonsuza dek takili kalir.
+    var live = [];
+    for (var i = 0; i < dirty.length; i++) {
+      var el = dirty[i];
+      try {
+        if (el && el.isConnected) { live.push(el); }
+      } catch (e) {}
+    }
+    dirty = live;
+    return dirty.length > 0;
+  }
+
+  // Sayfanin ACIK beyani — panel kendi arama/kayit durumunu en iyi bilir.
+  window.__bogahostSetBusy = function (value) {
+    declared = value === true ? true : (value === false ? false : null);
+    report();
+    return true;
+  };
+
+  function isBusy() {
+    if (declared === true) { return true; }
+    if (liveTracks > 0 || openPeers > 0) { return true; }
+    if (window.__BOGAHOST_BUSY__ === true) { return true; }
+    if (declared === false) { return false; }
+    return hasDirty();
+  }
+
+  var lastSent = null;
+  function report() {
+    var busy = isBusy();
+    if (busy === lastSent) { return; }
+    lastSent = busy;
+    invoke('bogahost_set_busy', { busy: busy }).catch(function () {});
+    try { window.__BOGAHOST_BUSY_STATE__ = busy; } catch (e) {}
+    render();
+  }
+
+  // Sarmalayicilarin kacirdigi durumlar (dogrudan `pc.close()` yerine sayfa
+  // yenilemesi, DOM'dan silinen form, vb.) icin dusuk maliyetli emniyet turu.
+  try { setInterval(report, 5000); } catch (e) {}
+
+  // =========================================================================
+  // 2) GUNCELLEME SERIDI
+  // =========================================================================
+  var BAR_ID = '__bogahost_update_bar__';
+  var pendingVersion = '';
+  var confirmArmed = false;
+
+  function dismissKey(v) { return 'bogahost_update_dismissed_' + v; }
+
+  function dismissed(v) {
+    try { return window.sessionStorage.getItem(dismissKey(v)) === '1'; } catch (e) { return false; }
+  }
+
+  function dismiss(v) {
+    // `sessionStorage` bilincli secim: karar SAYFA GEZINMELERINDE korunur ama
+    // uygulama yeniden acilinca sifirlanir. "Sonra" diyen kullaniciya ayni
+    // oturumda bir daha sorulmaz; zaten bir sonraki dogal acilista kurulu olur.
+    try { window.sessionStorage.setItem(dismissKey(v), '1'); } catch (e) {}
+  }
+
+  function remove() {
+    try {
+      var old = document.getElementById(BAR_ID);
+      if (old && old.parentNode) { old.parentNode.removeChild(old); }
+    } catch (e) {}
+  }
+
+  function render() {
+    if (!pendingVersion || dismissed(pendingVersion)) { remove(); return; }
+    if (!document.body) {
+      try { document.addEventListener('DOMContentLoaded', render, { once: true }); } catch (e) {}
+      return;
+    }
+
+    var busy = isBusy();
+    var box = document.getElementById(BAR_ID);
+    if (!box) {
+      box = document.createElement('div');
+      box.id = BAR_ID;
+      box.setAttribute('role', 'status');
+      box.setAttribute('style', [
+        'position:fixed', 'right:18px', 'bottom:18px', 'z-index:2147483600',
+        'max-width:340px', 'box-sizing:border-box', 'padding:14px 16px',
+        'border-radius:12px', 'border:1px solid rgba(255,255,255,.14)',
+        'background:#161a23', 'color:#e8ecf5', 'box-shadow:0 12px 32px rgba(0,0,0,.45)',
+        'font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif'
+      ].join(';'));
+      document.body.appendChild(box);
+    }
+
+    var title = document.createElement('div');
+    title.setAttribute('style', 'font-weight:600;margin-bottom:4px;');
+    title.textContent = 'Güncelleme hazır (v' + pendingVersion + ')';
+
+    var note = document.createElement('div');
+    note.setAttribute('style', 'opacity:.75;margin-bottom:12px;');
+    if (confirmArmed) {
+      note.textContent = 'Görüşme veya doldurulmuş form var. Uygulama yeniden başlatılacak — devam edilsin mi?';
+    } else if (busy) {
+      note.textContent = 'Şu an meşgulsünüz. Uygun olduğunuzda uygulayabilirsiniz.';
+    } else {
+      note.textContent = 'Uygulanması birkaç saniye sürer; kaldığınız sayfaya geri dönersiniz.';
+    }
+
+    var row = document.createElement('div');
+    row.setAttribute('style', 'display:flex;gap:8px;justify-content:flex-end;');
+
+    var later = document.createElement('button');
+    later.type = 'button';
+    later.textContent = 'Sonra';
+    later.setAttribute('style', 'cursor:pointer;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:transparent;color:inherit;font:inherit;');
+    later.onclick = function () {
+      dismiss(pendingVersion);
+      remove();
+    };
+
+    var now = document.createElement('button');
+    now.type = 'button';
+    now.textContent = confirmArmed ? 'Yine de uygula' : 'Şimdi uygula';
+    now.setAttribute('style', 'cursor:pointer;padding:7px 12px;border-radius:8px;border:0;background:#5443D2;color:#fff;font:inherit;font-weight:600;');
+    now.onclick = function () {
+      // MESGULKEN tek tikla yeniden baslatilmaz: once ne olacagi soylenir.
+      if (isBusy() && !confirmArmed) {
+        confirmArmed = true;
+        render();
+        return;
+      }
+      now.disabled = true;
+      now.textContent = 'Uygulanıyor…';
+      invoke('bogahost_apply_update', {}).catch(function () {
+        now.disabled = false;
+        now.textContent = 'Şimdi uygula';
+        note.textContent = 'Güncelleme uygulanamadı. Daha sonra yeniden deneyin.';
+      });
+    };
+
+    row.appendChild(later);
+    row.appendChild(now);
+
+    box.textContent = '';
+    box.appendChild(title);
+    box.appendChild(note);
+    box.appendChild(row);
+  }
+
+  // Rust tarafi cagirir: guncelleme indirildi/kuruldu, onay bekleniyor.
+  window.__bogahostUpdateReady = function (version, force) {
+    pendingVersion = String(version || '');
+    if (!pendingVersion) { remove(); return; }
+    if (force === true) {
+      // Elle denetim: "Sonra" karari yok sayilir.
+      try { window.sessionStorage.removeItem(dismissKey(pendingVersion)); } catch (e) {}
+      confirmArmed = false;
+    }
+    render();
+  };
+
+  // Gezinmeden sonra Rust seridi yeniden cizdirir; yine de sayfa kendi
+  // basina da sorabilsin (SPA yeniden cizimleri icin).
+  try {
+    invoke('bogahost_update_state', {}).then(function (v) {
+      if (v) { window.__bogahostUpdateReady(v, false); }
+    }).catch(function () {});
+  } catch (e) {}
+
+  // Ilk durum bildirimi (mesgul degiliz demek de bilgidir).
+  try { report(); } catch (e) {}
+})();
+"#;
+
 /// Yukleme katmanini kaldiran betik (Rust tarafindan cagrilir).
 const HIDE_OVERLAY_SCRIPT: &str = r#"
 try { window.__bogahostLoadingHide && window.__bogahostLoadingHide(); } catch (e) {}
@@ -3706,7 +4170,20 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         // Pasif bilgi ogesi: tiklanamaz, yine de emniyet icin yutulur.
         "version-info" => {}
         "about" => show_about_dialog(app),
+        // ELLE denetim (tepsi + macOS menu cubugu + "Hakkında" diyalogu).
+        // Zaten indirilmis bir guncelleme varsa ag'a CIKMAZ: pencereyi one alip
+        // seridi tekrar gosterir — kullanici "Sonra" dedikten sonra fikir
+        // degistirdiginde basvuracagi yol budur.
         "check-update" => {
+            if let Some(version) = pending_version() {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+                show_update_banner(app, &version, true);
+                return;
+            }
             // Ayni olay hem tepsi hem menu cubugundan gelebilir; tek seferde tek denetim.
             if UPDATE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
                 return;
@@ -4183,10 +4660,37 @@ enum UpdateOutcome {
     Unavailable(String),
 }
 
+/// Sayfa su an "mesgul" mu? (gorusme / ekran paylasimi / doldurulmus form)
+fn page_busy() -> bool {
+    PAGE_BUSY.load(Ordering::SeqCst)
+}
+
+/// Kurulmayi/uygulanmayi bekleyen surum (varsa).
+fn pending_version() -> Option<String> {
+    PENDING_UPDATE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|p| p.version.clone()))
+}
+
 /// Guncelleme akisinin girisi.
 /// Once `tauri-plugin-updater` denenir; kullanilamazsa eski manifest denetimi yapilir.
 /// `verbose = true` (tepsiden elle denetim) ise sonuc ne olursa olsun bildirim gosterilir.
 async fn run_update_flow(app: AppHandle, verbose: bool) {
+    // Guncelleme ZATEN indirildi/kuruldu ve kullanici onayini bekliyor:
+    // sunucuyu bir daha yormanin anlami yok, yalnizca seridi tazele.
+    if let Some(version) = pending_version() {
+        show_update_banner(&app, &version, verbose);
+        if verbose {
+            notify(
+                &app,
+                "Güncelleme hazır",
+                &format!("Sürüm {version} kuruldu. Uygulamadaki şeritten \"Şimdi uygula\" deyin."),
+            );
+        }
+        return;
+    }
+
     match try_auto_update(&app, verbose).await {
         UpdateOutcome::Handled => {}
         UpdateOutcome::Unavailable(reason) => {
@@ -4212,7 +4716,9 @@ async fn try_auto_update(app: &AppHandle, verbose: bool) -> UpdateOutcome {
 
     match updater.check().await {
         Ok(Some(update)) => {
-            prompt_and_install(app.clone(), update);
+            // KULLANICIYI BOLME: diyalog YOK. Indirme/kurulum sessizce arka
+            // planda yapilir; hazir olunca sayfa icinde serit cikar.
+            stage_update(app.clone(), update).await;
             UpdateOutcome::Handled
         }
         Ok(None) => {
@@ -4232,79 +4738,209 @@ async fn try_auto_update(app: &AppHandle, verbose: bool) -> UpdateOutcome {
     }
 }
 
-/// Onay diyalogunu gosterir; kullanici kabul ederse indirme+kurulumu baslatir.
-/// Diyalog BLOKLAMAZ (callback'li `show`) — arayuz donmaz.
-fn prompt_and_install(app: AppHandle, update: tauri_plugin_updater::Update) {
-    // Acilis denetimi ile tepsiden elle denetim ust uste binerse tek diyalog.
-    if UPDATE_PROMPT_OPEN.swap(true, Ordering::SeqCst) {
+/// Guncellemeyi ARKA PLANDA indirir (ve platform izin veriyorsa kurar), sonra
+/// kullaniciya sayfa icinde bir serit gosterir. KULLANICIYI BOLMEZ: diyalog
+/// acilmaz, yeniden baslatma KENDILIGINDEN yapilmaz.
+///
+/// Platform farki kasitlidir ve `tauri-plugin-updater`in gercek davranisindan gelir:
+///
+///  * **Windows:** `Update::install` installer'i calistirip `std::process::exit(0)`
+///    ile SURECI OLDURUR. Bu yuzden burada YALNIZCA `download()` yapilir; kurulum
+///    kullanici "Şimdi uygula" dedigi an calistirilir. Indirilen paket bellekte
+///    (`PendingUpdate::installer`) tutulur.
+///  * **macOS/Linux:** kurulum (uygulama paketinin yerine yenisinin konmasi)
+///    surec CALISIRKEN tamamlanir ve fonksiyon normal doner. Yani paket diske
+///    kurulmus olur; geriye yalnizca yeniden baslatmak kalir.
+async fn stage_update(app: AppHandle, update: tauri_plugin_updater::Update) {
+    // Es zamanli iki denetim ayni surumu iki kez indirmesin.
+    if UPDATE_INSTALLING.swap(true, Ordering::SeqCst) {
         return;
     }
-
-    let mut message = format!(
-        "Yeni sürüm {} hazır (yüklü: {}). Şimdi kurulsun mu?",
-        update.version,
-        env!("CARGO_PKG_VERSION")
-    );
-    if let Some(notes) = update.body.as_ref() {
-        if !notes.trim().is_empty() {
-            message.push_str("\n\n");
-            message.push_str(notes.trim());
-        }
-    }
-
-    let handle = app.clone();
-    app.dialog()
-        .message(message)
-        .title("Güncelleme mevcut")
-        .kind(MessageDialogKind::Info)
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Şimdi kur".to_string(),
-            "Daha sonra".to_string(),
-        ))
-        .show(move |accepted| {
-            UPDATE_PROMPT_OPEN.store(false, Ordering::SeqCst);
-            if !accepted {
-                // Reddedildi: kalici kayit TUTULMAZ, bir sonraki acilista tekrar sorulur.
-                log_update("kullanici guncellemeyi erteledi");
-                return;
-            }
-            tauri::async_runtime::spawn(async move {
-                install_update(handle, update).await;
-            });
-        });
-}
-
-/// Indirir, kurar ve uygulamayi yeniden baslatir. Hata olursa yalnizca bildirir.
-async fn install_update(app: AppHandle, update: tauri_plugin_updater::Update) {
     let version = update.version.clone();
-    notify(
-        &app,
-        "Güncelleme indiriliyor",
-        &format!("Sürüm {version} indiriliyor. Bittiğinde uygulama yeniden başlatılacak."),
-    );
+    log_update(&format!("{version} arka planda indiriliyor"));
 
-    match update.download_and_install(|_chunk, _total| {}, || {}).await {
-        Ok(()) => {
+    #[cfg(target_os = "windows")]
+    let result = update
+        .download(|_chunk, _total| {}, || {})
+        .await
+        .map(|bytes| Some((update.clone(), bytes)));
+
+    #[cfg(not(target_os = "windows"))]
+    let result = update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map(|()| None);
+
+    UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+
+    match result {
+        Ok(installer) => {
+            if let Ok(mut slot) = PENDING_UPDATE.lock() {
+                *slot = Some(PendingUpdate {
+                    version: version.clone(),
+                    installer,
+                });
+            }
+            log_update(&format!("{version} hazir — kullanici onayi bekleniyor"));
+            show_update_banner(&app, &version, true);
+            // Pencere gizliyken (tepside) serit gorunmez; TEK bir masaustu
+            // bildirimi gonderilir. Her denetimde DEGIL, yalnizca yeni bir
+            // surum hazir oldugunda — cunku buraya surum basina bir kez gelinir.
             notify(
                 &app,
-                "Güncelleme kuruldu",
-                &format!("Sürüm {version} kuruldu. Uygulama yeniden başlatılıyor."),
-            );
-            // Windows'ta installer sureci uygulamayi zaten sonlandirir;
-            // macOS'ta yeniden baslatma burada yapilir.
-            app.restart();
-        }
-        Err(e) => {
-            log_update(&format!("kurulum basarisiz: {e}"));
-            notify(
-                &app,
-                "Güncelleme başarısız",
-                "Güncelleme kurulamadı. Tepsi menüsünden \"İndirme sayfasını aç\" ile elle kurabilirsiniz.",
+                "Güncelleme hazır",
+                &format!("Sürüm {version} indirildi. Uygun olduğunuzda \"Şimdi uygula\" deyin."),
             );
         }
+        // SESSIZ KAL: basarisiz indirme kullaniciyi ilgilendirmez, bir sonraki
+        // periyodik denetimde tekrar denenir.
+        Err(e) => log_update(&format!("indirme/kurulum basarisiz: {e}")),
     }
 }
 
+/// Sayfa icindeki guncelleme seridini cizdirir (bkz. `UPDATE_UI_JS`).
+/// Serit KENDILIGINDEN hicbir sey yapmaz; yalnizca iki dugme sunar.
+/// `force = true` ise kullanicinin "Sonra" karari YOK SAYILIR (elle denetim).
+fn show_update_banner(app: &AppHandle, version: &str, force: bool) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(format!(
+            "try {{ window.__bogahostUpdateReady && window.__bogahostUpdateReady({version:?}, {force}); }} catch (e) {{}}"
+        ));
+    }
+}
+
+/// Sayfanin bildirdigi "mesgulum" bayragi.
+///
+/// Sayfa gorusme/ekran paylasimi/doldurulmus form durumunda `true` gonderir.
+/// Bayrak YALNIZCA otomatik indirmeyi erteler; yeniden baslatma zaten her zaman
+/// kullanici tikladiginda olur.
+#[tauri::command]
+fn bogahost_set_busy(busy: bool) {
+    PAGE_BUSY.store(busy, Ordering::SeqCst);
+}
+
+/// Sayfa, seridi yeniden cizmek icin bekleyen guncellemeyi sorabilir.
+/// Bekleyen yoksa bos dize doner.
+#[tauri::command]
+fn bogahost_update_state() -> String {
+    pending_version().unwrap_or_default()
+}
+
+/// Kullanici serittteki "Şimdi uygula" dugmesine basti.
+///
+/// Bu, yeniden baslatmayi tetikleyen TEK yoldur — periyodik denetim, indirme
+/// veya kurulum ASLA kendiliginden yeniden baslatmaz.
+#[tauri::command]
+fn bogahost_apply_update(app: AppHandle) -> Result<(), String> {
+    let pending = PENDING_UPDATE.lock().ok().and_then(|mut g| g.take());
+    let Some(pending) = pending else {
+        return Err("hazır güncelleme yok".to_string());
+    };
+
+    // SIRA ONEMLI: surec birazdan olecek, once diske yazilir.
+    save_resume_url(&app);
+    save_window_state_from_handle(&app, true);
+    RESTART_IN_PROGRESS.store(true, Ordering::SeqCst);
+    log_update(&format!("{} uygulaniyor (kullanici onayi)", pending.version));
+
+    // Windows: kurulum burada baslar ve installer sureci sonlandirir.
+    let PendingUpdate { version, installer } = pending;
+    if let Some((update, bytes)) = installer {
+        if let Err(e) = update.install(&bytes) {
+            // Basarisizlikta paketi GERI KOY: tekrar indirmeye gerek yok ve
+            // serit "hazır güncelleme yok" diye bosa dusmez.
+            RESTART_IN_PROGRESS.store(false, Ordering::SeqCst);
+            if let Ok(mut slot) = PENDING_UPDATE.lock() {
+                *slot = Some(PendingUpdate {
+                    version,
+                    installer: Some((update, bytes)),
+                });
+            }
+            log_update(&format!("kurulum basarisiz: {e}"));
+            return Err("Güncelleme kurulamadı.".to_string());
+        }
+        return Ok(());
+    }
+
+    // macOS/Linux: paket zaten kuruldu, yalnizca yeniden baslat.
+    // `restart()` geri DONMEZ.
+    app.restart()
+}
+
+// ---------------------------------------------------------------------------
+// Yeniden baslatmada BAGLAMI KORUMA — "kaldigi yerden devam"
+// ---------------------------------------------------------------------------
+//
+// Surec olecegi icin bellek ise yaramaz: acik olan sayfa adresi DISKE yazilir
+// (uygulama yapilandirma klasoru, `RESUME_FILE`). Yeni surec `build_main_window`
+// icinde dosyayi okur, SILER ve oradan acilir.
+//
+// Dosya YALNIZCA guncelleme uygulanirken yazilir; normal cikista yazilmaz —
+// boylece gunlerdir kapali duran uygulama eski bir sayfayla acilmaz.
+
+/// Ana pencerede su an acik olan adresi bellekte tutar.
+fn remember_page_url(url: &Url) {
+    // Yalnizca KENDI alan adimizdaki gercek panel sayfalari saklanir.
+    // Belge adresleri (PDF/CSV) `guard_document_navigation` tarafindan zaten
+    // geri alinir; onlari kurtarma hedefi yapmak anlamsiz olurdu.
+    if !is_internal_url(url) || looks_like_document_url(url) {
+        return;
+    }
+    if let Ok(mut slot) = CURRENT_PAGE_URL.lock() {
+        *slot = Some(url.to_string());
+    }
+}
+
+fn resume_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join(RESUME_FILE))
+}
+
+/// Su anki sayfa adresini diske yazar (yeniden baslatmadan HEMEN once).
+fn save_resume_url(app: &AppHandle) {
+    let Some(url) = CURRENT_PAGE_URL.lock().ok().and_then(|g| g.clone()) else {
+        return;
+    };
+    let Some(path) = resume_path(app) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let payload = serde_json::json!({ "url": url, "ts": unix_now() });
+    if let Err(e) = std::fs::write(&path, payload.to_string()) {
+        log_update(&format!("sayfa adresi saklanamadi: {e}"));
+    }
+}
+
+/// Saklanmis adresi okur ve dosyayi SILER (tek seferlik).
+/// Adres bayatsa ya da dis bir alan adiysa `None` doner.
+fn take_resume_url(app: &AppHandle) -> Option<String> {
+    let path = resume_path(app)?;
+    let raw = std::fs::read_to_string(&path).ok();
+    // Okuma basarisiz olsa bile dosya TEMIZLENIR: bozuk bir dosya her acilista
+    // ayni hataya yol acmasin.
+    let _ = std::fs::remove_file(&path);
+
+    let value: serde_json::Value = serde_json::from_str(&raw?).ok()?;
+    let ts = value.get("ts")?.as_u64()?;
+    if unix_now().saturating_sub(ts) > RESUME_MAX_AGE_SECS {
+        log_update("saklanan sayfa adresi bayat — panel anasayfasi acilacak");
+        return None;
+    }
+    let url = value.get("url")?.as_str()?.to_string();
+    // GUVENLIK: yalnizca kendi alan adimiz geri yuklenir.
+    if !is_internal_url(&Url::parse(&url).ok()?) {
+        return None;
+    }
+    Some(url)
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 // ---------------------------------------------------------------------------
 // Guncelleme — yedek yol: eski manifest denetimi ("yeni surum var mi")
 // ---------------------------------------------------------------------------
