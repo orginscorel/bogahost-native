@@ -2105,6 +2105,17 @@ const INIT_SCRIPT: &str = r#"
   // PDF'leri) TEK guvenilir sinyal budur. Bu olmadan link ana pencereyi belgeye
   // goturur, WKWebView PDF'i gomulu acar ve kullanici panele DONEMEZ.
   var DOWNLOAD_FLAG = /[?&](indir|download|dl|export)(=|&|$)/i;
+  // UZANTISIZ ve sorgu-bayraksiz ama KESIN indirme UCU olan yollar:
+  // `.../export`, `.../download`, `.../indir` (or. Finans CSV
+  // `/admin/finans/export` — uzanti YOK, `?export=`/`?indir=` bayragi YOK).
+  // DCIM'in `download`-nitelikli linkleri gibi bunlar da sunucudan
+  // `Content-Disposition: attachment` ile gelir; nitelik/uzanti olmasa bile
+  // ayni-oturum `fetch`->`bogahost_save_file` koprusune alinirlar ki WKWebView'in
+  // GUVENILMEZ ana-cerceve indirme akisina (attachment yanitini INLINE acma)
+  // dusmesinler. Yanit HTML donerse `handleMaybeDownload` normal gezinmeye doner
+  // (kayipsiz). `rapor`/`fatura` gibi HTML sayfa dondurebilen sozcukler ve
+  // cogul `/downloads` (uygulama indirme sayfasi) BILINCLI olarak DISARIDADIR.
+  var DOWNLOAD_ENDPOINT = /(^|\/)(export|download|indir)(\/|$)/i;
 
   // Base64'e cevrilirken bellekte ~4/3 kat yer kaplar; buyuk dosyalarda
   // WebView'in KENDI indirme akisina (on_download) birakiriz.
@@ -2138,6 +2149,9 @@ const INIT_SCRIPT: &str = r#"
       // `?indir=1` gibi bayraklar: uzantisiz "İndir" uclarinin (Parasut PDF)
       // TEK sinyali. Bu olmadan duz link ana pencereyi belgeye goturur.
       if (DOWNLOAD_FLAG.test(String(u.search || ''))) { return true; }
+      // Uzantisiz indirme uclari (`/export`, `/download`, `/indir`): duz link
+      // (nitelik/uzanti/bayrak yok) olsalar bile guvenilir kopruye alinsin.
+      if (DOWNLOAD_ENDPOINT.test(String(u.pathname || ''))) { return true; }
     } catch (e) {}
     return false;
   }
