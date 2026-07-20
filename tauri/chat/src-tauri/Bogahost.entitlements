@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Chat — macOS entitlements.
+
+  NEDEN ZORUNLU: Tauri'de bundle.macOS.hardenedRuntime VARSAYILAN OLARAK true'dur.
+  Hardened Runtime acikken kamera/mikrofon/ekran erisimi, ilgili entitlement
+  VERILMEDIKCE cekirdek tarafindan reddedilir (getUserMedia NotAllowedError/
+  NotReadableError ile duser). Info.plist metinleri TEK BASINA YETMEZ.
+
+  Bu dosya tauri.conf.json > bundle.macOS.entitlements ile baglanir.
+
+  NOT: Bu entitlement'lar App Sandbox GEREKTIRMEZ (uygulama sandbox'siz dagitiliyor;
+  Mac App Store'a gidilirse com.apple.security.app-sandbox eklenmelidir).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- WebRTC: sesli/goruntulu arama + kamerayla cekim -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Panel canli URL yukler: aginin disari cikmasi sart -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Dosya sec/indir (NSOpenPanel + Indirilenler klasoru) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!--
+      Hardened Runtime, JIT'siz JavaScriptCore'u kisitlar. WKWebView ayri bir
+      surecte calissa da wry/Tauri kabuklarinda bu iki anahtar olmadan bazi
+      macOS surumlerinde WebView bos/donuk acilabiliyor.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>

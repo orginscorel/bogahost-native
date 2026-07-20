@@ -5,259 +5,555 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
 <meta name="referrer" content="no-referrer">
-<title>Bogahost · Masaüstü ve Mobil Uygulamalar</title>
+<meta name="theme-color" content="#0d0f14">
+<title>Bogahost · Uygulama Dağıtım Merkezi</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235443D2'/%3E%3Cpath d='M16 6 8 10v6c0 4.4 3.4 7.6 8 8.4 4.6-.8 8-4 8-8.4v-6L16 6Z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='m12.5 15.5 2.5 2.5 4.5-4.5' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
+/* ===========================================================================
+   Bogahost — Uygulama Dağıtım Merkezi
+   Tek dosya, harici bağımlılık yok. Koyu tema esas, açık tema desteklenir.
+   =========================================================================== */
 :root{
-  --bg:#0e1015; --card:#161a22; --card2:#1b2029;
-  --line:#232936; --line2:#2c3444;
-  --tx:#e7e9ee; --tx2:#aeb6c6; --tx3:#727c90;
-  --brand:#5443D2; --brand2:#8f86f0; --brand3:#b4adf7;
-  --ok:#2ecc8f;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 32px -12px rgba(0,0,0,.65);
-  --shadow2:0 2px 6px rgba(0,0,0,.45),0 24px 48px -16px rgba(84,67,210,.35);
+  --bg:#0d0f14;
+  --bg-elev:#141822;
+  --surface:#161b26;
+  --surface-2:#1c2231;
+  --surface-3:#232a3b;
+  --line:#242c3c;
+  --line-2:#303a4e;
+  --tx:#eceef4;
+  --tx-2:#aeb7c9;
+  --tx-3:#8d97ab;   /* WCAG AA: kucuk metin icin >=4.5:1 */
+  --brand:#5443D2;
+  --brand-lt:#9b93f5;
+  --brand-lt2:#c3bdfb;
+  --ok:#31d0a0;
+  --focus:#9b93f5;
+  --r-sm:10px; --r-md:14px; --r-lg:20px; --r-xl:26px;
+  --sh-1:0 1px 2px rgba(0,0,0,.4), 0 10px 26px -14px rgba(0,0,0,.7);
+  --sh-2:0 2px 6px rgba(0,0,0,.45), 0 28px 56px -20px rgba(0,0,0,.75);
+  --sh-brand:0 14px 34px -14px rgba(84,67,210,.75);
   color-scheme:dark;
 }
 @media (prefers-color-scheme: light){
   :root{
-    --bg:#f6f7fb; --card:#ffffff; --card2:#f4f5fa;
-    --line:#e2e5ee; --line2:#d3d8e6;
-    --tx:#131722; --tx2:#4d556a; --tx3:#828b9f;
-    --brand:#5443D2; --brand2:#5443D2; --brand3:#3d2fb0;
-    --shadow:0 1px 2px rgba(20,24,40,.06),0 12px 28px -14px rgba(20,24,40,.25);
-    --shadow2:0 2px 8px rgba(20,24,40,.08),0 24px 48px -18px rgba(84,67,210,.35);
+    --bg:#f5f6fb;
+    --bg-elev:#ffffff;
+    --surface:#ffffff;
+    --surface-2:#f3f4fa;
+    --surface-3:#e9ebf5;
+    --line:#e3e6f0;
+    --line-2:#d2d7e6;
+    --tx:#12151f;
+    --tx-2:#4c5468;
+    --tx-3:#68718a;   /* WCAG AA */
+    --brand:#5443D2;
+    --brand-lt:#5443D2;
+    --brand-lt2:#3d2fb0;
+    --ok:#12a97d;
+    --focus:#5443D2;
+    --sh-1:0 1px 2px rgba(18,21,31,.05), 0 10px 24px -14px rgba(18,21,31,.28);
+    --sh-2:0 2px 8px rgba(18,21,31,.07), 0 28px 56px -22px rgba(18,21,31,.32);
+    --sh-brand:0 14px 30px -14px rgba(84,67,210,.5);
     color-scheme:light;
   }
 }
-*{box-sizing:border-box}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
 html,body{margin:0;padding:0}
 body{
   background:var(--bg);
-  background-image:
-    radial-gradient(900px 500px at 15% -10%, rgba(84,67,210,.28), transparent 60%),
-    radial-gradient(700px 420px at 95% 0%, rgba(143,134,240,.16), transparent 60%);
-  background-repeat:no-repeat;
   color:var(--tx);
-  font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font:16px/1.7 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
   -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
   min-height:100vh;
+  overflow-x:hidden;
 }
-.wrap{max-width:1080px;margin:0 auto;padding:2.5rem 1.15rem 4rem}
+img{max-width:100%;height:auto;display:block}
+a{color:inherit}
 
-.top{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:2.75rem}
-.brand{display:flex;align-items:center;gap:.7rem}
-.logo{width:40px;height:40px;border-radius:11px;background:linear-gradient(140deg,var(--brand),#8f86f0);display:grid;place-items:center;box-shadow:var(--shadow2);flex:none}
-.logo svg{width:22px;height:22px;display:block}
-.brand b{font-size:1.02rem;letter-spacing:.2px;display:block;line-height:1.25}
-.brand span{font-size:.76rem;color:var(--tx3);letter-spacing:.4px;text-transform:uppercase}
-.chips{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
-.chip{display:inline-flex;align-items:center;gap:.42rem;padding:.36rem .72rem;border-radius:999px;border:1px solid var(--line2);background:var(--card);color:var(--tx2);font-size:.8rem;white-space:nowrap}
-.chip b{color:var(--tx);font-weight:600}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(46,204,143,.16)}
-
-.hero{margin:0 0 2.5rem;max-width:62ch}
-.hero h1{font-size:clamp(1.75rem,4.2vw,2.5rem);line-height:1.18;margin:0 0 .7rem;letter-spacing:-.5px;font-weight:700}
-.hero h1 em{font-style:normal;background:linear-gradient(100deg,var(--brand2),var(--brand3));-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{margin:0 0 1.25rem;color:var(--tx2);font-size:1.03rem}
-.cta{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1.05rem;border-radius:10px;background:var(--card);border:1px solid var(--line2);color:var(--tx);text-decoration:none;font-size:.9rem;font-weight:500;transition:.15s}
-.cta:hover{border-color:var(--brand);color:var(--brand2);transform:translateY(-1px)}
-.cta svg{width:16px;height:16px;flex:none}
-
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:1.15rem}
-.card{
-  background:var(--card);border:1px solid var(--line);border-radius:16px;
-  padding:1.35rem 1.35rem 1.15rem;box-shadow:var(--shadow);
-  display:flex;flex-direction:column;position:relative;overflow:hidden;
-  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+/* --- Atmosfer: sayfanın üstünde yumuşak marka ışıması --------------------- */
+.aura{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.aura::before,.aura::after{content:"";position:absolute;border-radius:50%;filter:blur(90px);opacity:.55}
+.aura::before{width:min(820px,110vw);height:520px;top:-260px;left:-140px;background:radial-gradient(circle,rgba(84,67,210,.75),transparent 68%)}
+.aura::after{width:min(680px,95vw);height:440px;top:-200px;right:-160px;background:radial-gradient(circle,rgba(90,140,235,.55),transparent 68%)}
+@media (prefers-color-scheme: light){
+  .aura::before{opacity:.30}
+  .aura::after{opacity:.26}
 }
-.card::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(143,134,240,.55),transparent)}
-.card:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:var(--shadow2)}
-.card-h{display:flex;align-items:flex-start;gap:.85rem;margin-bottom:.55rem}
-.ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:none;color:#fff}
-.ico svg{width:22px;height:22px;display:block}
-.i-finans{background:linear-gradient(140deg,#5443D2,#7b6ef0)}
-.i-dcim{background:linear-gradient(140deg,#2f6fd0,#4aa8e0)}
-.i-chat{background:linear-gradient(140deg,#1f9d72,#39c99a)}
-.i-task{background:linear-gradient(140deg,#c2622a,#e8a13c)}
-.card h2{font-size:1.06rem;margin:.1rem 0 .12rem;font-weight:650;letter-spacing:-.2px}
-.card .desc{color:var(--tx2);font-size:.875rem;margin:0 0 1.05rem}
-.plats{display:flex;flex-direction:column;gap:.5rem;margin-top:auto}
-.plat{display:flex;align-items:center;gap:.6rem;padding:.15rem 0}
-.plat-l{display:flex;align-items:center;gap:.45rem;color:var(--tx3);font-size:.78rem;min-width:88px;flex:none}
-.plat-l svg{width:14px;height:14px;flex:none}
-.btns{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
-.btn{
-  display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .72rem;border-radius:8px;
-  background:var(--card2);border:1px solid var(--line2);color:var(--tx);
-  font-size:.8rem;font-weight:500;text-decoration:none;transition:.14s;white-space:nowrap;
-}
-.btn:hover{background:var(--brand);border-color:var(--brand);color:#fff}
-.btn .sz{color:var(--tx3);font-size:.72rem;font-weight:400}
-.btn:hover .sz{color:rgba(255,255,255,.75)}
-.btn.primary{background:linear-gradient(140deg,var(--brand),#6d5ce0);border-color:transparent;color:#fff}
-.btn.primary .sz{color:rgba(255,255,255,.72)}
-.btn.primary:hover{filter:brightness(1.12)}
-.na{color:var(--tx3);font-size:.78rem;font-style:italic}
 
-.note{margin:2.5rem 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem}
-.note div{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:1rem 1.1rem}
-.note h3{margin:0 0 .3rem;font-size:.86rem;color:var(--tx);display:flex;align-items:center;gap:.42rem;font-weight:600}
-.note h3 svg{width:15px;height:15px;color:var(--brand2);flex:none}
-.note p{margin:0;font-size:.83rem;color:var(--tx2);line-height:1.6}
-.note a{color:var(--brand2);text-decoration:none;border-bottom:1px solid rgba(143,134,240,.35)}
-.note a:hover{color:var(--brand3)}
+/* --- Düzen ---------------------------------------------------------------- */
+.shell{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 2rem;width:100%}
+.section{padding:0 0 5rem}
 
-footer{margin-top:3rem;padding-top:1.4rem;border-top:1px solid var(--line);color:var(--tx3);font-size:.8rem;text-align:center;line-height:1.8}
-footer b{color:var(--tx2);font-weight:600}
-.loading{color:var(--tx3);font-size:.9rem;padding:2rem 0}
-@media (max-width:640px){
-  .wrap{padding:1.75rem .9rem 3rem}
-  .grid{grid-template-columns:1fr}
-  .plat{flex-direction:column;align-items:flex-start;gap:.3rem}
-  .plat-l{min-width:0}
-  .top{margin-bottom:2rem}
+/* --- Üst bar -------------------------------------------------------------- */
+.topbar{padding:1.9rem 0 0}
+.topbar-in{display:flex;align-items:center;justify-content:space-between;gap:1.25rem;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:.85rem;text-decoration:none}
+.brand-mark{
+  width:46px;height:46px;flex:none;border-radius:14px;display:grid;place-items:center;
+  background:linear-gradient(145deg,#6a58e8,#4534bd);
+  box-shadow:var(--sh-brand);
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.brand-mark svg{width:24px;height:24px;display:block}
+.brand-tx b{display:block;font-size:1.06rem;font-weight:650;letter-spacing:-.2px;line-height:1.3}
+.brand-tx span{display:block;font-size:.74rem;letter-spacing:.9px;text-transform:uppercase;color:var(--tx-3);font-weight:500}
+.nav-link{
+  display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1.1rem;
+  border-radius:999px;border:1px solid var(--line-2);background:var(--surface);
+  color:var(--tx-2);text-decoration:none;font-size:.88rem;font-weight:500;
+  transition:border-color .18s ease,color .18s ease,background .18s ease;
+}
+.nav-link svg{width:17px;height:17px;flex:none}
+.nav-link:hover{border-color:var(--brand-lt);color:var(--tx);background:var(--surface-2)}
+
+/* --- Hero ----------------------------------------------------------------- */
+.hero{padding:4.5rem 0 3.75rem;max-width:44rem}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:.55rem;margin:0 0 1.6rem;
+  padding:.42rem .9rem .42rem .62rem;border-radius:999px;
+  border:1px solid var(--line-2);background:var(--surface);
+  font-size:.79rem;color:var(--tx-2);letter-spacing:.2px;
+}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px rgba(49,208,160,.16);flex:none}
+.hero h1{
+  margin:0 0 1.15rem;font-size:clamp(2.15rem,5.2vw,3.4rem);line-height:1.1;
+  letter-spacing:-1.4px;font-weight:700;
+}
+.hero h1 em{
+  font-style:normal;
+  background:linear-gradient(100deg,var(--brand-lt),var(--brand-lt2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero p{margin:0 0 2.1rem;color:var(--tx-2);font-size:clamp(1rem,1.6vw,1.13rem);line-height:1.75;max-width:38rem}
+.hero-actions{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+.action{
+  display:inline-flex;align-items:center;gap:.55rem;min-height:48px;padding:0 1.4rem;
+  border-radius:12px;text-decoration:none;font-size:.94rem;font-weight:600;letter-spacing:.1px;
+  border:1px solid transparent;transition:transform .16s ease,filter .16s ease,border-color .16s ease,background .16s ease;
+}
+.action svg{width:18px;height:18px;flex:none}
+.action-primary{background:linear-gradient(145deg,#6a58e8,#4b3ac8);color:#fff;box-shadow:var(--sh-brand)}
+.action-primary:hover{filter:brightness(1.1);transform:translateY(-2px)}
+.action-ghost{background:var(--surface);border-color:var(--line-2);color:var(--tx)}
+.action-ghost:hover{border-color:var(--brand-lt);transform:translateY(-2px)}
+
+/* --- Meta şeridi (sürüm / tarih / paket) ---------------------------------- */
+.meta{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-lg);
+  overflow:hidden;box-shadow:var(--sh-1);margin:0 0 4.5rem;
+}
+.meta div{background:var(--bg-elev);padding:1.4rem 1.6rem}
+.meta dt{margin:0 0 .35rem;font-size:.73rem;letter-spacing:1px;text-transform:uppercase;color:var(--tx-3);font-weight:600}
+.meta dd{margin:0;font-size:1.18rem;font-weight:650;letter-spacing:-.3px;color:var(--tx);font-variant-numeric:tabular-nums}
+
+/* --- Bölüm başlığı -------------------------------------------------------- */
+.sec-head{margin:0 0 2.25rem;max-width:46rem}
+.sec-head h2{margin:0 0 .5rem;font-size:clamp(1.4rem,2.6vw,1.8rem);letter-spacing:-.6px;font-weight:680;line-height:1.25}
+.sec-head p{margin:0;color:var(--tx-2);font-size:.98rem}
+
+/* --- Uygulama kartları ---------------------------------------------------- */
+.apps{display:grid;grid-template-columns:1fr;gap:1.5rem;list-style:none;margin:0;padding:0}
+@media (min-width:760px){ .apps{grid-template-columns:repeat(2,1fr);gap:1.75rem} }
+
+.app{
+  position:relative;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-xl);padding:2rem 2rem 1.6rem;box-shadow:var(--sh-1);
+  display:flex;flex-direction:column;overflow:hidden;
+  transition:transform .22s ease,border-color .22s ease,box-shadow .22s ease;
+}
+.app::after{
+  content:"";position:absolute;top:0;left:0;right:0;height:180px;pointer-events:none;
+  background:radial-gradient(120% 100% at 12% 0%, var(--accent-soft), transparent 70%);
+  opacity:.75;
+}
+.app:hover{transform:translateY(-4px);border-color:var(--line-2);box-shadow:var(--sh-2)}
+.app > *{position:relative;z-index:1}
+
+.app-head{display:flex;align-items:center;gap:1.15rem;margin:0 0 1.1rem}
+.app-icon{
+  width:84px;height:84px;flex:none;border-radius:20px;display:block;
+  box-shadow:0 6px 18px -6px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.28);
+}
+@media (prefers-color-scheme: light){
+  .app-icon{box-shadow:0 8px 20px -8px rgba(18,21,31,.4)}
+}
+.app-icon-fb{
+  width:84px;height:84px;flex:none;border-radius:20px;
+  background:linear-gradient(145deg,var(--accent),#4b3ac8);
+}
+.app-title{min-width:0;overflow-wrap:anywhere}
+.app-title h3{margin:0 0 .18rem;font-size:1.28rem;font-weight:650;letter-spacing:-.4px;line-height:1.3}
+.app-title .app-plat{font-size:.78rem;color:var(--tx-3);letter-spacing:.3px}
+.app-desc{margin:0 0 1.65rem;color:var(--tx-2);font-size:.93rem;line-height:1.7}
+
+/* --- İndirme satırları ---------------------------------------------------- */
+.dl{display:flex;flex-direction:column;gap:.7rem;margin-top:auto}
+.dl-row{display:flex;flex-direction:column;gap:.45rem}
+.dl-btn{
+  display:flex;align-items:center;gap:.85rem;width:100%;min-height:56px;
+  padding:.7rem 1.1rem;border-radius:var(--r-md);text-decoration:none;
+  border:1px solid var(--line-2);background:var(--surface-2);color:var(--tx);
+  transition:transform .16s ease,background .16s ease,border-color .16s ease,filter .16s ease;
+}
+.dl-btn:hover{transform:translateY(-1px);background:var(--surface-3);border-color:var(--brand-lt)}
+.dl-btn:active{transform:translateY(0)}
+.dl-btn .os{width:22px;height:22px;flex:none;opacity:.85}
+.dl-btn .lbl{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.35;overflow-wrap:anywhere}
+.dl-btn .lbl b{font-size:.94rem;font-weight:600;letter-spacing:-.1px}
+.dl-btn .lbl span{font-size:.77rem;color:var(--tx-3)}
+.dl-btn .sz{
+  font-size:.78rem;color:var(--tx-3);white-space:nowrap;font-variant-numeric:tabular-nums;
+  padding:.18rem .55rem;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid var(--line);
+}
+@media (prefers-color-scheme: light){ .dl-btn .sz{background:rgba(18,21,31,.035)} }
+.dl-btn .arrow{width:18px;height:18px;flex:none;opacity:.5;transition:transform .16s ease,opacity .16s ease}
+.dl-btn:hover .arrow{opacity:1;transform:translateY(2px)}
+
+/* birincil: macOS DMG */
+.dl-btn.is-primary{
+  background:linear-gradient(145deg,#6a58e8,#4b3ac8);
+  border-color:transparent;color:#fff;box-shadow:var(--sh-brand);
+}
+.dl-btn.is-primary .lbl span,.dl-btn.is-primary .sz{color:rgba(255,255,255,.8)}
+.dl-btn.is-primary .sz{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.2)}
+.dl-btn.is-primary .os,.dl-btn.is-primary .arrow{opacity:1}
+.dl-btn.is-primary:hover{filter:brightness(1.1);background:linear-gradient(145deg,#7362ef,#5443d2);border-color:transparent}
+
+/* ikincil küçük bağlantı (MSI vb.) */
+.dl-alt{
+  align-self:flex-start;display:inline-flex;align-items:center;gap:.4rem;min-height:36px;
+  padding:0 .7rem;margin-left:.15rem;border-radius:8px;
+  font-size:.79rem;color:var(--tx-3);text-decoration:none;transition:color .16s ease,background .16s ease;
+}
+.dl-alt:hover{color:var(--brand-lt);background:var(--surface-2)}
+.dl-alt svg{width:13px;height:13px;flex:none}
+
+/* yayımlanmamış platform */
+.dl-none{
+  display:flex;align-items:center;gap:.85rem;min-height:56px;padding:.7rem 1.1rem;
+  border-radius:var(--r-md);border:1px dashed var(--line-2);background:transparent;color:var(--tx-3);
+}
+.dl-none .os{width:22px;height:22px;flex:none;opacity:.45}
+.dl-none .lbl{display:flex;flex-direction:column;line-height:1.35;flex:1;min-width:0}
+.dl-none .lbl b{font-size:.9rem;font-weight:600;color:var(--tx-3)}
+.dl-none .lbl span{font-size:.77rem;font-style:italic}
+
+/* --- Bilgi kartları ------------------------------------------------------- */
+.info{display:grid;grid-template-columns:1fr;gap:1.25rem;margin:0;padding:0;list-style:none}
+@media (min-width:700px){ .info{grid-template-columns:repeat(3,1fr)} }
+.info li{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:1.6rem 1.6rem 1.5rem;box-shadow:var(--sh-1);
+}
+.info .ic{
+  width:42px;height:42px;border-radius:12px;display:grid;place-items:center;margin:0 0 1rem;
+  background:var(--surface-2);border:1px solid var(--line-2);color:var(--brand-lt);
+}
+.info .ic svg{width:20px;height:20px;display:block}
+.info h4{margin:0 0 .45rem;font-size:1rem;font-weight:640;letter-spacing:-.2px}
+.info p{margin:0;font-size:.89rem;color:var(--tx-2);line-height:1.7}
+.info a{color:var(--brand-lt);text-decoration:none;border-bottom:1px solid rgba(155,147,245,.4)}
+.info a:hover{border-bottom-color:currentColor}
+
+/* --- Alt bilgi ------------------------------------------------------------ */
+.foot{border-top:1px solid var(--line);padding:2.25rem 0 3.5rem;margin-top:1rem}
+.foot-in{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.foot p{margin:0;font-size:.85rem;color:var(--tx-3);line-height:1.7}
+.foot b{color:var(--tx-2);font-weight:600}
+.foot a{color:var(--tx-3);text-decoration:none;border-bottom:1px solid var(--line-2)}
+.foot a:hover{color:var(--brand-lt)}
+
+/* --- Durum mesajları ------------------------------------------------------ */
+.state{
+  grid-column:1/-1;display:flex;align-items:center;gap:.8rem;
+  padding:2.5rem 2rem;border:1px dashed var(--line-2);border-radius:var(--r-xl);
+  color:var(--tx-3);font-size:.94rem;background:var(--surface);
+}
+.spin{width:18px;height:18px;flex:none;border-radius:50%;border:2px solid var(--line-2);border-top-color:var(--brand-lt);animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* --- Erişilebilirlik ------------------------------------------------------ */
+a:focus-visible,button:focus-visible{
+  outline:2px solid var(--focus);outline-offset:3px;border-radius:10px;
+}
+.skip{position:absolute;left:-9999px;top:0}
+.skip:focus{left:1rem;top:1rem;z-index:50;padding:.7rem 1.1rem;background:var(--surface);border:1px solid var(--brand-lt);border-radius:10px;color:var(--tx);text-decoration:none}
+
+/* --- Dar ekran ------------------------------------------------------------ */
+@media (max-width:720px){
+  .shell{padding:0 1.15rem}
+  .topbar{padding:1.35rem 0 0}
+  .hero{padding:3rem 0 2.5rem}
+  .section{padding-bottom:3.5rem}
+  .meta{grid-template-columns:1fr;margin-bottom:3.25rem}
+  .meta div{padding:1.1rem 1.25rem}
+  .app{padding:1.5rem 1.35rem 1.35rem;border-radius:var(--r-lg)}
+  .app-icon,.app-icon-fb{width:66px;height:66px;border-radius:16px}
+  .app-head{gap:.95rem}
+  .app-title h3{font-size:1.14rem}
+  .hero-actions .action{width:100%;justify-content:center}
+  .foot-in{flex-direction:column;align-items:flex-start;text-align:left}
+}
+@media (max-width:380px){
+  .dl-btn .sz{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+  .app:hover,.action:hover,.dl-btn:hover{transform:none}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="aura" aria-hidden="true"></div>
+<a class="skip" href="#uygulamalar">İçeriğe geç</a>
 
-  <header class="top">
-    <div class="brand">
-      <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 6.5v6c0 5 3.8 8.6 9 9.5 5.2-.9 9-4.5 9-9.5v-6L12 2Z"/><path d="m9 12 2 2 4-4"/></svg>
-      </div>
-      <div>
+<header class="topbar">
+  <div class="shell topbar-in">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 6.5v6c0 5 3.8 8.6 9 9.5 5.2-.9 9-4.5 9-9.5v-6L12 2Z"/><path d="m9 12 2 2 4-4"/></svg>
+      </span>
+      <span class="brand-tx">
         <b>Bogahost</b>
         <span>Uygulama Dağıtım Merkezi</span>
-      </div>
-    </div>
-    <div class="chips">
-      <span class="chip"><span class="dot"></span>Sürüm <b id="verBadge">—</b></span>
-      <span class="chip">Güncellendi <b id="dateBadge">—</b></span>
-    </div>
-  </header>
-
-  <section class="hero">
-    <h1>Ekip uygulamalarını <em>indir ve kur</em></h1>
-    <p>Finans, DCIM, Chat ve Görevler sistemlerinin masaüstü ile mobil sürümleri. Kurulumdan sonra uygulamalar yeni sürümleri kendisi indirip kurar — bu sayfa yalnızca ilk kurulum içindir.</p>
-    <a class="cta" href="/kurulum.html">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-      Kurulum rehberi ve sorun giderme
+      </span>
     </a>
+    <a class="nav-link" href="/kurulum.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 16.5v-5M12 8h.01"/></svg>
+      Kurulum rehberi
+    </a>
+  </div>
+</header>
+
+<main>
+  <section class="shell hero">
+    <span class="eyebrow"><span class="pulse" aria-hidden="true"></span>Güncel sürüm yayında</span>
+    <h1>Ekip uygulamalarını <em>indirin ve kurun</em></h1>
+    <p>Finans, DCIM, Chat ve Görevler sistemlerinin macOS, Windows ve Android sürümleri.
+       Kurulumdan sonra masaüstü uygulamaları yeni sürümleri kendisi indirip kurar — bu sayfa yalnızca ilk kurulum içindir.</p>
+    <div class="hero-actions">
+      <a class="action action-primary" href="#uygulamalar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="m7 12 5 5 5-5"/><path d="M4 20h16"/></svg>
+        Uygulamalara git
+      </a>
+      <a class="action action-ghost" href="/kurulum.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v18H6.5A2.5 2.5 0 0 1 4 18.5Z"/><path d="M8 7h7M8 11h7"/></svg>
+        Kurulum ve sorun giderme
+      </a>
+    </div>
   </section>
 
-  <main class="grid" id="grid">
-    <p class="loading">Sürüm bilgisi yükleniyor…</p>
-  </main>
+  <div class="shell">
+    <dl class="meta">
+      <div><dt>Sürüm</dt><dd id="mVersion">—</dd></div>
+      <div><dt>Son güncelleme</dt><dd id="mDate">—</dd></div>
+      <div><dt>Uygulama</dt><dd id="mCount">—</dd></div>
+    </dl>
+  </div>
 
-  <section class="note">
-    <div>
-      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>Otomatik güncelleme</h3>
-      <p>Masaüstü uygulamaları açılışta yeni sürümü kontrol eder, indirir ve yeniden başlatınca kurar. Android'de yeni APK'yı buradan indirip mevcut uygulamanın üzerine kurun.</p>
+  <section class="shell section" id="uygulamalar">
+    <div class="sec-head">
+      <h2>Uygulamalar</h2>
+      <p>Cihazınıza uygun paketi seçin. Dosya boyutları ve sürüm bilgisi otomatik olarak güncellenir.</p>
     </div>
-    <div>
-      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 6.5v6c0 5 3.8 8.6 9 9.5 5.2-.9 9-4.5 9-9.5v-6L12 2Z"/></svg>İmzasız uygulama uyarısı</h3>
-      <p>Uygulamalar henüz kod imzalama sertifikası taşımıyor; macOS ve Windows ilk açılışta uyarı gösterir. Adım adım çözüm: <a href="/kurulum.html">kurulum rehberi</a>.</p>
-    </div>
-    <div>
-      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Erişim</h3>
-      <p>Bu sayfa şifre korumalıdır ve arama motorlarına kapalıdır. Bağlantıyı ve giriş bilgilerini ekip dışında paylaşmayın.</p>
-    </div>
+    <ul class="apps" id="apps">
+      <li class="state"><span class="spin" aria-hidden="true"></span>Sürüm listesi yükleniyor…</li>
+    </ul>
   </section>
 
-  <footer>
-    <b>Bogahost</b> — yalnız yetkili personel içindir.<br>
-    Sorun yaşarsanız BT ekibine ulaşın · <a href="/kurulum.html" style="color:inherit">Kurulum rehberi</a>
-  </footer>
-</div>
+  <section class="shell section">
+    <ul class="info">
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.8-6.3"/><path d="M20.5 3.5v6h-6"/></svg></span>
+        <h4>Otomatik güncelleme</h4>
+        <p>Masaüstü uygulamaları açılışta yeni sürümü kontrol eder, arka planda indirir ve yeniden başlatınca kurar. Android'de yeni APK'yı buradan indirip mevcut uygulamanın üzerine kurmanız yeterlidir.</p>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 3.5 6.6v5.7c0 4.7 3.6 8.2 8.5 9.2 4.9-1 8.5-4.5 8.5-9.2V6.6L12 2.5Z"/><path d="M12 8.5v4"/><path d="M12 16h.01"/></svg></span>
+        <h4>İmzasız uygulama uyarısı</h4>
+        <p>Uygulamalar henüz kod imzalama sertifikası taşımıyor; macOS ve Windows ilk açılışta uyarı gösterebilir. Adım adım çözüm için <a href="/kurulum.html">kurulum rehberine</a> bakın.</p>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="10.5" width="17" height="10.5" rx="2.5"/><path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5"/><path d="M12 15v2"/></svg></span>
+        <h4>Erişim ve gizlilik</h4>
+        <p>Bu sayfa şifre korumalıdır ve arama motorlarına kapalıdır. Bağlantıyı, giriş bilgilerini veya kurulum dosyalarını ekip dışından kimseyle paylaşmayın.</p>
+      </li>
+    </ul>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="shell foot-in">
+    <p><b>Bogahost</b> — yalnızca yetkili personel içindir.</p>
+    <p>Sorun yaşarsanız BT ekibine ulaşın · <a href="/kurulum.html">Kurulum rehberi</a></p>
+  </div>
+</footer>
 
 <script>
 (function(){
+  "use strict";
+
+  /* Uygulama tanımları — ikonlar /assets/icons/ altındaki gerçek uygulama
+     ikonlarıdır (uygulamaların kendi 512px premium ikonlarından üretildi). */
   var APPS = [
-    {key:"finans", name:"Bogahost Finans",   cls:"i-finans", desc:"Muhasebe ve finans yönetimi; ciro takibi, kıyaslama ve raporlar.",
-     svg:'<path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'},
-    {key:"dcim",   name:"Bogahost DCIM",     cls:"i-dcim",   desc:"Veri merkezi, IP yönetimi, abuse takibi ve NOC operasyonları.",
-     svg:'<rect x="2" y="3" width="20" height="6" rx="2"/><rect x="2" y="15" width="20" height="6" rx="2"/><path d="M6 6h.01M6 18h.01"/>'},
-    {key:"chat",   name:"Bogahost Chat",     cls:"i-chat",   desc:"Canlı destek, ziyaretçi sohbeti, CRM ve ekip içi mesajlaşma.",
-     svg:'<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/>'},
-    {key:"task",   name:"Bogahost Görevler", cls:"i-task",   desc:"Görev takibi, mesai planlama, bilgi kasası ve destek talepleri.",
-     svg:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'}
+    { key:"finans", name:"Bogahost Finans",   icon:"/assets/icons/finans.png",
+      accent:"#6d4be8", soft:"rgba(109,75,232,.16)",
+      desc:"Muhasebe ve finans yönetimi; ciro takibi, kıyaslama ve raporlar." },
+    { key:"dcim",   name:"Bogahost DCIM",     icon:"/assets/icons/dcim.png",
+      accent:"#5b63e0", soft:"rgba(91,99,224,.16)",
+      desc:"Veri merkezi envanteri, IP yönetimi, abuse takibi ve NOC operasyonları." },
+    { key:"chat",   name:"Bogahost Chat",     icon:"/assets/icons/chat.png",
+      accent:"#4f7be8", soft:"rgba(79,123,232,.16)",
+      desc:"Canlı destek, ziyaretçi sohbeti, CRM ve ekip içi mesajlaşma." },
+    { key:"task",   name:"Bogahost Görevler", icon:"/assets/icons/task.png",
+      accent:"#35b08c", soft:"rgba(53,176,140,.16)",
+      desc:"Görev takibi, mesai planlama, bilgi kasası ve destek talepleri." }
   ];
 
   var OS = {
-    mac:{label:"macOS", svg:'<path d="M12 20.9c-1.3 0-2.2-1-3.4-1-1.3 0-2 1-3.2 1-2.2 0-4.4-3.6-4.4-7.2 0-3.6 2.2-5.5 4.3-5.5 1.3 0 2.3 1 3.3 1s1.9-1 3.4-1c1.2 0 2.6.6 3.5 1.8-3 1.7-2.6 6.1.7 7.3-.7 1.9-2.3 3.6-4.2 3.6Z"/><path d="M14.5 6.5c.8-1 1.3-2.3 1.2-3.5-1.2.1-2.5.8-3.3 1.7-.7.8-1.3 2.1-1.1 3.3 1.3.1 2.5-.6 3.2-1.5Z"/>'},
-    win:{label:"Windows", svg:'<path d="M3 5.5 10.5 4.4v7.1H3z"/><path d="M11.7 4.2 21 3v8.5h-9.3z"/><path d="M3 12.5h7.5v7.1L3 18.5z"/><path d="M11.7 12.5H21V21l-9.3-1.2z"/>'},
-    droid:{label:"Android", svg:'<path d="M6 10v7a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-7z"/><path d="M6 10a6 6 0 0 1 12 0"/><path d="m8 4 1 2M16 4l-1 2"/><path d="M3 11v5M21 11v5M9 19v2M15 19v2"/>'}
+    mac: {
+      name:"macOS", hint:"Apple Silicon (.dmg)",
+      svg:'<path d="M12 20.9c-1.3 0-2.2-1-3.4-1-1.3 0-2 1-3.2 1-2.2 0-4.4-3.6-4.4-7.2 0-3.6 2.2-5.5 4.3-5.5 1.3 0 2.3 1 3.3 1s1.9-1 3.4-1c1.2 0 2.6.6 3.5 1.8-3 1.7-2.6 6.1.7 7.3-.7 1.9-2.3 3.6-4.2 3.6Z"/><path d="M14.5 6.5c.8-1 1.3-2.3 1.2-3.5-1.2.1-2.5.8-3.3 1.7-.7.8-1.3 2.1-1.1 3.3 1.3.1 2.5-.6 3.2-1.5Z"/>'
+    },
+    win: {
+      name:"Windows", hint:"64-bit kurulum (.exe)",
+      svg:'<path d="M3 5.6 10.4 4.5v7H3z"/><path d="M11.7 4.3 21 3v8.5h-9.3z"/><path d="M3 12.5h7.4v7L3 18.4z"/><path d="M11.7 12.5H21V21l-9.3-1.3z"/>'
+    },
+    droid:{
+      name:"Android", hint:"Kurulum paketi (.apk)",
+      svg:'<path d="M6 10.5v6.8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-6.8z"/><path d="M6 10.5a6 6 0 0 1 12 0"/><path d="m8.2 4.4 1 2M15.8 4.4l-1 2"/><path d="M3.2 11.5v4.6M20.8 11.5v4.6M9.5 19.3v1.9M14.5 19.3v1.9"/>'
+    }
   };
 
-  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
-  function mb(n){ if(n===undefined||n===null) return ""; return (n/1048576).toFixed(1).replace(".",",")+" MB"; }
+  var ARROW = '<svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v13"/><path d="m6.5 11.5 5.5 5.5 5.5-5.5"/></svg>';
+
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function mb(n){
+    if(n === undefined || n === null || isNaN(n)) return "";
+    return (Number(n)/1048576).toFixed(1).replace(".", ",") + " MB";
+  }
   function trDate(iso){
     try{
-      var d=new Date(iso);
+      var d = new Date(iso);
       if(isNaN(d.getTime())) return String(iso).slice(0,10);
-      var ay=["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
-      return d.getDate()+" "+ay[d.getMonth()]+" "+d.getFullYear();
+      var ay = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+      return d.getDate() + " " + ay[d.getMonth()] + " " + d.getFullYear();
     }catch(e){ return String(iso).slice(0,10); }
   }
-  function pick(list, fn){ for(var i=0;i<list.length;i++){ if(fn(list[i])) return list[i]; } return null; }
-
-  function row(os, buttons){
-    var inner = buttons.length ? buttons.join("") : '<span class="na">bu sürümde yayımlanmadı</span>';
-    return '<div class="plat"><span class="plat-l">'
-      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+os.svg+'</svg>'
-      + esc(os.label) + '</span><span class="btns">' + inner + '</span></div>';
+  function pick(list, re){
+    for(var i=0;i<list.length;i++){ if(re.test(String(list[i].file||""))) return list[i]; }
+    return null;
+  }
+  function osIcon(os){
+    return '<svg class="os" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + os.svg + '</svg>';
   }
 
-  function btn(url, text, size, primary){
-    return '<a class="btn'+(primary?" primary":"")+'" href="'+esc(url)+'">'+esc(text)
-      + (size?' <span class="sz">'+esc(mb(size))+'</span>':'') + '</a>';
+  /* İndirme butonu — primary: macOS DMG */
+  function dlButton(os, entry, appName, primary, hint){
+    var size = mb(entry.size);
+    return '<a class="dl-btn' + (primary ? ' is-primary' : '') + '" href="' + esc(entry.url) + '" download'
+      + ' aria-label="' + esc(appName + " · " + os.name + " indir" + (size ? " (" + size + ")" : "")) + '">'
+      + osIcon(os)
+      + '<span class="lbl"><b>' + esc(os.name) + '</b><span>' + esc(hint || os.hint) + '</span></span>'
+      + (size ? '<span class="sz">' + esc(size) + '</span>' : '')
+      + ARROW
+      + '</a>';
+  }
+
+  function dlMissing(os){
+    return '<div class="dl-none">' + osIcon(os)
+      + '<span class="lbl"><b>' + esc(os.name) + '</b><span>bu sürümde yayımlanmadı</span></span></div>';
+  }
+
+  function altLink(entry, label){
+    return '<a class="dl-alt" href="' + esc(entry.url) + '" download>'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v13"/><path d="m6.5 11.5 5.5 5.5 5.5-5.5"/></svg>'
+      + esc(label) + (entry.size ? ' · ' + esc(mb(entry.size)) : '') + '</a>';
+  }
+
+  function cardHtml(app, files){
+    var dmg = pick(files, /\.dmg$/i);
+    var exe = pick(files, /setup\.exe$/i) || pick(files, /\.exe$/i);
+    var msi = pick(files, /\.msi$/i);
+    var apk = pick(files, /\.apk$/i);
+
+    var win = exe || msi;
+
+    /* Birincil (dolu) buton: macOS DMG. DMG o surumde yoksa kart yine de tek bir
+       net cagriya sahip olsun diye sirayla Windows, sonra Android one cikar. */
+    var lead = dmg ? "mac" : (win ? "win" : (apk ? "droid" : null));
+
+    var rows = "";
+
+    rows += '<div class="dl-row">'
+      + (dmg ? dlButton(OS.mac, dmg, app.name, lead === "mac") : dlMissing(OS.mac))
+      + '</div>';
+
+    rows += '<div class="dl-row">'
+      + (win ? dlButton(OS.win, win, app.name, lead === "win", exe ? null : "64-bit paket (.msi)") : dlMissing(OS.win))
+      + (exe && msi ? altLink(msi, "MSI paketi") : "")
+      + '</div>';
+
+    rows += '<div class="dl-row">'
+      + (apk ? dlButton(OS.droid, apk, app.name, lead === "droid") : dlMissing(OS.droid))
+      + '</div>';
+
+    var plats = [];
+    if(dmg) plats.push("macOS");
+    if(exe || msi) plats.push("Windows");
+    if(apk) plats.push("Android");
+
+    return '<li class="app" style="--accent:' + esc(app.accent) + ';--accent-soft:' + esc(app.soft) + '">'
+      + '<div class="app-head">'
+      +   '<img class="app-icon" src="' + esc(app.icon) + '" width="84" height="84" alt="" loading="lazy" decoding="async"'
+      +     ' onerror="this.onerror=null;this.outerHTML=\'<span class=&quot;app-icon-fb&quot; aria-hidden=&quot;true&quot;></span>\'">'
+      +   '<div class="app-title"><h3>' + esc(app.name) + '</h3>'
+      +     '<div class="app-plat">' + esc(plats.length ? plats.join(" · ") : "paket yok") + '</div></div>'
+      + '</div>'
+      + '<p class="app-desc">' + esc(app.desc) + '</p>'
+      + '<div class="dl">' + rows + '</div>'
+      + '</li>';
+  }
+
+  function setText(id, val){
+    var el = document.getElementById(id);
+    if(el) el.textContent = val;
   }
 
   function render(data){
-    var grid = document.getElementById("grid");
-    document.getElementById("verBadge").textContent  = data.version || "—";
-    document.getElementById("dateBadge").textContent = data.updated ? trDate(data.updated) : "—";
-    if(data.version) document.title = "Bogahost · Uygulamalar " + data.version;
+    var list = document.getElementById("apps");
+    var html = "", shown = 0;
 
-    var html = "";
     APPS.forEach(function(app){
-      var files = (data.apps && data.apps[app.key]) || [];
+      var files = (data && data.apps && data.apps[app.key]) || [];
       if(!files.length) return;
-
-      var dmg = pick(files,function(f){return /\.dmg$/i.test(f.file);});
-      var exe = pick(files,function(f){return /setup\.exe$/i.test(f.file);});
-      var msi = pick(files,function(f){return /\.msi$/i.test(f.file);});
-      var apk = pick(files,function(f){return /\.apk$/i.test(f.file);});
-
-      var rows = "";
-      rows += row(OS.mac,   dmg ? [btn(dmg.url,"DMG indir",dmg.size,true)] : []);
-      var win = [];
-      if(exe) win.push(btn(exe.url,"EXE kurulum",exe.size,true));
-      if(msi) win.push(btn(msi.url,"MSI",msi.size,false));
-      rows += row(OS.win, win);
-      rows += row(OS.droid, apk ? [btn(apk.url,"APK indir",apk.size,true)] : []);
-
-      html += '<article class="card">'
-        + '<div class="card-h">'
-        +   '<div class="ico '+app.cls+'" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+app.svg+'</svg></div>'
-        +   '<div><h2>'+esc(app.name)+'</h2></div>'
-        + '</div>'
-        + '<p class="desc">'+esc(app.desc)+'</p>'
-        + '<div class="plats">'+rows+'</div>'
-        + '</article>';
+      shown++;
+      html += cardHtml(app, files);
     });
 
-    grid.innerHTML = html || '<p class="loading">Şu anda yayımlanmış bir sürüm bulunamadı.</p>';
+    setText("mVersion", data && data.version ? data.version : "—");
+    setText("mDate", data && data.updated ? trDate(data.updated) : "—");
+    setText("mCount", shown ? shown + " uygulama" : "—");
+    if(data && data.version) document.title = "Bogahost · Uygulamalar " + data.version;
+
+    list.innerHTML = html || '<li class="state">Şu anda yayımlanmış bir sürüm bulunamadı.</li>';
   }
 
-  fetch("/updates/downloads.json", {cache:"no-store", credentials:"same-origin"})
-    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+  fetch("/updates/downloads.json", { cache:"no-store", credentials:"same-origin" })
+    .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(render)
     .catch(function(){
-      document.getElementById("grid").innerHTML =
-        '<p class="loading">Sürüm listesi yüklenemedi. Sayfayı yenileyin veya BT ekibine bildirin.</p>';
+      document.getElementById("apps").innerHTML =
+        '<li class="state">Sürüm listesi yüklenemedi. Sayfayı yenileyin veya BT ekibine bildirin.</li>';
     });
 })();
 </script>

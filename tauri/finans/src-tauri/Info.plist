@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Finans — macOS Info.plist EKI.
+
+  tauri-bundler bu dosyayi (src-tauri/Info.plist) OTOMATIK bulur ve urettigi
+  varsayilan Info.plist ile BIRLESTIRIR. tauri.conf.json'da ayrica
+  bundle.macOS.infoPlist yazmaya gerek YOKTUR (yazilsa da yol gosterir, sozluk almaz).
+
+  NEDEN ZORUNLU: macOS TCC katmani, kamera/mikrofon/ekran erisimi deneyen bir
+  uygulamada ilgili "UsageDescription" anahtari YOKSA uygulamayi ANINDA OLDURUR
+  (izin sorusu bile cikmaz). Sohbet panelindeki sesli/goruntulu arama ve kamerayla
+  foto/video cekimi bu yuzden native kabukta "hic tepki vermiyor" goruntusu veriyordu.
+
+  Metinler kullaniciya sistem izin penceresinde AYNEN gosterilir — Turkce.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Goruntulu arama yapmak ve panele fotograf/video eklemek icin kameraya erisim gerekir.</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Sesli ve goruntulu arama yapmak icin mikrofona erisim gerekir.</string>
+
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Ekran paylasimi (co-browse) icin ekran kaydi izni gerekir.</string>
+
+    <!-- Panel dosya eklerini Indirilenler/Belgeler altina kaydeder. -->
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Indirilen rapor ve belgeleri kaydetmek icin Indirilenler klasorune erisim gerekir.</string>
+
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Panelden dosya yuklemek ve indirilen belgeleri acmak icin Belgeler klasorune erisim gerekir.</string>
+</dict>
+</plist>
