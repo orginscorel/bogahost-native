@@ -25,7 +25,9 @@
 //   (ornegin Cloudflare 403 — bkz. docs/UPDATE.md) DOKUNULMAZ.
 
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { resolve, join, basename } from 'node:path';
+import { resolve, join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(`--${name}`);
@@ -300,8 +302,11 @@ if (state === null) {
   }
   const nextState = { version: VERSION, notes: NOTES, updated: PUB_DATE, apps };
   writeJson('updates/downloads.json', nextState);
-  writeFileSync(join(OUT, 'index.html'), renderIndex(nextState), 'utf8');
-  console.log('  + index.html');
+  const indexHtml = renderIndex();
+  if (indexHtml) {
+    writeFileSync(join(OUT, 'index.html'), indexHtml, 'utf8');
+    console.log('  + index.html (sablondan)');
+  }
 }
 
 /** Bir kaydin, su an yayinlanan platform grubuna ait olup olmadigi. */
@@ -321,60 +326,20 @@ function mb(bytes) {
   return `${(Number(bytes || 0) / 1048576).toFixed(1)} MB`;
 }
 
-function renderIndex(s) {
-  const sections = APPS.map((app) => {
-    const entries = (s.apps?.[app] ?? []).filter((e) => e.platform !== 'darwin-updater');
-    if (!entries.length) return '';
-    const rows = entries
-      .map(
-        (e) =>
-          `<li><a href="${esc(e.url)}">${esc(e.label)}</a> <span class="s">${esc(mb(e.size))}</span></li>`
-      )
-      .join('\n        ');
-    return `    <section>
-      <h2>Bogahost ${esc(APP_LABELS[app])}</h2>
-      <ul>
-        ${rows}
-      </ul>
-    </section>`;
-  })
-    .filter(Boolean)
-    .join('\n');
-
-  return `<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>Bogahost Masaüstü Uygulamaları</title>
-<style>
-:root{color-scheme:dark}
-body{margin:0;padding:2rem 1rem;background:#0e1015;color:#e7e9ee;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:760px;margin:0 auto}
-h1{font-size:1.6rem;margin:0 0 .25rem}
-.v{color:#9aa3b2;margin:0 0 2rem}
-section{background:#161a22;border:1px solid #232936;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem}
-h2{font-size:1.05rem;margin:0 0 .5rem;color:#c9cfdb}
-ul{list-style:none;margin:0;padding:0}
-li{padding:.35rem 0;border-top:1px solid #232936}
-li:first-child{border-top:0}
-a{color:#8f86f0;text-decoration:none}
-a:hover{text-decoration:underline}
-.s{color:#6f7889;font-size:.85rem;margin-left:.4rem}
-footer{color:#6f7889;font-size:.85rem;margin-top:2rem;text-align:center}
-</style>
-</head>
-<body>
-<main>
-  <h1>Bogahost Masaüstü Uygulamaları</h1>
-  <p class="v">Sürüm <strong>${esc(s.version)}</strong> · ${esc((s.updated ?? '').slice(0, 10))}</p>
-${sections}
-  <footer>Kurulu uygulamalar yeni sürümü kendisi indirip kurar; bu sayfa yalnızca ilk kurulum içindir.</footer>
-</main>
-</body>
-</html>
-`;
+/**
+ * index.html — SABIT sablon: scripts/ci/index.template.html
+ * Sayfa dosya listesini CALISMA ANINDA /updates/downloads.json'dan okur; bu yuzden
+ * sunucu tarafinda veri enjekte etmeye GEREK YOKTUR. Tasarim degisikligi icin yalnizca
+ * index.template.html duzenlenir — CI her yayinda onu aynen kopyalar.
+ * (Once sablon yoktu ve her yayin sunucudaki premium tasarimi eziyordu.)
+ */
+function renderIndex() {
+  const tpl = join(HERE, 'index.template.html');
+  if (!existsSync(tpl)) {
+    warn('scripts/ci/index.template.html YOK — index.html uretilmedi, sunucudaki korunuyor.');
+    return null;
+  }
+  return readFileSync(tpl, 'utf8');
 }
 
 console.log(`\nHazir: ${OUT} (surum ${VERSION}, platform ${PLATFORM})`);
