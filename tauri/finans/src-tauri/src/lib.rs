@@ -216,7 +216,8 @@ pub fn run() {
             bogahost_print,
             bogahost_open_settings,
             bogahost_focus_window,
-            bogahost_set_fullscreen
+            bogahost_set_fullscreen,
+            bogahost_reveal_download
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -563,8 +564,12 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         // sistem tarayicisina yollanir.
         .on_navigation(move |url| {
             match url.scheme() {
-                "http" | "https" | "tauri" | "file" | "about" | "data" | "blob" | "asset"
-                | "ipc" => true,
+                "http" | "https" => {
+                    // EMNIYET AGI: ust duzey gezinme bir BELGEYE gittiyse panele don.
+                    guard_document_navigation(&nav_handle, url);
+                    true
+                }
+                "tauri" | "file" | "about" | "data" | "blob" | "asset" | "ipc" => true,
                 _ => {
                     let _ = nav_handle.shell().open(url.to_string(), None);
                     false
@@ -645,6 +650,96 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
     }
 
     builder.build()
+}
+
+/// Bu uygulamanin panel adresi (kurtarma hedefi) — `APPS` tablosundan.
+fn app_home_url() -> &'static str {
+    APPS.iter()
+        .find(|e| e.0 == APP_KEY)
+        .map(|e| e.2)
+        .unwrap_or("https://bogahost.com/")
+}
+
+/// Adres BELGE gibi mi duruyor? (yalnizca dosya uzantisina bakar — sunucunun
+/// `Content-Type`'ini burada goremeyiz.) Sayfa koprusu icindeki
+/// `looksLikeDownload` ile ayni ailedendir ama KASITLI OLARAK daha dardir:
+/// bu yol gezinme IPTAL ETMEZ, yalnizca gerceklesmis bir gezinmeyi geri alir.
+fn looks_like_document_url(url: &Url) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    let ext = match path.rsplit_once('.') {
+        Some((_, e)) => e,
+        None => return false,
+    };
+    matches!(
+        ext,
+        "pdf"
+            | "csv"
+            | "xls"
+            | "xlsx"
+            | "doc"
+            | "docx"
+            | "ppt"
+            | "pptx"
+            | "zip"
+            | "rar"
+            | "7z"
+            | "gz"
+            | "tgz"
+            | "tar"
+            | "ics"
+            | "sql"
+    )
+}
+
+/// EMNIYET AGI — "dosya uygulamada acildi, geri donemiyorum" sorununun son savunmasi.
+///
+/// Sayfa koprusu (`INIT_SCRIPT` -> `handleMaybeDownload`) indirme niyetli
+/// tiklamalarin BUYUK COGUNLUGUNU zaten yakalar. Bu ag yalnizca koprunun
+/// devrede olmadigi hallerde is gorur: sunucu yonlendirmesi, sayfa JS'inin
+/// dogrudan `location.href` atamasi, ya da kopru betiginin hic calismadigi
+/// durumlar.
+///
+/// ONEMLI: `on_navigation` IFRAME'ler icin de calisir; bu yuzden burada
+/// HICBIR GEZINME ENGELLENMEZ. Kisa bir bekleyisin ardindan pencerenin
+/// GERCEK (ust duzey) adresine bakilir — iframe ise adres degismemistir ve
+/// hicbir sey yapilmaz. Boylece gomulu PDF onizlemeleri bozulmaz.
+fn guard_document_navigation(app: &AppHandle, url: &Url) {
+    if !looks_like_document_url(url) {
+        return;
+    }
+    let target = url.clone();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1200));
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        // Ust duzey adres hala belge mi? Degilse (iframe / kullanici baska yere
+        // gitti) dokunma.
+        match window.url() {
+            Ok(current) if current.as_str() == target.as_str() => {}
+            _ => return,
+        }
+
+        // Panele DON — kullanici hicbir kosulda kilitli kalmaz.
+        if let Ok(home) = Url::parse(app_home_url()) {
+            let _ = window.navigate(home);
+        }
+
+        // Panel yeniden yuklendikten sonra dosyayi kopru uzerinden indir
+        // (oturum cerezleriyle) — kullanici tiklamasi bosa gitmesin.
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(2500));
+            if let Some(w) = app2.get_webview_window("main") {
+                let js = format!(
+                    "try {{ window.__bogahostDownload && window.__bogahostDownload({:?}); }} catch (e) {{}}",
+                    target.as_str()
+                );
+                let _ = w.eval(js);
+            }
+        });
+    });
 }
 
 /// Indirme baslamadan once hedefi belirler: Indirilenler klasoru,
@@ -1278,6 +1373,23 @@ const INIT_SCRIPT: &str = r#"
   // (menudeki "Yazdır…" bunu cagirir; bkz. Rust `trigger_print`).
   try { window.__bogahostNativePrint = window.print; } catch (e) {}
 
+  // `window.print()` KOPRUSU.
+  // macOS (WKWebView) JS `window.print()` cagrisini SESSIZCE YOK SAYAR —
+  // panellerdeki "Yazdır" dugmeleri orada HICBIR SEY yapmiyordu. Cagriyi
+  // native yazdirma akisina yolluyoruz: `trigger_print` macOS'ta
+  // `WebviewWindow::print()` (native diyalog), diger platformlarda ise
+  // asagida sakladigimiz ORIJINAL fonksiyonu kullanir — yani cift diyalog
+  // acilmaz, sonsuz dongu olusmaz.
+  try {
+    window.print = function () {
+      // `invoke` HICBIR ZAMAN throw etmez; kopru yoksa REDDEDEN promise doner.
+      // Bu yuzden yedek yol `catch` zincirindedir.
+      invoke('bogahost_print', {}).catch(function () {
+        try { window.__bogahostNativePrint.call(window); } catch (e) {}
+      });
+    };
+  } catch (e) {}
+
   function guessName(u, fallback) {
     try {
       var path = (u.pathname || '').split('/').filter(Boolean);
@@ -1314,22 +1426,50 @@ const INIT_SCRIPT: &str = r#"
   }
 
   // ---- Kisa bilgi mesaji (sessiz hata yerine) ----
-  function toast(msg) {
+  // `actionLabel` + `actionFn` verilirse mesajin sagina tiklanabilir bir
+  // baglanti eklenir (ornegin "Klasörde göster") ve mesaj daha uzun durur.
+  function toast(msg, actionLabel, actionFn) {
     try {
       var id = 'bogahost-native-toast';
       var old = document.getElementById(id);
       if (old && old.parentNode) { old.parentNode.removeChild(old); }
       var d = document.createElement('div');
       d.id = id;
-      d.setAttribute('style', 'position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:2147483647;max-width:80vw;padding:11px 18px;border-radius:10px;background:#22242c;color:#e6e8ee;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);font:13px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
-      d.textContent = msg;
+      d.setAttribute('style', 'position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:2147483647;max-width:80vw;padding:11px 18px;border-radius:10px;background:#22242c;color:#e6e8ee;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);font:13px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;display:flex;align-items:center;gap:14px;');
+      var span = document.createElement('span');
+      span.textContent = msg;
+      d.appendChild(span);
+      var life = 6000;
+      if (actionLabel && typeof actionFn === 'function') {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = actionLabel;
+        b.setAttribute('style', 'flex:0 0 auto;cursor:pointer;background:rgba(255,255,255,.10);color:#cfe3ff;border:1px solid rgba(255,255,255,.18);border-radius:7px;padding:5px 11px;font:inherit;');
+        b.onclick = function () {
+          try { actionFn(); } catch (e) {}
+          try { if (d.parentNode) { d.parentNode.removeChild(d); } } catch (e2) {}
+        };
+        d.appendChild(b);
+        life = 12000;
+      }
       (document.body || document.documentElement).appendChild(d);
-      setTimeout(function () { try { if (d.parentNode) { d.parentNode.removeChild(d); } } catch (e) {} }, 6000);
+      setTimeout(function () { try { if (d.parentNode) { d.parentNode.removeChild(d); } } catch (e) {} }, life);
     } catch (e) {}
   }
 
   // Rust tarafi indirme sonucunu buradan bildirir (bkz. `page_toast`).
   try { window.__bogahostToast = toast; } catch (e) {}
+
+  // Indirme BASARILI bilgisi (bkz. Rust `notify_download_saved`):
+  // dosya adi + kaydedildigi klasor + tek tikla "Klasörde göster".
+  try {
+    window.__bogahostDownloadDone = function (name, folder) {
+      toast(name + ' → İndirilenler klasörüne kaydedildi', 'Klasörde göster', function () {
+        invoke('bogahost_reveal_download', {}).catch(function () {});
+      });
+      try { console.log('[bogahost] indirildi:', folder); } catch (e) {}
+    };
+  } catch (e) {}
 
   // ---- window.Notification koprusu ----
   // WebView `Notification` SUNMAZ; paneller "Bu tarayıcı bildirimi desteklemiyor"
@@ -1461,6 +1601,23 @@ const INIT_SCRIPT: &str = r#"
     return false;
   }
 
+  // DUZ linkler (target/`download` YOK) icin KESIN sinyal: gercek bir dosya
+  // uzantisi ya da acik bir disa-aktarma parametresi.
+  //
+  // `looksLikeDownload`'daki yol-sozcugu eslesmesi (`/fatura/`, `/rapor/` ...)
+  // burada KASITLI OLARAK kullanilmaz: duz linkte turu ogrenmek icin ek bir
+  // GET atilir ve o adresler cogu zaman siradan HTML sayfalaridir — gereksiz
+  // ikinci istek (ve varsa denetim kaydi) atilmasin diye kapsam dar tutulur.
+  // O sozcukler zaten `target="_blank"` / `download` tasiyan baglantilarda
+  // devrededir.
+  function looksLikeFile(u) {
+    try {
+      if (DOWNLOAD_EXT.test(String(u.pathname || ''))) { return true; }
+      if (DOWNLOAD_QUERY.test(String(u.search || ''))) { return true; }
+    } catch (e) {}
+    return false;
+  }
+
   // Content-Disposition basligindaki gercek dosya adini kullan (varsa).
   function stripQuotes(v) {
     return String(v == null ? '' : v).split('"').join('').split("'").join('').trim();
@@ -1519,6 +1676,58 @@ const INIT_SCRIPT: &str = r#"
       return saveResponse(res, u, fallbackName, openAfter);
     });
   }
+
+  // Yanit bir BELGE mi (PDF/CSV/XLSX/ZIP ...), yoksa gercek bir HTML sayfasi mi?
+  //
+  // Sunucular indirme amacli dosyalari HER ZAMAN
+  // `Content-Disposition: attachment` ile gondermez — Paraşüt fatura PDF'leri
+  // gibi bircok uc nokta `inline` kullanir. `inline` gelen bir PDF'i WebView
+  // GEZINME sayar: ana pencere belgeye gider ve kullanici panele DONEMEZ.
+  // Bu yuzden karar `Content-Type`'a gore verilir, `Content-Disposition`'a degil.
+  var DOC_TYPE = /(pdf|csv|excel|spreadsheet|officedocument|msword|zip|rar|7z-compressed|x-tar|gzip|octet-stream)/i;
+
+  function isDocumentResponse(res) {
+    try {
+      if (/attachment/i.test(String(res.headers.get('content-disposition') || ''))) { return true; }
+      var ct = String(res.headers.get('content-type') || '').toLowerCase();
+      if (!ct) { return false; }
+      // HTML her zaman gezinmedir (hata sayfalari, yazdirma onizlemeleri ...).
+      if (ct.indexOf('text/html') >= 0 || ct.indexOf('xhtml') >= 0) { return false; }
+      return DOC_TYPE.test(ct);
+    } catch (e) { return false; }
+  }
+
+  // Indirme niyetli bir adres icin DOGRU davranisi secer:
+  //   * `download` niteligi varsa -> dogrudan diske yaz (turu sormaya gerek yok).
+  //   * Yanit belge ise           -> diske yaz + sistem uygulamasinda ac; panel YERINDE KALIR.
+  //   * Yanit HTML ise            -> yeni sekme istendiyse kapatilabilir onizleme
+  //                                  penceresi, aksi halde normal gezinme.
+  function handleMaybeDownload(u, dlAttr, newTab) {
+    if (dlAttr !== null && dlAttr !== undefined) {
+      return downloadViaBridge(u, dlAttr, false);
+    }
+    return fetch(u.href, { credentials: 'include' }).then(function (res) {
+      if (!res.ok) {
+        var err = new Error('http-' + res.status);
+        err.status = res.status;
+        throw err;
+      }
+      if (isDocumentResponse(res)) { return saveResponse(res, u, null, true); }
+      if (newTab) { return openPopup(u.href); }
+      try { location.href = u.href; } catch (e) {}
+      return null;
+    });
+  }
+
+  // Rust emniyet agi (bkz. `guard_document_navigation`) buradan cagirir:
+  // pencere bir belgeye gidip panele geri dondurulduyse dosya yine de insin.
+  try {
+    window.__bogahostDownload = function (href) {
+      var u;
+      try { u = new URL(String(href), location.href); } catch (e) { return; }
+      handleMaybeDownload(u, null, false).catch(function (err) { reportDownloadError(err); });
+    };
+  } catch (e) {}
 
   // Indirme hatasini kullaniciya ANLASILIR bicimde bildirir (sessiz 404 yerine).
   function reportDownloadError(err) {
@@ -1580,13 +1789,15 @@ const INIT_SCRIPT: &str = r#"
     // Kendi alan adimizdaki INDIRME linkleri: sayfayi indirme adresine
     // GOTURMEDEN dosyayi al ve diske yaz.
     //
-    // Yalnizca `download` niteligi olan ya da yeni sekmede acilmak istenen
-    // (WebView'de zaten CALISMAYAN) indirme linkleri ele alinir. Duz linkler
-    // WebView'in kendi indirme akisina (Rust `on_download`) BIRAKILIR — o yol
-    // calisiyor, degistirilmiyor.
-    if (isHttp && (dlAttr !== null || newTab) && looksLikeDownload(abs, a)) {
+    // DUZ linkler de (target/`download` olmadan) buraya girer: Rust
+    // `on_download` YALNIZCA `Content-Disposition: attachment` gelen yanitlar
+    // icin tetiklenir. `inline` gelen bir PDF/CSV o yolu HIC kullanmaz —
+    // WebView onu gezinme sayar, ana pencere belgeye gider ve kullanici
+    // panele donemez. Turu `handleMaybeDownload` sunucuya sorarak belirler,
+    // boylece gercek HTML sayfalari normal sekilde acilmaya devam eder.
+    if (isHttp && (dlAttr !== null || newTab ? looksLikeDownload(abs, a) : looksLikeFile(abs))) {
       ev.preventDefault();
-      downloadViaBridge(abs, dlAttr || null, !dlAttr).catch(function (err) {
+      handleMaybeDownload(abs, dlAttr, newTab).catch(function (err) {
         if (err && err.status) {
           // Sunucu gercekten hata dondu -> kullaniciya soyle (sessiz 404 yok).
           reportDownloadError(err);
@@ -3018,6 +3229,21 @@ fn bogahost_save_file(
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Sayfadaki indirme bilgi mesajinin "Klasörde göster" dugmesi.
+/// Son indirilen dosyayi dosya yoneticisinde SECILI acar; kayit yoksa
+/// dogrudan Indirilenler klasorunu acar.
+#[tauri::command]
+fn bogahost_reveal_download(app: AppHandle) -> Result<(), String> {
+    match last_download(&app) {
+        Some(p) => reveal_in_file_manager(&app, &p),
+        None => {
+            let dir = downloads_dir(&app);
+            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+        }
+    }
+    Ok(())
+}
+
 /// Kullanicinin Indirilenler klasoru (bulunamazsa ev dizini / gecici klasor).
 fn downloads_dir(app: &AppHandle) -> PathBuf {
     if let Ok(dir) = app.path().download_dir() {
@@ -3141,7 +3367,15 @@ fn notify_download_saved(app: &AppHandle, path: &Path) {
             "Konum: {folder}\nTepsi menüsü ▸ \"Son indirilen dosyayı göster\" ile klasörde açabilirsiniz."
         ),
     );
-    page_toast(app, &format!("İndirildi: {name} → {folder}"));
+
+    // Sayfa uzerinde de gorunur geri bildirim + tek tikla "Klasörde göster".
+    // Kopru hazir degilse duz metin mesajina duseriz.
+    if let Some(w) = app.get_webview_window("main") {
+        let js = format!(
+            "try {{ if (window.__bogahostDownloadDone) {{ window.__bogahostDownloadDone({name:?}, {folder:?}); }} else if (window.__bogahostToast) {{ window.__bogahostToast(\"İndirildi: \" + {name:?}); }} }} catch (e) {{}}"
+        );
+        let _ = w.eval(js);
+    }
 }
 
 /// Bagimlilik eklemeden base64 cozucu (standart ve URL-guvenli alfabe).
