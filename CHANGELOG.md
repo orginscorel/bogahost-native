@@ -1,3 +1,31 @@
+## 1.4.0
+
+### Yeni
+- **Açılışta yükleme ekranı (splash).** Önceden ana pencere gizli başlıyor ve ancak
+  uzak sayfa yüklenince gösteriliyordu; kullanıcı birkaç saniye boyunca hiçbir şey
+  görmediği için uygulama açılmamış sanıyordu. Artık ana pencereden **önce** koyu
+  temalı (`#0e1015` / vurgu `#5443D2`) küçük, çerçevesiz bir yükleme penceresi
+  açılıyor: uygulama işareti, uygulama adı, "Yükleniyor…" ve ince bir ilerleme
+  animasyonu. Bu pencere yerel `dist/index.html` sayfasını gösterir — ağ olmasa
+  bile **anında** görünür.
+  Uzak sayfa yüklenince (`on_page_load` → `Finished`) yükleme ekranı kapanır ve
+  ana pencere gösterilir. Sayfa hiç açılmazsa mevcut **8 saniyelik emniyet ağı**
+  yine devrededir; yükleme ekranı sonsuza kadar kalmaz.
+- **Giriş ekranında sürüm rozeti.** Sayfaya enjekte edilen betik, giriş sayfasının
+  altında `v<sürüm> · Powered by Bogahost` yazan küçük, düşük opaklıklı bir rozet
+  gösterir. Sürüm Rust tarafından (`CARGO_PKG_VERSION`) gelir ve JS'e
+  `window.__BOGAHOST_NATIVE_VERSION__` olarak aktarılır — böylece kullanıcı hangi
+  native sürümü kurduğunu görebilir.
+  Rozet **yalnızca giriş sayfasında** çıkar (adreste `/login`/`/giris` geçiyorsa
+  veya sayfada parola alanı varsa); panel arayüzünde gösterilmez. Tıklanamaz
+  (`pointer-events:none`), koyu ve açık temada okunur ve panelin kendi öğelerini
+  kapatmaz. Aynı rozet yükleme ekranında da görünür.
+
+### Değişti
+- `on_window_event` artık yalnızca `main` etiketli pencere için çalışıyor: yükleme
+  ekranının konumu/boyutu ana pencerenin kayıtlı durumunun üzerine yazamaz ve
+  yükleme ekranı kapatılırken "tepsiye gizle" davranışı tetiklenmez.
+
 ## 1.3.0
 
 ### Yeni

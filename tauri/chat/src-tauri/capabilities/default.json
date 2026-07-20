@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "Yerel pencere, tepsi, shell (harici link), native bildirim, guncelleme diyalogu ve otomatik guncelleme izinleri.",
   "windows": [
-    "main"
+    "main",
+    "splash"
   ],
   "permissions": [
     "core:default",

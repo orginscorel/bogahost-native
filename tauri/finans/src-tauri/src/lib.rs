@@ -60,6 +60,10 @@ const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 /// Pencere konumu/boyutu bu dosyada saklanir (uygulama yapilandirma klasoru).
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
+/// Acilis yukleme ekrani (splash) penceresinin etiketi.
+/// Ana pencerenin durumu (konum/boyut) YALNIZCA "main" icin saklanir — bkz. `on_window_event`.
+const SPLASH_LABEL: &str = "splash";
+
 /// Es zamanli/cift surum denetimini engeller.
 static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -72,6 +76,9 @@ static UPDATE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
 /// Pencere bir kez gosterildi mi? (beyaz ekran yerine "yuklenince goster")
 static WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
+
+/// Acilis yukleme ekrani kapatildi mi? (bir kereden fazla kapatilmasin)
+static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
 
 /// Pencere durumu diske en son ne zaman yazildi (asiri yazmayi onler).
 static LAST_STATE_SAVE: Mutex<Option<Instant>> = Mutex::new(None);
@@ -118,6 +125,14 @@ pub fn run() {
                     "eklenti yuklenemedi ({e}) — eski manifest denetimine dusulecek"
                 )),
             }
+
+            // ----- Acilis yukleme ekrani (splash) -----
+            // ANA PENCEREDEN ONCE olusturulur: uzak sayfa yuklenene kadar (birkac
+            // saniye) kullanici bos ekrana bakmasin. Yerel `dist/index.html`
+            // sayfasini gosterir; ilk sayfa yuklenince (ya da en gec
+            // `WINDOW_REVEAL_FALLBACK` sonunda) `reveal_window` tarafindan kapatilir.
+            // Basarisiz olursa YUTULUR — acilis asla engellenmez.
+            build_splash_window(&handle);
 
             // ----- Ana pencere -----
             // Pencere tauri.conf.json'da DEGIL burada olusturuluyor; cunku
@@ -290,17 +305,25 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| match event {
-            // Pencere kapatilinca uygulamayi kapatma, tepsiye gizle (masaustu app hissi).
-            WindowEvent::CloseRequested { api, .. } => {
-                save_window_state(window, true);
-                let _ = window.hide();
-                api.prevent_close();
+        .on_window_event(|window, event| {
+            // Bu isleyici TUM pencereler icin calisir. Splash penceresi ne tepsiye
+            // gizlenmeli ne de konumu/boyutu ana pencerenin durumu olarak
+            // kaydedilmeli — bu yuzden once etiket denetlenir.
+            if window.label() != "main" {
+                return;
             }
-            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                save_window_state(window, false);
+            match event {
+                // Pencere kapatilinca uygulamayi kapatma, tepsiye gizle (masaustu app hissi).
+                WindowEvent::CloseRequested { api, .. } => {
+                    save_window_state(window, true);
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    save_window_state(window, false);
+                }
+                _ => {}
             }
-            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("Bogahost Tauri uygulamasi olusturulurken hata")
@@ -343,7 +366,8 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .visible(false)
         .theme(Some(tauri::Theme::Dark))
         .zoom_hotkeys_enabled(true)
-        .initialization_script(INIT_SCRIPT)
+        // Surum bilgisi (giris ekranindaki rozet icin) JS'e burada aktarilir.
+        .initialization_script(init_script().as_str())
         // WebView'in acamayacagi semalar (mailto:, tel:, ...) sistem uygulamasina
         // yollanir — tiklanip hicbir sey olmamasi ENGELLENIR.
         //
@@ -417,7 +441,50 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .build()
 }
 
-/// Pencereyi (bir kez) gorunur yapar.
+/// Acilis yukleme ekranini (splash) olusturur.
+///
+/// Yerel `dist/index.html` sayfasini gosterir (`WebviewUrl::App`) — uzak sayfaya
+/// ihtiyac duymaz, bu yuzden ag olmasa bile ANINDA gorunur.
+///
+/// Hatalar YUTULUR: splash acilamasa bile uygulama normal calismaya devam eder
+/// (ana pencere en gec `WINDOW_REVEAL_FALLBACK` sonunda gosterilir).
+fn build_splash_window(app: &AppHandle) {
+    let init = version_script();
+    let result = WebviewWindowBuilder::new(
+        app,
+        SPLASH_LABEL,
+        WebviewUrl::App(PathBuf::from("index.html")),
+    )
+    .title(APP_TITLE)
+    .inner_size(420.0, 300.0)
+    .resizable(false)
+    .decorations(false)
+    .center()
+    .visible(true)
+    .focused(true)
+    .always_on_top(true)
+    .theme(Some(tauri::Theme::Dark))
+    .initialization_script(init.as_str())
+    .build();
+
+    if let Err(e) = result {
+        eprintln!("[{}][splash] yukleme ekrani acilamadi: {}", APP_KEY, e);
+    }
+}
+
+/// Acilis yukleme ekranini (bir kez) kapatir.
+/// `destroy()` kullanilir: `CloseRequested` isleyicisini tetiklemez.
+fn close_splash(app: &AppHandle) {
+    if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(w) = app.get_webview_window(SPLASH_LABEL) {
+        let _ = w.destroy();
+    }
+}
+
+/// Pencereyi (bir kez) gorunur yapar ve acilis yukleme ekranini kapatir.
+/// Once ana pencere gosterilir, sonra splash kapatilir — arada bos ekran olmasin.
 fn reveal_window(app: &AppHandle) {
     if WINDOW_REVEALED.swap(true, Ordering::SeqCst) {
         return;
@@ -426,6 +493,7 @@ fn reveal_window(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    close_splash(app);
 }
 
 /// Pencereyi her cagrilista gosterir + one getirir.
@@ -477,6 +545,24 @@ fn bogahost_open_external(app: AppHandle, url: String) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 // Sayfa tarafi kopru (initialization script)
 // ---------------------------------------------------------------------------
+
+/// Sayfaya (hem uzak panel hem yerel splash) enjekte edilen surum bilgisi.
+/// `{:?}` bicimlendirmesi tirnaklari/kacislari kendisi ekler — gecerli bir JS
+/// dize sabiti uretir.
+fn version_script() -> String {
+    format!(
+        "window.__BOGAHOST_NATIVE_VERSION__ = {:?};\nwindow.__BOGAHOST_APP_TITLE__ = {:?};\n",
+        env!("CARGO_PKG_VERSION"),
+        APP_TITLE
+    )
+}
+
+/// Ana pencereye enjekte edilen tam betik: surum bilgisi + sayfa koprusu.
+fn init_script() -> String {
+    let mut script = version_script();
+    script.push_str(INIT_SCRIPT);
+    script
+}
 
 /// Her sayfa yuklemesinde WebView'e enjekte edilir:
 ///  * `target="_blank"` linkleri sessizce yutulmaz (ayni pencerede acilir;
@@ -620,6 +706,79 @@ const INIT_SCRIPT: &str = r#"
     try { location.href = abs.href; } catch (e3) {}
     return null;
   };
+
+  // ---- Giris ekraninda surum rozeti ----
+  // YALNIZCA giris sayfasinda gosterilir (panel arayuzu kirlenmesin).
+  // Tiklanamaz (`pointer-events:none`) ve panelin kendi ogelerinin altinda kalir
+  // (z-index, "Yükleniyor" katmanindan DUSUKTUR).
+  var BADGE_ID = 'bogahost-native-version-badge';
+
+  function isLoginPage() {
+    try {
+      var p = String(location.pathname || '').toLowerCase();
+      if (p.indexOf('/login') >= 0 || p.indexOf('/giris') >= 0) { return true; }
+      if (document.querySelector('input[type="password"]')) { return true; }
+    } catch (e) {}
+    try {
+      if (document.querySelector('form[action*="login"]')) { return true; }
+    } catch (e2) {}
+    return false;
+  }
+
+  function renderBadge() {
+    try {
+      if (!document.body) { return; }
+      var existing = document.getElementById(BADGE_ID);
+      if (!isLoginPage()) {
+        // Giristen panele gecildiyse (SPA/yonlendirme) rozet kaldirilir.
+        if (existing && existing.parentNode) { existing.parentNode.removeChild(existing); }
+        return;
+      }
+      if (existing) { return; }
+      var v = window.__BOGAHOST_NATIVE_VERSION__ || '';
+      var el = document.createElement('div');
+      el.id = BADGE_ID;
+      el.setAttribute('style', [
+        'position:fixed',
+        'left:50%',
+        'bottom:14px',
+        'transform:translateX(-50%)',
+        'z-index:2147483000',
+        'pointer-events:none',
+        'user-select:none',
+        '-webkit-user-select:none',
+        'padding:4px 11px',
+        'border-radius:999px',
+        'border:1px solid rgba(128,132,145,.20)',
+        'background:rgba(128,132,145,.10)',
+        // Orta gri: hem koyu hem acik temada okunur.
+        'color:#8a8f9c',
+        'font:11px/1.4 -apple-system,"Segoe UI",Roboto,Arial,sans-serif',
+        'letter-spacing:.3px',
+        'white-space:nowrap',
+        'opacity:.72'
+      ].join(';'));
+      el.textContent = (v ? 'v' + v + ' · ' : '') + 'Powered by Bogahost';
+      document.body.appendChild(el);
+    } catch (e) {}
+  }
+
+  function scheduleBadge() {
+    renderBadge();
+    // Giris formu sonradan cizilirse (SPA) yakalanir; ~7 sn sonra durur.
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      renderBadge();
+      if (tries >= 10) { clearInterval(timer); }
+    }, 700);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scheduleBadge);
+  } else {
+    scheduleBadge();
+  }
 })();
 "#;
 

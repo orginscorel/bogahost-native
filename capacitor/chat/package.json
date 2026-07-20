@@ -1,6 +1,6 @@
 {
   "name": "@bogahost/native-chat",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "private": true,
   "description": "Bogahost Chat — Capacitor WebView kabuğu (canlı https://chat.bogahost.com/admin yükler; WebRTC görüntülü/sesli).",
   "scripts": {
