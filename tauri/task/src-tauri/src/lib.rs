@@ -1835,22 +1835,6 @@ const INIT_SCRIPT: &str = r#"
     return h === 'bogahost.com' || h.slice(-13) === '.bogahost.com';
   }
 
-  // Panel-ici "Uygulamalar" menusundeki KARDES uygulama adresleri (dcim/finans/
-  // chat/task alt alan adlari) — su anki uygulamanin KENDI adresi HARIC. Bu
-  // linkler target="_blank" tasidigi icin asagidaki "yeni sekme -> onizleme
-  // penceresi" mantigina duserse hedef panel kucuk bir onizleme penceresinde
-  // acilir ve gecis splash'i HIC gorunmez. Kardes panele YERINDE gecilmesi icin
-  // ayrica taninir (bkz. tiklama isleyicisi).
-  function isSiblingApp(u) {
-    try {
-      var h = String((u && u.hostname) || '').toLowerCase();
-      var cur = String(location.hostname || '').toLowerCase();
-      if (!h || h === cur) { return false; }
-      return h === 'dcim.bogahost.com' || h === 'finans.bogahost.com'
-          || h === 'chat.bogahost.com' || h === 'task.bogahost.com';
-    } catch (e) { return false; }
-  }
-
   function openExternal(href) {
     return invoke('bogahost_open_external', { url: href });
   }
@@ -2220,10 +2204,31 @@ const INIT_SCRIPT: &str = r#"
     });
   }
 
+  // Indirme fetch'i: Parasut gibi DIS API arkasi uclarda ilk bayt gec
+  // gelebilir. WebView'in KENDI kisa zaman asimina takilip erken kopmamak icin
+  // makul uzun (120sn) bir AbortController siniri koyariz; zaman asiminda
+  // `timeout` koduyla REDDEDER (reportDownloadError anlasilir mesaj gosterir).
+  var DOWNLOAD_TIMEOUT_MS = 120 * 1000;
+  function fetchDownload(url, opts) {
+    var o = opts || {};
+    var ctl = null;
+    try { ctl = new AbortController(); o.signal = ctl.signal; } catch (e) {}
+    var timer = null;
+    if (ctl) { timer = setTimeout(function () { try { ctl.abort(); } catch (e) {} }, DOWNLOAD_TIMEOUT_MS); }
+    return fetch(url, o).then(function (res) {
+      if (timer) { clearTimeout(timer); }
+      return res;
+    }, function (err) {
+      if (timer) { clearTimeout(timer); }
+      if (err && err.name === 'AbortError') { var te = new Error('timeout'); te.code = 'timeout'; throw te; }
+      throw err;
+    });
+  }
+
   // Sunucudan indirir ve diske yazar. Hata olursa REDDEDER — cagiran taraf ya
   // WebView'in kendi akisina duser ya da kullaniciya anlasilir mesaj gosterir.
   function downloadViaBridge(u, fallbackName, openAfter) {
-    return fetch(u.href, { credentials: 'include' }).then(function (res) {
+    return fetchDownload(u.href, { credentials: 'include' }).then(function (res) {
       if (!res.ok) {
         var err = new Error('http-' + res.status);
         err.status = res.status;
@@ -2253,65 +2258,27 @@ const INIT_SCRIPT: &str = r#"
     } catch (e) { return false; }
   }
 
-  // YAVAS/BUYUK (dis API arkasi) indirme uclari: Parasut e-belge PDF gibi.
-  // Bunlar WKWebView `fetch`->blob ile GUVENILMEZ indirilir (yavas yanitta
-  // baglanti kopar, fetch reddeder). KESIN olarak Rust yolundan gecerler.
-  function isHeavyDoc(u) {
-    try {
-      var p = String(u.pathname || '').toLowerCase();
-      return p.indexOf('/parasut/') >= 0
-          || p.indexOf('/e-fatura-pdf') >= 0
-          || p.indexOf('/e-arsiv-pdf') >= 0
-          || p.indexOf('/e-belge') >= 0;
-    } catch (e) { return false; }
-  }
-
-  // Rust tarafi indirme (uzun timeout + diske streaming + webview oturum cerezi
-  // + ayni User-Agent). Basarisizlikta Rust Err(String) kodu -> anlasilir hata.
-  function downloadViaRust(u, fallbackName, openAfter, allowNavigate) {
-    return invoke('bogahost_fetch_download', {
-      url: u.href,
-      name: fallbackName || null,
-      ua: (function () { try { return navigator.userAgent || null; } catch (e) { return null; } })(),
-      cookie: (function () { try { return document.cookie || null; } catch (e) { return null; } })(),
-      openAfter: !!openAfter,
-      allowNavigate: !!allowNavigate
-    }).catch(function (code) {
-      var s = String(code == null ? 'network' : code);
-      var e = new Error(s);
-      if (s.indexOf('status:') === 0) { e.status = parseInt(s.slice(7), 10) || 0; }
-      else { e.code = s; }
-      throw e;
-    });
-  }
-
   // Indirme niyetli bir adres icin DOGRU davranisi secer:
-  //   * Yavas/buyuk uc (Parasut) -> Rust yolu (uzun timeout + streaming).
   //   * `download` niteligi varsa -> dogrudan diske yaz (turu sormaya gerek yok).
   //   * Yanit belge ise           -> diske yaz + sistem uygulamasinda ac; panel YERINDE KALIR.
   //   * Yanit HTML ise            -> yeni sekme istendiyse kapatilabilir onizleme
   //                                  penceresi, aksi halde normal gezinme.
+  //
+  // NOT (KOK NEDEN — Parasut PDF): Parasut/e-belge PDF uclari da ARTIK bu
+  // ayni-oturum `fetchDownload(credentials:'include')` -> `bogahost_save_file`
+  // yolundan gecer (DCIM/CSV'nin kanitlanmis, sorunsuz yolu). Eskiden `isHeavyDoc`
+  // ile Rust reqwest (`bogahost_fetch_download`) yoluna gidiyorlardi; reqwest
+  // oturum cerezini `Webview::cookies_for_url` ile aliyordu ama httpOnly
+  // `laravel_session`/`XSRF` cerezleri her platformda donmez -> reqwest kimliksiz
+  // gider, Laravel 302 login'e duser ve kullaniciya "Baglantinizi denetleyip
+  // yeniden deneyin" cikardi. Gercek tarayici fetch'i ayni-origin oldugu icin
+  // oturum cerezini (cf_clearance dahil) OTOMATIK gonderir; cerez/CF/TLS sorunu
+  // tumuyle ortadan kalkar.
   function handleMaybeDownload(u, dlAttr, newTab) {
-    if (isHeavyDoc(u)) {
-      var save = (dlAttr !== null && dlAttr !== undefined);
-      // save ise dosyayi yalnizca kaydet; degilse belgeyi indir + sistem
-      // uygulamasinda ac. HTML donerse (allowNavigate) gezin/onizle.
-      return downloadViaRust(u, save ? dlAttr : null, !save, true)
-        .then(function (res) {
-          if (res === '__NAVIGATE__') {
-            if (newTab) { return openPopup(u.href); }
-            try { location.href = u.href; } catch (e) {}
-          }
-          return null;
-        })
-        // Yavas/buyuk uclarda WebView'in kendi akisina DUSME (panel kaybolur);
-        // hatayi dogrudan bildir.
-        .catch(function (err) { reportDownloadError(err); return null; });
-    }
     if (dlAttr !== null && dlAttr !== undefined) {
       return downloadViaBridge(u, dlAttr, false);
     }
-    return fetch(u.href, { credentials: 'include' }).then(function (res) {
+    return fetchDownload(u.href, { credentials: 'include' }).then(function (res) {
       if (!res.ok) {
         var err = new Error('http-' + res.status);
         err.status = res.status;
@@ -2389,20 +2356,6 @@ const INIT_SCRIPT: &str = r#"
       openExternal(abs.href).catch(function () {
         try { a.__bogahostSkip = true; a.click(); } catch (e3) {}
       });
-      return;
-    }
-
-    // ----- Kardes uygulama gecisi (panel-ici "Uygulamalar" menusu) -----
-    // Bu linkler target="_blank" tasir; ASAGIDAKI "yeni sekme -> onizleme
-    // penceresi" dalina duserse hedef panel kucuk bir ONIZLEME penceresinde
-    // acilir, ana pencere gezinmez ve gecis splash'i HIC gorunmez ("arada
-    // kalma"). Kardes panele HER ZAMAN ana pencerede, YERINDE gecilir: hedef
-    // sayfanin document-start yukleme katmani tam ekran gecis splash'ini
-    // deterministik olarak cizer (paylasilan .bogahost.com cerezi ile "onceki
-    // != su anki uygulama" tespiti; bkz. LOADING_OVERLAY_JS).
-    if (isHttp && isSiblingApp(abs)) {
-      ev.preventDefault();
-      try { location.href = abs.href; } catch (e6) {}
       return;
     }
 
@@ -4055,56 +4008,10 @@ const LOADING_OVERLAY_JS: &str = r#"
     } catch (e) {}
   };
 
-  // ---- Uygulama GECISI tespiti: DETERMINISTIK, eval yarisindan BAGIMSIZ -------
-  //
-  // KOK NEDEN (v1.9.x'e kadar splash'in gorunmemesi): tam ekran gecis katmani
-  // yalnizca Rust->JS `eval` (`wake_overlay`) ile uyandiriliyordu; bu eval
-  // navigasyondan sonra hedef belgeye YETISEMEYIP cogu zaman bosa dusuyordu ve
-  // panel-ici "Uygulamalar" menusu gecislerinde HIC cagrilmiyordu (o linkler
-  // ana pencerede degil onizleme penceresinde aciliyordu). Sonuc: gecislerde
-  // ekranda yalnizca ince cubuk ya da hicbir sey gorunuyordu.
-  //
-  // Cozum: hangi uygulamadan gelindigini SAYFANIN KENDISI belirler. Paylasilan
-  // `.bogahost.com` cerezi son ziyaret edilen kardes uygulamayi tutar; hedef
-  // sayfa document-start'ta onu okur. Onceki uygulama su ankinden FARKLIYSA (ya
-  // da cerez bossa = ilk acilis) bu bir GECIS/ACILISTIR -> tam ekran splash
-  // HEMEN cizilir. Ayni uygulama icindeki gezinmelerde yalnizca ince ust cubuk
-  // gorunur. Bu yol menu-cubugu VE panel-ici link gecislerinin IKISINDE de,
-  // hicbir zamanlama yarisi olmadan calisir. (`wake_overlay` artik yalnizca
-  // zararsiz bir pekistirmedir; `showFull` idempotenttir.)
-  var COOKIE = '__bgh_last_app';
-  function readCookie(name) {
-    try {
-      var m = String(document.cookie || '').match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-      return m ? decodeURIComponent(m[1]) : '';
-    } catch (e) { return ''; }
-  }
-  function writeCookie(name, val) {
-    try {
-      var host = String(location.hostname || '').toLowerCase();
-      // Kardes alt alan adlarinin PAYLASMASI icin kok alan adina yazilir.
-      var dom = host.indexOf('bogahost.com') >= 0 ? '; domain=.bogahost.com' : '';
-      document.cookie = name + '=' + encodeURIComponent(val) + '; path=/' + dom + '; max-age=1800; samesite=lax';
-    } catch (e) {}
-  }
-  var curHost = '';
-  try { curHost = String(location.hostname || '').toLowerCase(); } catch (e) {}
-  var isApp = !!(APPS && APPS[curHost]);
-  var autoMode = null;
-  if (isApp) {
-    var prevApp = readCookie(COOKIE);
-    if (prevApp !== curHost) { autoMode = prevApp ? 'switch' : 'boot'; }
-    // Bir sonraki sicrama icin "son uygulama"yi guncelle.
-    writeCookie(COOKIE, curHost);
-  }
-
-  if (autoMode) {
-    // Gecis/acilis: tam ekran splash HEMEN (ince cubuk atlanir).
-    showFull(autoMode);
-  } else {
-    // Ayni uygulama ici gezinme: yalnizca ince ust cubuk.
-    barTimer = setTimeout(showBar, BAR_DELAY);
-  }
+  // Ilk cizim: kisa bir gecikmeden sonra ince ust cubuk. Tam ekran gecis/acilis
+  // splash'i Rust `wake_overlay` (boot/switch) tarafindan `__bogahostLoadingFull`
+  // uzerinden uyandirilir (v1.7.0'dan beri calisan, kanitlanmis yol).
+  barTimer = setTimeout(showBar, BAR_DELAY);
   capTimer = setTimeout(hide, HARD_CAP);
 
   // Asama 2: govde gelmeye basladi -> "Yükleniyor…"
