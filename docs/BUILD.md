@@ -49,10 +49,14 @@ cd android
 
 ### Yerel
 ```bash
+npm install                       # kök (capacitor/cli, sharp)
 npm run icons
-cd capacitor/finans
-npx cap sync ios
-cd ios/App && pod install && cd -
+cd capacitor/finans && npm install && cd -
+# ios/ klasörü commit EDİLMEZ — prepare onu üretir + override/sürüm/entitlements uygular:
+node scripts/prepare.mjs --app finans --platform ios
+cd capacitor/finans && npx cap sync ios && cd -
+node scripts/prepare.mjs --app finans --platform ios --step xcodeproj   # güvenlik ağı
+cd capacitor/finans/ios/App && pod install && cd -
 # imzasız doğrulama:
 xcodebuild -workspace capacitor/finans/ios/App/App.xcworkspace \
   -scheme App -configuration Release -destination 'generic/platform=iOS' \
@@ -63,10 +67,14 @@ xcodebuild -workspace capacitor/finans/ios/App/App.xcworkspace \
 ### CI — `ios.yml`
 - Runner: `macos-latest`
 - Secret **yoksa**: `CODE_SIGNING_ALLOWED=NO` ile imzasız `.xcarchive` üretilir (derleme doğrulaması,
-  App Store'a yüklenemez).
-- Secret **varsa** (`APPLE_CERT`, `APPLE_CERT_PASSWORD`, `PROVISIONING_PROFILE`, `TEAM_ID`): sertifika
-  geçici keychain'e alınır, provisioning profile yüklenir, imzalı archive + `xcodebuild -exportArchive`
-  ile IPA export edilir.
+  App Store'a yüklenemez). İş **yeşil** kalır.
+- Secret **varsa** (`APPLE_CERT`, `APPLE_CERT_PASSWORD`, `PROVISIONING_PROFILE_<APP>`, `TEAM_ID`):
+  sertifika geçici keychain'e alınır, provisioning profile yüklenir, imzalı archive +
+  `xcodebuild -exportArchive` ile IPA export edilir. Dağıtım yöntemi (`app-store-connect` /
+  `ad-hoc` / `development`) workflow girdisiyle seçilir.
+- App Store Connect API secret'ları da varsa: otomatik imzalama + isteğe bağlı TestFlight yüklemesi.
+
+> Tam kılavuz (hesap açmadan App Store incelemesine): [`IOS.md`](IOS.md)
 
 ## Windows (Tauri 2) — MSI + EXE
 

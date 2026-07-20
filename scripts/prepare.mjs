@@ -18,11 +18,22 @@
  *        - res/xml/network_security_config.xml, res/mipmap-anydpi-v26/*.xml → kopyalanır.
  *        - res/values/colors.xml → BİRLEŞTİRİLİR (union; override kazanır).
  *        - iOS Info.plist → PlistBuddy ile anahtar-birleştirme (macOS runner'da mevcut).
- *        - iOS App.entitlements → yerleştirilir (NOT: pbxproj CODE_SIGN_ENTITLEMENTS
- *          bağlaması imzalı build gerektirir — aşağıdaki UYARI'ya bakın).
+ *        - iOS App.entitlements → yerleştirilir VE Xcode projesine
+ *          CODE_SIGN_ENTITLEMENTS build ayarı olarak BAĞLANIR (bkz. patchPbxproj).
+ *
+ *   4. SÜRÜM alanlarını yazar (mağaza şartı):
+ *        - iOS   : MARKETING_VERSION + CURRENT_PROJECT_VERSION (pbxproj)
+ *        - Android: versionName + versionCode (app/build.gradle)
+ *      Sürüm = kök package.json "version". Build numarası = BUILD_NUMBER ortam
+ *      değişkeni (CI'da github.run_number) + BUILD_NUMBER_OFFSET; yoksa sürümden türetilir.
  *
  *   assetlinks.json / apple-app-site-association SUNUCU dosyalarıdır (canlı .well-known
  *   altına ELLE konur) — uygulama paketine KOPYALANMAZ; bilinçli olarak atlanır.
+ *
+ * Adım seçimi (isteğe bağlı):
+ *   --step all        (varsayılan) tüm hazırlık
+ *   --step xcodeproj  yalnız pbxproj yamaları (entitlements + sürüm).
+ *                     `npx cap sync ios` sonrası GÜVENLİK AĞI olarak ikinci kez çalıştırılır.
  *
  * Idempotent: iki kez çalışınca bozmaz. Toolchain (cap/PlistBuddy) yoksa NET hata + çıkış 1.
  * Node 20+, sadece stdlib (+ isteğe bağlı sharp, gen-icons üzerinden).
@@ -53,15 +64,42 @@ function die(msg) {
 }
 
 function parseArgs(argv) {
-  const out = { app: null, platform: null };
+  const out = { app: null, platform: null, step: 'all' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--app') out.app = argv[++i];
     else if (a.startsWith('--app=')) out.app = a.split('=')[1];
     else if (a === '--platform') out.platform = argv[++i];
     else if (a.startsWith('--platform=')) out.platform = a.split('=')[1];
+    else if (a === '--step') out.step = argv[++i];
+    else if (a.startsWith('--step=')) out.step = a.split('=')[1];
   }
   return out;
+}
+
+// ───────────────────────── sürüm / build numarası ─────────────────────────
+
+/** Kök package.json "version" → "1.6.0". Mağazaya görünen sürüm budur. */
+function rootVersion() {
+  const v = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+  if (!/^\d+\.\d+\.\d+/.test(String(v || ''))) {
+    die(`package.json "version" semver değil: ${JSON.stringify(v)}`);
+  }
+  return String(v).split('-')[0]; // ön-sürüm etiketi mağaza alanlarında geçersiz
+}
+
+/**
+ * Artan tamsayı build numarası.
+ *  - CI: BUILD_NUMBER=github.run_number (workflow başına monoton artar) [+ BUILD_NUMBER_OFFSET]
+ *  - Yerel/fallback: sürümden türetilir (1.6.0 → 10600) — mağazaya yerelden yükleme yapılmaz.
+ * App Store ve Play, her yüklemede ÖNCEKİNDEN BÜYÜK bir sayı ister.
+ */
+function buildNumber(version) {
+  const raw = parseInt(process.env.BUILD_NUMBER || '', 10);
+  const off = parseInt(process.env.BUILD_NUMBER_OFFSET || '0', 10) || 0;
+  if (Number.isInteger(raw) && raw > 0) return String(raw + off);
+  const [ma, mi, pa] = version.split('.').map((n) => parseInt(n, 10) || 0);
+  return String(ma * 10000 + mi * 100 + pa);
 }
 
 function loadApp(key) {
@@ -175,6 +213,39 @@ function mergeColorsXml(overrideFile, targetFile) {
   }
 }
 
+// ───────────────────────── ANDROID sürüm alanları ─────────────────────────
+
+/**
+ * android/app/build.gradle içindeki versionName + versionCode alanlarını yazar.
+ * Capacitor şablonu bunları `defaultConfig` içinde `versionCode 1` / `versionName "1.0"`
+ * olarak üretir. Play Console her yüklemede versionCode'un ARTMASINI şart koşar.
+ * Idempotent: değer zaten doğruysa dosya değişmez.
+ */
+function patchAndroidVersion(app) {
+  const gradle = join(ROOT, 'capacitor', app.key, 'android', 'app', 'build.gradle');
+  if (!existsSync(gradle)) {
+    die(`build.gradle bulunamadı: ${gradle} (cap add android başarısız olmuş olabilir).`);
+  }
+  const version = rootVersion();
+  const code = buildNumber(version);
+
+  let src = readFileSync(gradle, 'utf8');
+  const before = src;
+
+  // `versionCode 1` veya `versionCode = 1` (AGP 8 Kotlin/Groovy DSL varyantları)
+  const codeRe = /^([ \t]*versionCode[ \t]*=?[ \t]*)(\d+)([ \t\r]*)$/m;
+  const nameRe = /^([ \t]*versionName[ \t]*=?[ \t]*)(["'])[^"']*\2([ \t\r]*)$/m;
+
+  if (!codeRe.test(src)) die(`build.gradle içinde "versionCode" satırı bulunamadı: ${gradle}`);
+  if (!nameRe.test(src)) die(`build.gradle içinde "versionName" satırı bulunamadı: ${gradle}`);
+
+  src = src.replace(codeRe, (_m, p1, _old, p3) => `${p1}${code}${p3}`);
+  src = src.replace(nameRe, (_m, p1, q, p3) => `${p1}${q}${version}${q}${p3}`);
+
+  if (src !== before) writeFileSync(gradle, src);
+  console.log(`  ✓ Android sürüm: versionName="${version}", versionCode=${code}`);
+}
+
 // ───────────────────────── ANDROID ─────────────────────────
 
 function prepareAndroid(app) {
@@ -245,6 +316,9 @@ function prepareAndroid(app) {
       for (const f of readdirSync(srcDir)) copyInto(join(srcDir, f), destDir, f);
     }
   }
+
+  // 7) Sürüm alanları (mağaza şartı).
+  patchAndroidVersion(app);
 
   console.log(`✓ [${app.key}] android hazırlandı (${app.url}).`);
 }
@@ -385,6 +459,141 @@ function mergeInfoPlist(partialFile, targetPlist) {
   }
 }
 
+// ───────────────────────── iOS: project.pbxproj yamaları ─────────────────────────
+//
+// NEDEN GEREKLİ: prepare, App.entitlements dosyasını yerine koyar; ama Xcode bir
+// entitlements dosyasını YALNIZCA hedefin CODE_SIGN_ENTITLEMENTS build ayarı ona
+// işaret ediyorsa imzaya gömer. Ayar yoksa imzasız doğrulama build'i yine geçer
+// (entitlements zaten uygulanmaz) — fakat İMZALI IPA'da associated-domains
+// (universal link) ve aps-environment (push) SESSİZCE devre dışı kalır.
+//
+// NEDEN GÜVENLİ:
+//  • Yalnız `buildSettings = { … }` bloklarına dokunur; blok sınırı süslü parantez
+//    sayarak (tırnak içi atlanarak) bulunur — regex ile "yaklaşık" eşleşme yapılmaz.
+//  • Yalnız PRODUCT_BUNDLE_IDENTIFIER içeren bloklar hedeflenir → uygulama hedefinin
+//    Debug/Release konfigürasyonları. Proje-düzeyi bloklara dokunulmaz.
+//  • Var olan satır varsa DEĞİŞTİRİLİR, yoksa EKLENİR → idempotent (ikinci çalıştırma
+//    aynı içeriği üretir, dosya büyümez).
+//  • Tüm değerler tırnaklanır (pbxproj'da tırnaklı string her zaman geçerlidir).
+//  • Yazmadan önce doğrulama: parantez dengesi + hiç blok eşleşmediyse NET hata ile çıkış
+//    (sessizce yetkisiz IPA üretmektense CI'ın kırmızı yanması yeğdir).
+
+/** `buildSettings = {` bloklarının [{start:'{' idx, end:'}' idx}] listesi. */
+function findBuildSettingsBlocks(src) {
+  const needle = 'buildSettings = {';
+  const blocks = [];
+  let idx = 0;
+  while ((idx = src.indexOf(needle, idx)) !== -1) {
+    const start = idx + needle.length - 1; // '{' konumu
+    let depth = 0;
+    let inQuote = false;
+    let i = start;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (inQuote) {
+        if (c === '\\') i++;
+        else if (c === '"') inQuote = false;
+        continue;
+      }
+      if (c === '"') inQuote = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (i >= src.length) return null; // dengesiz → dosyaya DOKUNMA
+    blocks.push({ start, end: i });
+    idx = i;
+  }
+  return blocks;
+}
+
+/** Blok gövdesinde (`{`…`}`) bir build ayarını yazar/günceller. */
+function setBuildSetting(body, key, value) {
+  const quoted = `"${String(value).replace(/(["\\])/g, '\\$1')}"`;
+  // NOT: `[ \t\r]*$` — CRLF satır sonlarında da eşleşsin. Eşleşmezse satır İKİNCİ KEZ
+  // eklenir ve pbxproj'da yinelenen anahtar oluşur; bu yüzden \r bilinçli olarak tolere edilir.
+  const lineRe = new RegExp(`^([ \\t]*)${key}[ \\t]*=[ \\t]*[^\\n]*;[ \\t\\r]*$`, 'm');
+  if (lineRe.test(body)) {
+    return body.replace(lineRe, (_m, ind) => `${ind}${key} = ${quoted};`);
+  }
+  const sample = body.match(/\n([ \t]+)\S/);
+  const ind = sample ? sample[1] : '\t\t\t\t';
+  const nl = body.indexOf('\n');
+  if (nl === -1) {
+    // tek satırlık blok: `{ }` → '{' hemen ardına ekle
+    return `${body.slice(0, 1)}\n${ind}${key} = ${quoted};${body.slice(1)}`;
+  }
+  return `${body.slice(0, nl + 1)}${ind}${key} = ${quoted};\n${body.slice(nl + 1)}`;
+}
+
+/**
+ * Uygulama hedefinin tüm build konfigürasyonlarına şunları yazar:
+ *   CODE_SIGN_ENTITLEMENTS   → App/App.entitlements (imzalı IPA'da push + universal link)
+ *   MARKETING_VERSION        → kullanıcıya görünen sürüm (CFBundleShortVersionString)
+ *   CURRENT_PROJECT_VERSION  → artan build numarası (CFBundleVersion)
+ */
+function patchPbxproj(app) {
+  const pbx = join(
+    ROOT, 'capacitor', app.key, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj'
+  );
+  if (!existsSync(pbx)) die(`project.pbxproj bulunamadı: ${pbx}`);
+
+  const version = rootVersion();
+  const build = buildNumber(version);
+  const entitlementsPath = join(
+    ROOT, 'capacitor', app.key, 'ios', 'App', 'App', 'App.entitlements'
+  );
+
+  const settings = [
+    ['MARKETING_VERSION', version],
+    ['CURRENT_PROJECT_VERSION', build],
+  ];
+  // Entitlements dosyası gerçekten yerleştiyse bağla (yoksa Xcode "file not found" ile patlar).
+  if (existsSync(entitlementsPath)) {
+    settings.unshift(['CODE_SIGN_ENTITLEMENTS', 'App/App.entitlements']);
+  } else {
+    console.log('  ⚠ App.entitlements yok — CODE_SIGN_ENTITLEMENTS bağlanmadı.');
+  }
+
+  const original = readFileSync(pbx, 'utf8');
+  const blocks = findBuildSettingsBlocks(original);
+  if (blocks === null) {
+    die(`project.pbxproj süslü parantezleri dengesiz görünüyor — dosyaya dokunulmadı: ${pbx}`);
+  }
+
+  let src = original;
+  let patched = 0;
+  // SONDAN başa: önceki uzunluk değişimleri sonraki ofsetleri bozmasın.
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const { start, end } = blocks[i];
+    let body = src.slice(start, end + 1);
+    if (!body.includes('PRODUCT_BUNDLE_IDENTIFIER')) continue; // proje-düzeyi blok
+    for (const [k, v] of settings) body = setBuildSetting(body, k, v);
+    src = src.slice(0, start) + body + src.slice(end + 1);
+    patched++;
+  }
+
+  if (patched === 0) {
+    die(
+      `project.pbxproj içinde uygulama hedefi build konfigürasyonu bulunamadı ` +
+        `(PRODUCT_BUNDLE_IDENTIFIER yok). Capacitor şablonu değişmiş olabilir: ${pbx}`
+    );
+  }
+
+  // Yazmadan önce son sağlamlık kontrolü.
+  if (findBuildSettingsBlocks(src) === null || !src.includes('rootObject')) {
+    die(`project.pbxproj yaması doğrulanamadı — dosya YAZILMADI: ${pbx}`);
+  }
+  if (src !== original) writeFileSync(pbx, src);
+  console.log(
+    `  ✓ pbxproj (${patched} konfigürasyon): ` +
+      `MARKETING_VERSION=${version}, CURRENT_PROJECT_VERSION=${build}` +
+      (existsSync(entitlementsPath) ? ', CODE_SIGN_ENTITLEMENTS=App/App.entitlements' : '')
+  );
+}
+
 // ───────────────────────── iOS ─────────────────────────
 
 function prepareIos(app) {
@@ -404,10 +613,7 @@ function prepareIos(app) {
 
   const appAppDir = join(iosDir, 'App', 'App');
 
-  // 1) Entitlements dosyasını yerleştir.
-  //    UYARI: bu yalnızca dosyayı KOYAR. Xcode pbxproj'a CODE_SIGN_ENTITLEMENTS
-  //    olarak bağlanması imzalı build (provisioning) gerektirir; imzasız
-  //    doğrulama build'inde entitlements zaten uygulanmaz. Bkz. rapor.
+  // 1) Entitlements dosyasını yerleştir (pbxproj bağlaması 4. adımda).
   copyInto(join(overrides, 'App.entitlements'), appAppDir, 'App.entitlements');
 
   // 2) Info.plist anahtarlarını birleştir (PlistBuddy).
@@ -423,16 +629,22 @@ function prepareIos(app) {
     }
   }
 
+  // 4) Xcode projesi: entitlements bağlaması + sürüm alanları.
+  patchPbxproj(app);
+
   console.log(`✓ [${app.key}] ios hazırlandı (${app.url}).`);
 }
 
 // ───────────────────────── main ─────────────────────────
 
 function main() {
-  const { app: key, platform } = parseArgs(process.argv.slice(2));
+  const { app: key, platform, step } = parseArgs(process.argv.slice(2));
   if (!key) die('--app <key> gerekli.');
   if (!platform || !['android', 'ios'].includes(platform)) {
     die('--platform <android|ios> gerekli.');
+  }
+  if (!['all', 'xcodeproj', 'version'].includes(step)) {
+    die('--step <all|xcodeproj|version> geçersiz.');
   }
   const app = loadApp(key);
 
@@ -440,9 +652,18 @@ function main() {
   const www = join(ROOT, 'capacitor', app.key, 'www');
   if (!existsSync(www)) mkdirSync(www, { recursive: true });
 
-  console.log(`\n=== prepare: ${app.key} / ${platform} ===`);
-  if (platform === 'android') prepareAndroid(app);
-  else prepareIos(app);
+  console.log(`\n=== prepare: ${app.key} / ${platform} (step: ${step}) ===`);
+
+  // `cap sync` sonrası yeniden uygulanabilen, yalnız-yama adımları.
+  if (step === 'xcodeproj' || (step === 'version' && platform === 'ios')) {
+    patchPbxproj(app);
+  } else if (step === 'version') {
+    patchAndroidVersion(app);
+  } else if (platform === 'android') {
+    prepareAndroid(app);
+  } else {
+    prepareIos(app);
+  }
   console.log('=== prepare tamam ===\n');
 }
 

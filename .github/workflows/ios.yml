@@ -1,27 +1,75 @@
 name: iOS (Archive + IPA)
 
 # Capacitor 7 iOS kabuklarını derler.
-# İmzalama sertifikaları YOKSA: CODE_SIGNING_ALLOWED=NO ile imzasız .xcarchive üretir
-#   (derleme doğrulaması — App Store'a yüklenemez).
-# İmzalama sertifikaları VARSA: imzalı archive + IPA export yapılır.
+#
+# İMZASIZ (secret YOK)  : CODE_SIGNING_ALLOWED=NO ile .xcarchive üretir — yalnız derleme
+#                          doğrulaması, cihaza/mağazaya YÜKLENEMEZ. İş YEŞİL kalır.
+# İMZALI  (secret VAR)  : imzalı archive + IPA export (+ istenirse TestFlight yüklemesi).
+#
+# Apple Developer hesabı geldiğinde YAPILACAK TEK ŞEY: secret'ları eklemek.
+# Bu dosyada HİÇBİR değişiklik gerekmez. Secret tablosu → docs/IOS.md
+#
 # macOS + Xcode gerektiği için sadece macos-latest runner'da çalışır.
 
 on:
   workflow_dispatch:
+    inputs:
+      export_method:
+        description: 'IPA dağıtım yöntemi'
+        required: false
+        default: 'app-store-connect'
+        type: choice
+        options:
+          - app-store-connect   # TestFlight / App Store
+          - release-testing     # eski adı: ad-hoc (kayıtlı cihazlara dahili dağıtım)
+          - ad-hoc
+          - development         # eski adı: debugging (geliştirici cihazları)
+          - enterprise          # yalnız Apple Developer Enterprise Program
+      upload_testflight:
+        description: "IPA'yı TestFlight'a yükle (App Store Connect API secret'ları gerekir)"
+        required: false
+        default: false
+        type: boolean
   # NOT: macOS runner'lari private repoda 10x dakika yakar.
   # Bu yuzden branch push'unda CALISMAZ — yalniz surum tag'inde ve elle.
   push:
     tags:
       - 'v*'
   workflow_call:
+    inputs:
+      export_method:
+        required: false
+        type: string
+        default: 'app-store-connect'
+      upload_testflight:
+        required: false
+        type: boolean
+        default: false
     secrets:
       APPLE_CERT:
         required: false
       APPLE_CERT_PASSWORD:
         required: false
+      # Tek profil (tüm uygulamalar için wildcard) — genelde YETMEZ, aşağıya bakın.
       PROVISIONING_PROFILE:
         required: false
+      # Uygulama başına profil (ÖNERİLEN — push + universal link wildcard App ID ile ÇALIŞMAZ).
+      PROVISIONING_PROFILE_FINANS:
+        required: false
+      PROVISIONING_PROFILE_DCIM:
+        required: false
+      PROVISIONING_PROFILE_CHAT:
+        required: false
+      PROVISIONING_PROFILE_TASK:
+        required: false
       TEAM_ID:
+        required: false
+      # App Store Connect API anahtarı — otomatik imzalama ve/veya TestFlight yüklemesi için.
+      APPSTORE_KEY_ID:
+        required: false
+      APPSTORE_ISSUER_ID:
+        required: false
+      APPSTORE_PRIVATE_KEY:
         required: false
 
 permissions:
@@ -34,11 +82,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [finans, dcim, chat, task]
+        include:
+          - app: finans
+            APP: FINANS
+          - app: dcim
+            APP: DCIM
+          - app: chat
+            APP: CHAT
+          - app: task
+            APP: TASK
 
     env:
       WORKSPACE: capacitor/${{ matrix.app }}/ios/App/App.xcworkspace
       SCHEME: App
+      # Mağaza her yüklemede ARTAN bir build numarası ister. run_number workflow başına
+      # monoton artar. Gerekirse BUILD_NUMBER_OFFSET repo variable'ı ile kaydırılabilir.
+      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER_OFFSET: ${{ vars.BUILD_NUMBER_OFFSET || '0' }}
+      EXPORT_METHOD: ${{ inputs.export_method || 'app-store-connect' }}
 
     steps:
       - name: Checkout
@@ -58,15 +119,21 @@ jobs:
         working-directory: capacitor/${{ matrix.app }}
         run: npm install
 
-      # Platformu üret (cap add ios) + Info.plist/entitlements override + AppIcon.
+      # Platformu üret (cap add ios) + Info.plist/entitlements override + AppIcon
+      # + pbxproj yamaları (CODE_SIGN_ENTITLEMENTS, MARKETING_VERSION, CURRENT_PROJECT_VERSION).
       # Taze checkout'ta ios/ klasörü YOKTUR; bu adım onu oluşturur.
       # PlistBuddy macOS runner'da mevcuttur.
-      - name: Prepare iOS platform (cap add + overrides + icons)
+      - name: Prepare iOS platform (cap add + overrides + icons + sürüm)
         run: node scripts/prepare.mjs --app ${{ matrix.app }} --platform ios
 
       - name: Capacitor sync (ios)
         working-directory: capacitor/${{ matrix.app }}
         run: npx cap sync ios
+
+      # GÜVENLİK AĞI: `cap sync` pbxproj'a dokunursa build ayarları geri gelsin.
+      # İdempotenttir; hiçbir şey değişmediyse dosyayı yazmaz.
+      - name: Re-apply Xcode build settings (entitlements + sürüm)
+        run: node scripts/prepare.mjs --app ${{ matrix.app }} --platform ios --step xcodeproj
 
       - name: CocoaPods install
         working-directory: capacitor/${{ matrix.app }}/ios/App
@@ -76,17 +143,27 @@ jobs:
         id: sign
         env:
           CERT: ${{ secrets.APPLE_CERT }}
-          PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+          # Uygulamaya özel profil varsa onu, yoksa ortak profili kullan.
+          PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.APP)] || secrets.PROVISIONING_PROFILE }}
           TEAM: ${{ secrets.TEAM_ID }}
+          ASC_KEY: ${{ secrets.APPSTORE_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.APPSTORE_ISSUER_ID }}
+          ASC_P8: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: |
           if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Unsigned iOS build::APPLE_CERT / PROVISIONING_PROFILE / TEAM_ID secret'ları eksik. ${{ matrix.app }} için imzasız derleme doğrulaması yapılacak, IPA imzalama ATLANACAK. Dağıtım için docs/SIGNING.md."
+            echo "::warning title=Unsigned iOS build::APPLE_CERT / PROVISIONING_PROFILE / TEAM_ID secret'ları eksik. ${{ matrix.app }} için imzasız derleme doğrulaması yapılacak, IPA imzalama ATLANACAK. Dağıtım için docs/IOS.md."
+          fi
+          # App Store Connect API anahtarı → otomatik imzalama + TestFlight yüklemesi mümkün.
+          if [ -n "$ASC_KEY" ] && [ -n "$ASC_ISSUER" ] && [ -n "$ASC_P8" ]; then
+            echo "asc=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "asc=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # ---------- İMZASIZ YOL (doğrulama) ----------
+      # ---------- İMZASIZ YOL (doğrulama) — DEĞİŞMEDİ ----------
       - name: Archive (unsigned verification)
         if: steps.sign.outputs.signed == 'false'
         run: |
@@ -101,13 +178,17 @@ jobs:
           echo "İmzasız .xcarchive üretildi — derleme doğrulandı, IPA imzalama atlandı."
 
       # ---------- İMZALI YOL (IPA) ----------
+      # Sertifikayı geçici bir keychain'e, profili de UUID adıyla kurar; ardından
+      # imza kimliğini ve profil adını build adımları için ÇIKTIYA yazar.
       - name: Import signing assets
+        id: keys
         if: steps.sign.outputs.signed == 'true'
         env:
           APPLE_CERT: ${{ secrets.APPLE_CERT }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+          PROVISIONING_PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.APP)] || secrets.PROVISIONING_PROFILE }}
         run: |
+          set -euo pipefail
           KEYCHAIN="$RUNNER_TEMP/build.keychain"
           KEYCHAIN_PWD="$(uuidgen)"
           security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
@@ -115,53 +196,194 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
 
           echo "$APPLE_CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PWD" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          # Arama listesine EKLE (login.keychain'i düşürme — sistem kökleri lazım).
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
 
+          # İmza kimliğinin TAM adı (ör. "Apple Distribution: Firma Adı (TEAMID)").
+          # NOT: önce değişkene alınır — `| head` kullanılsaydı pipefail altında SIGPIPE riski olurdu.
+          IDENTITY_LIST="$(security find-identity -v -p codesigning "$KEYCHAIN" || true)"
+          IDENTITY="$(printf '%s\n' "$IDENTITY_LIST" \
+            | sed -n 's/^ *[0-9][0-9]*) [0-9A-F]* "\(.*\)"$/\1/p' \
+            | sed -n '1p')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error title=Sertifika okunamadı::APPLE_CERT içindeki .p12 bir kod imzalama kimliği içermiyor (veya APPLE_CERT_PASSWORD yanlış)."
+            printf '%s\n' "$IDENTITY_LIST"
+            exit 1
+          fi
+
+          # Provisioning profili kur + adını/UUID'sini oku.
           PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES_DIR"
-          echo "$PROVISIONING_PROFILE" | base64 -d > "$PROFILES_DIR/profile.mobileprovision"
+          echo "$PROVISIONING_PROFILE" | base64 -d > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          PROFILE_APPID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$RUNNER_TEMP/profile.plist")"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
 
+          BUNDLE_ID="$(node -p "require('./apps.config.json').apps.find(a=>a.key==='${{ matrix.app }}').appId")"
+
+          # Profil bu uygulamaya mı ait? (wildcard '*' kabul edilir)
+          case "$PROFILE_APPID" in
+            *"$BUNDLE_ID") : ;;
+            *'*') echo "::warning title=Wildcard profil::$PROFILE_APPID bir wildcard App ID. Push (aps-environment) ve associated-domains wildcard ile ÇALIŞMAZ — uygulamaya özel profil kullanın (docs/IOS.md)." ;;
+            *) echo "::error title=Profil uyuşmuyor::Profil '$PROFILE_APPID' için, uygulama ise '$BUNDLE_ID'. PROVISIONING_PROFILE_${{ matrix.APP }} secret'ını kontrol edin." ; exit 1 ;;
+          esac
+
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "bundle_id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
+          echo "İmza kimliği : $IDENTITY"
+          echo "Profil       : $PROFILE_NAME ($PROFILE_UUID) → $PROFILE_APPID"
+
+      # App Store Connect API anahtarı (varsa) — otomatik imzalama + TestFlight için.
+      - name: Install App Store Connect API key
+        id: asc
+        if: steps.sign.outputs.signed == 'true' && steps.sign.outputs.asc == 'true'
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$DIR"
+          # Secret ham .p8 metni de olabilir, base64 de — ikisini de kabul et.
+          if echo "$APPSTORE_PRIVATE_KEY" | grep -q 'BEGIN PRIVATE KEY'; then
+            printf '%s\n' "$APPSTORE_PRIVATE_KEY" > "$DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          else
+            echo "$APPSTORE_PRIVATE_KEY" | base64 -d > "$DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          fi
+          chmod 600 "$DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          echo "key_path=$DIR/AuthKey_${APPSTORE_KEY_ID}.p8" >> "$GITHUB_OUTPUT"
+          echo "App Store Connect API anahtarı kuruldu → otomatik imzalama + TestFlight açık."
+
+      # İMZALAMA STİLİ:
+      #  • ASC API anahtarı VARSA  → automatic (Xcode profilleri kendi üretir/yeniler)
+      #  • ASC API anahtarı YOKSA  → manual   (yüklenen profil + kimlik doğrudan kullanılır)
+      # İkisi de kod değişikliği GEREKTİRMEDEN, yalnız secret'lara göre seçilir.
       - name: Archive (signed)
         if: steps.sign.outputs.signed == 'true'
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
-          xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" \
-            clean archive \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            -allowProvisioningUpdates
+          set -euo pipefail
+          COMMON=(
+            -workspace "$WORKSPACE"
+            -scheme "$SCHEME"
+            -configuration Release
+            -destination 'generic/platform=iOS'
+            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive"
+            clean archive
+            DEVELOPMENT_TEAM="$TEAM_ID"
+            OTHER_CODE_SIGN_FLAGS="--keychain ${{ steps.keys.outputs.keychain }}"
+          )
+          if [ "${{ steps.sign.outputs.asc }}" = "true" ]; then
+            echo "→ otomatik imzalama (App Store Connect API anahtarı ile)"
+            xcodebuild "${COMMON[@]}" \
+              CODE_SIGN_STYLE=Automatic \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "${{ steps.asc.outputs.key_path }}" \
+              -authenticationKeyID "$APPSTORE_KEY_ID" \
+              -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID"
+          else
+            echo "→ manuel imzalama (yüklenen provisioning profile ile)"
+            xcodebuild "${COMMON[@]}" \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="${{ steps.keys.outputs.identity }}" \
+              PROVISIONING_PROFILE_SPECIFIER="${{ steps.keys.outputs.profile_name }}"
+          fi
 
       - name: Export IPA
         if: steps.sign.outputs.signed == 'true'
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          set -euo pipefail
+          PLIST="$RUNNER_TEMP/ExportOptions.plist"
+          IDENTITY='${{ steps.keys.outputs.identity }}'
+          PROFILE_NAME='${{ steps.keys.outputs.profile_name }}'
+          BUNDLE_ID='${{ steps.keys.outputs.bundle_id }}'
+
+          # NOT: tek satırda kurulur — plist XML'i satır sonu gerektirmez ve çok satırlı
+          # kabuk değişkeni YAML blok skalarını bozardı.
+          if [ "${{ steps.sign.outputs.asc }}" = "true" ]; then
+            # Otomatik: Xcode profilleri App Store Connect API ile kendi çözer.
+            SIGNING_BLOCK="<key>signingStyle</key><string>automatic</string>"
+          else
+            # Manuel: yüklediğimiz kimlik + profil adı birebir kullanılır.
+            SIGNING_BLOCK="<key>signingStyle</key><string>manual</string>"
+            SIGNING_BLOCK="${SIGNING_BLOCK}<key>signingCertificate</key><string>${IDENTITY}</string>"
+            SIGNING_BLOCK="${SIGNING_BLOCK}<key>provisioningProfiles</key><dict><key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string></dict>"
+          fi
+
+          cat > "$PLIST" <<PLISTEOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key><string>app-store-connect</string>
+            <key>method</key><string>${EXPORT_METHOD}</string>
             <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>automatic</string>
             <key>destination</key><string>export</string>
+            <key>uploadSymbols</key><true/>
+            <!-- Xcode sürüm/build numarasını KENDİ BAŞINA değiştirmesin: doğru
+                 değerleri prepare.mjs zaten pbxproj'a yazdı. -->
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          ${SIGNING_BLOCK}
           </dict>
           </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/ipa" \
-            -allowProvisioningUpdates
+          PLISTEOF
+          # Heredoc girintisini temizle (YAML okunabilirliği için eklendi).
+          sed -i '' -e 's/^          //' "$PLIST"
+          echo "--- ExportOptions.plist ---"; cat "$PLIST"
+          plutil -lint "$PLIST"
+
+          EXPORT_ARGS=(
+            -exportArchive
+            -archivePath "$RUNNER_TEMP/${{ matrix.app }}.xcarchive"
+            -exportOptionsPlist "$PLIST"
+            -exportPath "$RUNNER_TEMP/ipa"
+          )
+          if [ "${{ steps.sign.outputs.asc }}" = "true" ]; then
+            EXPORT_ARGS+=(
+              -allowProvisioningUpdates
+              -authenticationKeyPath "${{ steps.asc.outputs.key_path }}"
+              -authenticationKeyID "$APPSTORE_KEY_ID"
+              -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID"
+            )
+          fi
+          xcodebuild "${EXPORT_ARGS[@]}"
+
+      # TestFlight yüklemesi — YALNIZ elle tetiklenip istendiğinde ve API anahtarı varsa.
+      - name: Upload to TestFlight
+        if: >-
+          steps.sign.outputs.signed == 'true' &&
+          steps.sign.outputs.asc == 'true' &&
+          inputs.upload_testflight &&
+          (inputs.export_method == 'app-store-connect' || inputs.export_method == '')
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA="$(find "$RUNNER_TEMP/ipa" -name '*.ipa' | head -n1)"
+          if [ -z "$IPA" ]; then
+            echo "::error title=IPA yok::Yüklenecek IPA bulunamadı."; exit 1
+          fi
+          echo "TestFlight'a yükleniyor: $IPA"
+          xcrun altool --upload-app --type ios --file "$IPA" \
+            --apiKey "$APPSTORE_KEY_ID" --apiIssuer "$APPSTORE_ISSUER_ID"
+          echo "Yüklendi. İşlenmesi 5–30 dk sürer; App Store Connect > TestFlight'tan izleyin."
 
       - name: Collect artifacts
+        if: always()
         run: |
           mkdir -p artifacts
           # imzalı IPA (varsa)
@@ -173,9 +395,17 @@ jobs:
           ls -la artifacts || true
 
       - name: Upload iOS artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-${{ matrix.app }}
           path: artifacts/*
           if-no-files-found: warn
           retention-days: 30
+
+      # Geçici keychain'i her hâlükârda temizle (runner paylaşımlı olmasa da hijyen).
+      - name: Cleanup keychain
+        if: always() && steps.keys.outputs.keychain != ''
+        run: |
+          security delete-keychain "${{ steps.keys.outputs.keychain }}" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/profile.plist" || true

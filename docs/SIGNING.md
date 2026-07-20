@@ -12,7 +12,7 @@ GitHub'da **Settings → Secrets and variables → Actions → New repository se
 | Platform | Workflow | Secret adları | Yoksa davranış |
 |----------|----------|---------------|----------------|
 | Android | `android.yml` | `SIGNING_KEYSTORE_BASE64`, `KEY_ALIAS`, `STORE_PASSWORD`, `KEY_PASSWORD` | İmzasız APK/AAB + uyarı |
-| iOS | `ios.yml` | `APPLE_CERT`, `APPLE_CERT_PASSWORD`, `PROVISIONING_PROFILE`, `TEAM_ID` | İmzasız `.xcarchive` (doğrulama), IPA atlanır |
+| iOS | `ios.yml` | `APPLE_CERT`, `APPLE_CERT_PASSWORD`, `PROVISIONING_PROFILE_<APP>`, `TEAM_ID` | İmzasız `.xcarchive` (doğrulama), IPA atlanır |
 | Windows | `windows.yml` | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | İmzasız MSI/EXE + uyarı |
 | macOS | `macos.yml` | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | İmzasız DMG (Gatekeeper uyarısı) |
 
@@ -50,23 +50,37 @@ varsa release `signingConfig`'ini devreye alacak şekilde kurgulanmalıdır (Cap
 
 ## iOS — Apple Developer sertifikası + provisioning
 
+> 📘 **Uçtan uca kılavuz: [`IOS.md`](IOS.md)** — hesap açma, App ID, sertifika,
+> profil, TestFlight, push (APNs), universal link ve App Store inceleme notları.
+> Aşağısı yalnızca özettir.
+
 **Gerekli:** Apple Developer Program üyeliği (**99 USD/yıl**).
 
 1. **Distribution sertifikası** oluştur (Apple Developer → Certificates → Apple Distribution).
    `.p12` olarak dışa aktar (Keychain Access → export, parola belirle).
 2. **App ID** kaydet: her uygulama için `com.bogahost.finans`, `.dcim`, `.chat`, `.task`.
-3. **Provisioning profile** (App Store dağıtımı) oluştur ve indir (`.mobileprovision`).
+   **Push Notifications + Associated Domains** kutularını işaretle.
+   ⚠️ Wildcard App ID (`com.bogahost.*`) **kullanma** — bu iki yetenek wildcard'da çalışmaz.
+3. **Provisioning profile** (App Store dağıtımı) — her bundle ID için **ayrı** üret ve indir.
 4. base64'e çevir:
    ```bash
-   base64 -i dist.p12 | tr -d '\n'                 # → APPLE_CERT
-   base64 -i profile.mobileprovision | tr -d '\n'  # → PROVISIONING_PROFILE
+   base64 -w0 dist.p12                        # → APPLE_CERT           (tek sertifika, 4'ü için ortak)
+   base64 -w0 Bogahost_Finans.mobileprovision # → PROVISIONING_PROFILE_FINANS
+   base64 -w0 Bogahost_DCIM.mobileprovision   # → PROVISIONING_PROFILE_DCIM
+   base64 -w0 Bogahost_Chat.mobileprovision   # → PROVISIONING_PROFILE_CHAT
+   base64 -w0 Bogahost_Task.mobileprovision   # → PROVISIONING_PROFILE_TASK
    ```
 
 GitHub secret'ları: `APPLE_CERT`, `APPLE_CERT_PASSWORD` (.p12 parolası),
-`PROVISIONING_PROFILE`, `TEAM_ID` (10 karakterli takım kimliği).
+`PROVISIONING_PROFILE_FINANS|_DCIM|_CHAT|_TASK`, `TEAM_ID` (10 karakterli takım kimliği).
+Uygulamaya özel secret yoksa ortak `PROVISIONING_PROFILE` yedeğe düşer.
 
-> Not: 4 uygulamanın her biri ayrı App ID + ayrı provisioning profile ister. Otomatik imzalama
-> (`-allowProvisioningUpdates`) kullanıldığından tek Distribution sertifikası yeterlidir.
+İsteğe bağlı (TestFlight'a otomatik yükleme + otomatik imzalama):
+`APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_PRIVATE_KEY`.
+
+> Not: 4 uygulamanın her biri ayrı App ID + ayrı provisioning profile ister; tek
+> Distribution sertifikası hepsi için yeterlidir. ASC API anahtarı verilirse
+> otomatik, verilmezse manuel imzalama kullanılır — ikisi de kodludur.
 
 ---
 

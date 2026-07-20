@@ -41,6 +41,12 @@ jobs:
       matrix:
         app: [finans, dcim, chat, task]
 
+    env:
+      # Play Console her yüklemede ARTAN bir versionCode ister. run_number workflow
+      # başına monoton artar. Gerekirse BUILD_NUMBER_OFFSET repo variable'ı ile kaydırılır.
+      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER_OFFSET: ${{ vars.BUILD_NUMBER_OFFSET || '0' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,14 +76,20 @@ jobs:
         working-directory: capacitor/${{ matrix.app }}
         run: npm install
 
-      # Platformu üret (cap add) + override'ları kopyala + ikonları yerleştir.
+      # Platformu üret (cap add) + override'ları kopyala + ikonları yerleştir
+      # + versionName/versionCode yaz (mağaza şartı).
       # Taze checkout'ta android/ klasörü YOKTUR; bu adım onu oluşturur.
-      - name: Prepare Android platform (cap add + overrides + icons)
+      - name: Prepare Android platform (cap add + overrides + icons + sürüm)
         run: node scripts/prepare.mjs --app ${{ matrix.app }} --platform android
 
       - name: Capacitor sync (android)
         working-directory: capacitor/${{ matrix.app }}
         run: npx cap sync android
+
+      # GÜVENLİK AĞI: `cap sync` build.gradle'a dokunursa sürüm alanları geri gelsin.
+      # İdempotenttir; değer zaten doğruysa dosyayı yazmaz.
+      - name: Re-apply Android sürüm alanları
+        run: node scripts/prepare.mjs --app ${{ matrix.app }} --platform android --step version
 
       - name: Detect signing secrets
         id: sign

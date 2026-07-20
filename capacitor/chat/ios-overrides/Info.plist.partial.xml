@@ -2,6 +2,12 @@
 <!--
   Bogahost Chat — iOS Info.plist parçası. Kök <dict> içine BİRLEŞTİRİLİR.
   WebRTC için kamera + mikrofon kullanım açıklamaları zorunludur.
+
+  "voip" ARKA PLAN MODU BİLİNÇLİ OLARAK KALDIRILDI: Apple, UIBackgroundModes'ta
+  "voip" bildiren uygulamalardan PushKit (PKPushRegistry) + CallKit entegrasyonu
+  ŞART koşar. Bu bir WebView kabuğudur, ikisini de kullanmaz → App Store
+  incelemesinde reddedilir. Arama sesi için "audio" modu yeterlidir.
+  Bkz. docs/IOS.md → "Reddedilme riskleri".
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -22,7 +28,6 @@
     <array>
         <string>remote-notification</string>
         <string>audio</string>
-        <string>voip</string>
     </array>
 
     <key>NSAppTransportSecurity</key>
@@ -30,5 +35,17 @@
         <key>NSAllowsArbitraryLoads</key>
         <false/>
     </dict>
+
+    <!-- Sürüm alanları: Xcode, build sırasında pbxproj'daki build ayarlarını buraya
+         genişletir (prepare.mjs bu ayarları package.json sürümünden yazar). -->
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- Yalnız standart HTTPS/TLS → ihracat kısıtlamasına tabi şifreleme yok. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>

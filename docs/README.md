@@ -11,6 +11,7 @@ Proje özeti ve mimari için kök [`../README.md`](../README.md).
 |-------|--------|
 | [BUILD.md](BUILD.md) | Her platform için yerel + CI derleme adımları, gerekli OS/SDK |
 | [SIGNING.md](SIGNING.md) | Android keystore, iOS sertifika/provisioning, Windows Authenticode, macOS Developer ID + secret adları |
+| [IOS.md](IOS.md) | **iOS uçtan uca**: Apple Developer hesabı → App ID → sertifika/profil → GitHub secret'ları → TestFlight → App Store inceleme notları, push (APNs) ve universal link kurulumu |
 | [PUBLISH.md](PUBLISH.md) | Google Play, App Store/TestFlight, Microsoft Store/MSI, macOS notarize+DMG |
 | [PWA.md](PWA.md) | Mağazasız PWA kurulumu + `.well-known` (assetlinks / AASA) adımı |
 | [PUSH.md](PUSH.md) | Bildirim gerçeği: web-push vs. native FCM/APNs |
