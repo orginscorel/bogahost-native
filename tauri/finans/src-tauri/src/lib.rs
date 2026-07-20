@@ -128,7 +128,22 @@ const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 /// yaklasimlarda splash daha BOYANMADAN kapanip ana pencere geliyordu — kullanici
 /// "hic loading ekrani yok" diyordu. Panel hazir OLSA bile bu sure dolana kadar
 /// ana pencere gosterilmez, boylece yukleme ekrani HER ACILISTA gorunur.
-const MIN_SPLASH_TIME: Duration = Duration::from_millis(700);
+///
+/// 1.5sn'ye cikarildi (sonraki guncelleme): kullanici geri bildirimi "biraz daha uzun
+/// surebilir, cok degil" — splash artik daha detayli/buyuk oldugu icin bu
+/// sure onu rahat okunur kilar, gene de bekletici hissettirmez.
+const MIN_SPLASH_TIME: Duration = Duration::from_millis(1500);
+
+/// Ana pencere gosterildikten (`show`+`set_focus`) SONRA, splash penceresi
+/// kapatilmadan (`destroy`) ONCE beklenen ekstra tampon.
+///
+/// NEDEN: derleyici/GPU birkac ms icinde ana pencerenin ILK karesini boyar;
+/// bu tampon olmadan splash bazen o kare boyanmadan yok olup bir anlik bos
+/// kare gorulebilir. Splash zaten ana pencerenin ARKASINDA kaldigi (odak ana
+/// pencerede) icin kullanici bu bekleme sirasinda YINE splash'i gorur — sert
+/// kesme yerine yumusak bir devir teslimi hissi verir. Mekanizma (gizli-baslat
+/// + reveal_window + 8s fallback) DEGISMEDI, yalnizca zamanlama inceltildi.
+const SPLASH_HANDOFF_BUFFER: Duration = Duration::from_millis(120);
 
 /// Pencere konumu/boyutu bu dosyada saklanir (uygulama yapilandirma klasoru).
 const WINDOW_STATE_FILE: &str = "window-state.json";
@@ -1318,6 +1333,12 @@ fn hide_overlay(app: &AppHandle) {
 /// Ayni surecteki tum webview'ler (main/popup/splash) WebView2'de AYNI veri
 /// klasoru + AYNI tarayici argumanlarini kullanmak ZORUNDADIR (tauri#11144) —
 /// bu yuzden burada da ayni degerler verilir.
+///
+/// Boyut 520x420'ye buyutuldu (sonraki guncelleme, oncesi 440x300): logo/ad/surum/ilerleme
+/// halkasini rahat sigdirmak icin. `shadow(true)` dekorasyonsuz pencereye
+/// (baslik cubugu olmadigi icin OS'in kendiliginden vermedigi) yumusak bir
+/// govde golgesi ekler; docs.rs'e gore `desktop` icin tanimlidir, `transparent`
+/// gerektirmez (Windows 11'de ayrica kose yuvarlama da saglar).
 fn build_splash_window(app: &AppHandle) {
     // Otomatik baslatmada (`--hidden`) hicbir pencere gosterilmez.
     if LAUNCHED_HIDDEN.load(Ordering::SeqCst) {
@@ -1326,9 +1347,10 @@ fn build_splash_window(app: &AppHandle) {
     let mut builder =
         WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("index.html".into()))
             .title(APP_TITLE)
-            .inner_size(440.0, 300.0)
+            .inner_size(520.0, 420.0)
             .resizable(false)
             .decorations(false)
+            .shadow(true)
             .center()
             .visible(true)
             .focused(true)
@@ -1394,6 +1416,9 @@ fn reveal_window(app: &AppHandle) {
             let _ = w.show();
             let _ = w.set_focus();
         }
+        // Ana pencerenin ilk karesi boyansin diye kisa bir tampon (bkz.
+        // `SPLASH_HANDOFF_BUFFER`) — devir teslimi sert degil yumusak olsun.
+        std::thread::sleep(SPLASH_HANDOFF_BUFFER);
         close_splash(&app);
     });
 }
