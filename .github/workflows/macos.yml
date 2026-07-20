@@ -9,9 +9,9 @@ name: macOS (DMG + App)
 
 on:
   workflow_dispatch:
+  # NOT: macOS runner'lari private repoda 10x dakika yakar.
+  # Bu yuzden branch push'unda CALISMAZ — yalniz surum tag'inde ve elle.
   push:
-    branches:
-      - native-apps
     tags:
       - 'v*'
   workflow_call:
