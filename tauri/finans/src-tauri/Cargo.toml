@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-finans"
-version = "1.9.3"
+version = "1.9.4"
 description = "Bogahost Finans — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
