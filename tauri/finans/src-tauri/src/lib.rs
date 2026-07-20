@@ -48,6 +48,20 @@ const DOWNLOAD_PAGE_URL: &str = "https://github.com/orginscorel/bogahost-native/
 /// Menu ogesi id on eki (uygulama gecisi).
 const APP_MENU_PREFIX: &str = "app:";
 
+/// WebView2 (Windows) ek tarayici argumanlari.
+///
+/// `additional_browser_args` Tauri'nin VARSAYILANLARININ YERINE GECER; bu yuzden
+/// varsayilan `--disable-features=...` listesi AYNEN korunur ve uzerine
+/// otomatik oynatma izni eklenir (bildirim sesi / arama zili ilk tiklamayi
+/// beklemesin).
+///
+/// ⚠ AYNI veri klasorunu paylasan TUM webview'lerde AYNI olmalidir; farkli
+/// argumanlar + ayni klasor WebView2'de olusturma hatasina yol acar
+/// (tauri#11144). Bu yuzden ana pencere ve splash AYNI sabiti kullanir.
+#[cfg(target_os = "windows")]
+const WEBVIEW2_BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+
 /// Ag islemleri icin ust sinir — acilista ASLA uzun sure beklenmez.
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(7);
 
@@ -127,6 +141,13 @@ struct AppState {
     last_download: Mutex<Option<PathBuf>>,
     /// "Bildirimler: acik/kapali" tepsi ogeleri (durum guncellenebilsin diye).
     notify_items: Mutex<Vec<MenuItem<Wry>>>,
+    /// En son gosterilen bildirimin hedef adresi.
+    ///
+    /// NEDEN: masaustunde `tauri-plugin-notification` bildirime TIKLAMA olayi
+    /// SUNMAZ. Bu yuzden "bildirime tiklayinca ilgili sayfaya git" yerine tepsi
+    /// menusune "Son bildirimi ac" ogesi konuldu — ayni ise yarar, olmayan bir
+    /// API uydurmaz.
+    last_notify_url: Mutex<Option<String>>,
 }
 
 pub fn run() {
@@ -146,7 +167,10 @@ pub fn run() {
             bogahost_notify_request,
             bogahost_open_popup,
             bogahost_close_window,
-            bogahost_print
+            bogahost_print,
+            bogahost_open_settings,
+            bogahost_focus_window,
+            bogahost_set_fullscreen
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -215,6 +239,14 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            // Masaustunde bildirime TIKLAMA olayi yoktur (bkz. AppState::last_notify_url).
+            let notiflast_i = MenuItem::with_id(
+                app,
+                "notify-last-open",
+                "Son bildirimi aç",
+                true,
+                None::<&str>,
+            )?;
             let upd_i = MenuItem::with_id(
                 app,
                 "check-update",
@@ -254,6 +286,7 @@ pub fn run() {
                 &dlfolder_i,
                 &dllast_i,
                 &notify_i,
+                &notiflast_i,
                 &sep_c,
                 &about_i,
                 &upd_i,
@@ -310,6 +343,7 @@ pub fn run() {
                 zoom: Mutex::new(1.0),
                 last_download: Mutex::new(None),
                 notify_items: Mutex::new(notify_items),
+                last_notify_url: Mutex::new(None),
             });
 
             // Menu cubugu (ve varsa pencere menusu) olaylari.
@@ -417,6 +451,19 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .visible(false)
         .theme(Some(tauri::Theme::Dark))
         .zoom_hotkeys_enabled(true)
+        // ----- Surukle-birak ile dosya yukleme -----
+        // Tauri'nin KENDI surukle-birak isleyicisi VARSAYILAN OLARAK aciktir ve
+        // isletim sistemi olayini YUTAR. Bunun yan etkisi: sayfanin `dragover` /
+        // `drop` olaylari HIC tetiklenmez, yani `<input type=file>` alanina veya
+        // sohbet penceresine dosya SURUKLENEMEZ. wry'nin kendi belgesi bunu
+        // acikca soyler ("...it won't be possible to drop files on
+        // <input type=file> forms"). Bu davranis Windows'a OZGU DEGILDIR;
+        // macOS ve Linux arka uclarinda da ayni sekilde engellenir.
+        //
+        // Kabuk zaten surukle-birakla bir sey YAPMIYOR (dinleyici yok), bu yuzden
+        // isleyiciyi kapatmak hicbir ozelligi kaybettirmez, panelin kendi
+        // yukleme alanlarini CALISIR HALE getirir.
+        .disable_drag_drop_handler()
         // Surum bilgisi (giris ekranindaki rozet + panel sidebar'indaki
         // "Uygulama v…" satiri) JS'e burada aktarilir.
         // `initialization_script` HER GEZINMEDE, sayfanin kendi script'lerinden
@@ -476,9 +523,32 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
             }
         });
 
+    // ----- Bildirim sesi / arama zili (Windows) -----
+    // WebView2 varsayilan olarak "kullanici etkilesimi olmadan ses calma" yasagi
+    // uygular; panelin arama zili ve bildirim sesi ilk tiklamaya kadar CALMAZ.
+    // `additional_browser_args` Tauri'nin VARSAYILAN argumanlarinin YERINE GECER
+    // (unwrap_or_else) — bu yuzden varsayilanlar AYNEN tekrar yazilmistir,
+    // aksi halde msWebOOUI/msPdfOOUI/SmartScreen davranislari degisirdi.
+    //
+    // macOS/Linux'ta karsiligi YOKTUR: wry'de `with_autoplay` vardir ama Tauri
+    // 2 bunu disari acmaz. Oralarda ses kilidi sayfa tarafinda ilk kullanici
+    // hareketiyle acilir (bkz. EXTRA_SCRIPT -> "ses kilidi").
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
+    }
+
     // Oturum cerezleri 4 uygulamada PAYLASILIR — bkz. `SHARED_WEBVIEW_DIR_NAME`.
     // Klasor hazirlanamazsa varsayilan (uygulamaya ozel) depo kullanilir:
     // gecislerde tekrar giris istenir ama uygulama CALISMAYA DEVAM EDER.
+    //
+    // ⚠ macOS SINIRI: `data_directory` yalnizca Windows (WebView2) ve Linux
+    // (WebKitGTK) arka uclarinda ETKILIDIR. WKWebView'de karsiligi YOKTUR ve
+    // wry bu degeri macOS'ta SESSIZCE YOK SAYAR — macOS'ta her uygulama
+    // `WKWebsiteDataStore::defaultDataStore` kullanir, yani 4 kabuk cerezleri
+    // PAYLASMAZ ve her birinde AYRI giris yapilir. Bu bir hata degil, ust akis
+    // (Tauri 2.11) sinirdir; cozumu `with_data_store_identifier` (macOS 14+)
+    // olurdu ama Tauri bunu da disari acmaz.
     if let Some(dir) = shared_webview_dir(app) {
         builder = builder.data_directory(dir);
     }
@@ -619,6 +689,9 @@ fn open_popup_window(app: &AppHandle, url: Url) -> tauri::Result<()> {
         .focused(true)
         .theme(Some(tauri::Theme::Dark))
         .zoom_hotkeys_enabled(true)
+        // Ana pencereyle ayni gerekce: OS surukle-birak isleyicisi sayfanin
+        // `drop` olayini yutmasin (bkz. `build_main_window`).
+        .disable_drag_drop_handler()
         .initialization_script(popup_init_script().as_str())
         .on_download(|webview, event| {
             let app = webview.app_handle().clone();
@@ -637,6 +710,12 @@ fn open_popup_window(app: &AppHandle, url: Url) -> tauri::Result<()> {
     // Ana pencereyle AYNI cerez deposu — onizleme penceresi de oturumu gorur.
     if let Some(dir) = shared_webview_dir(app) {
         builder = builder.data_directory(dir);
+    }
+
+    // Ayni veri klasoru -> AYNI tarayici argumanlari (bkz. WEBVIEW2_BROWSER_ARGS).
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
     }
 
     builder.build()?;
@@ -730,6 +809,12 @@ fn build_splash_window(app: &AppHandle) {
     // da AYNISINI kullanmalidir; aksi halde ikinci webview olusturulamaz.
     if let Some(dir) = shared_webview_dir(app) {
         builder = builder.data_directory(dir);
+    }
+
+    // Ayni veri klasoru -> AYNI tarayici argumanlari (bkz. WEBVIEW2_BROWSER_ARGS).
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
     }
 
     let result = builder.build();
@@ -879,9 +964,28 @@ fn bogahost_notify_request(app: AppHandle) -> String {
     "default".to_string()
 }
 
-/// Sayfanin olusturdugu bildirimi (`new Notification(...)`) masaustunde gosterir.
+/// Sayfanin olusturdugu bildirimi (`new Notification(...)`) ya da panel
+/// beslemesinden yakalanan yeni kaydi masaustunde gosterir.
+///
+/// `url` verilirse "Son bildirimi ac" tepsi ogesi bu adrese gider (masaustunde
+/// bildirimin KENDISINE tiklama olayi yoktur — bkz. `AppState::last_notify_url`).
 #[tauri::command]
-fn bogahost_notify(app: AppHandle, title: Option<String>, body: Option<String>) -> Result<(), String> {
+fn bogahost_notify(
+    app: AppHandle,
+    title: Option<String>,
+    body: Option<String>,
+    url: Option<String>,
+) -> Result<(), String> {
+    // Yalnizca KENDI alan adimizdaki adresler saklanir; sayfa keyfi bir adrese
+    // yonlendirme yaptiramaz.
+    if let Some(u) = url.as_deref().and_then(resolve_internal_url) {
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Ok(mut slot) = state.last_notify_url.lock() {
+                *slot = Some(u);
+            }
+        }
+    }
+
     let raw_title = title.unwrap_or_default();
     let final_title = if raw_title.trim().is_empty() {
         APP_TITLE.to_string()
@@ -904,6 +1008,121 @@ fn bogahost_notify(app: AppHandle, title: Option<String>, body: Option<String>) 
 }
 
 // ---------------------------------------------------------------------------
+// Sistem ayarlari / pencere komutlari (medya izni geri bildirimi icin)
+// ---------------------------------------------------------------------------
+
+/// Ilgili sistem gizlilik/bildirim ayarini acar.
+///
+/// Kamera veya mikrofon izni REDDEDILDIGINDE sayfa tarafi kullaniciya bir
+/// dugme gosterir; dugme buraya baglanir. Boylece "izin verin" denip
+/// kullanicinin nereye gidecegini bilememesi ONLENIR.
+///
+/// Bilinmeyen `kind` degerleri SESSIZCE yok sayilir (sayfadan gelen veriye
+/// guvenilmez; asagidaki liste kapali bir beyaz listedir).
+#[tauri::command]
+fn bogahost_open_settings(app: AppHandle, kind: String) -> Result<(), String> {
+    let Some(target) = settings_url(&kind) else {
+        return Ok(());
+    };
+    app.shell()
+        .open(target.to_string(), None)
+        .map_err(|e| e.to_string())
+}
+
+/// `bogahost_open_settings` icin platforma gore ayar adresi.
+/// Beyaz liste disindaki her deger `None` doner.
+///
+/// NOT: platform ayrimi BLOK degil OGE (item) duzeyinde yapilir. Fonksiyon
+/// govdesinin sonunda duran `#[cfg] { ... }` bloklari tail-expression
+/// konumunda kalir ve kararsiz (`stmt_expr_attributes`) ozellik isteyebilir;
+/// oge uzerindeki `#[cfg]` her zaman kararlidir.
+#[cfg(target_os = "macos")]
+fn settings_url(kind: &str) -> Option<&'static str> {
+    match kind {
+        // Panel adlari macOS 13+ (Ventura) Sistem Ayarlari'nda da gecerlidir.
+        "camera" => Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"),
+        "microphone" => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        }
+        "screen" => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        }
+        "notifications" => Some("x-apple.systempreferences:com.apple.preference.notifications"),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn settings_url(kind: &str) -> Option<&'static str> {
+    match kind {
+        // NOT: Windows ayar anahtari "webcam"dir, arayuzde "Kamera" yazar.
+        "camera" => Some("ms-settings:privacy-webcam"),
+        "microphone" => Some("ms-settings:privacy-microphone"),
+        // Windows'ta ekran paylasimi icin ayri bir gizlilik anahtari YOKTUR.
+        "screen" => Some("ms-settings:privacy"),
+        "notifications" => Some("ms-settings:notifications"),
+        _ => None,
+    }
+}
+
+/// Linux/diger: ortak bir ayar adresi YOKTUR — sayfa tarafi dugmeyi gizler.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn settings_url(_kind: &str) -> Option<&'static str> {
+    None
+}
+
+/// Ana pencereyi one getirir (bildirim/arama geldiginde).
+#[tauri::command]
+fn bogahost_focus_window(app: AppHandle) -> Result<(), String> {
+    show_main_window(&app);
+    Ok(())
+}
+
+/// Pencereyi tam ekrana alir/cikarir.
+///
+/// NEDEN: macOS'ta HTML `element.requestFullscreen()` CALISMAZ — wry ilgili
+/// WKPreferences anahtarini yalnizca `fullscreen` ozelligi (Tauri'de
+/// `macos-private-api`) acikken kurar, o da OZEL (private) API oldugu icin
+/// acilmadi. Sayfa tarafi tam ekran istegi basarisiz olursa bu komuta duser ve
+/// PENCEREYI tam ekran yapar — kullanici icin sonuc buyuk olcude aynidir.
+#[tauri::command]
+fn bogahost_set_fullscreen(window: tauri::WebviewWindow<Wry>, on: bool) -> Result<(), String> {
+    window.set_fullscreen(on).map_err(|e| e.to_string())
+}
+
+/// Sayfadan gelen adresi mutlak hale getirir ve IC adres degilse `None` doner.
+///
+/// Besleme kayitlari cogunlukla goreli adres verir ("/admin/chats?c=12"); bunlar
+/// bu uygulamanin kendi kok adresine gore cozulur. Sonuc `bogahost.com` alan
+/// adinda DEGILSE reddedilir — panel, kabugu yabanci bir adrese goturemez.
+fn resolve_internal_url(raw: &str) -> Option<String> {
+    let base = APPS.iter().find(|e| e.0 == APP_KEY).map(|e| e.2)?;
+    let absolute = match Url::parse(raw) {
+        Ok(u) => u,
+        Err(_) => Url::parse(base).ok()?.join(raw).ok()?,
+    };
+    if is_internal_url(&absolute) {
+        Some(absolute.to_string())
+    } else {
+        None
+    }
+}
+
+/// Verilen IC adresi ANA pencerede acar ve pencereyi one getirir.
+fn open_in_main_window(app: &AppHandle, raw: &str) {
+    let Ok(url) = Url::parse(raw) else {
+        return;
+    };
+    if !is_internal_url(&url) {
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.navigate(url);
+    }
+    show_main_window(app);
+}
+
+// ---------------------------------------------------------------------------
 // Sayfa tarafi kopru (initialization script)
 // ---------------------------------------------------------------------------
 
@@ -912,9 +1131,10 @@ fn bogahost_notify(app: AppHandle, title: Option<String>, body: Option<String>) 
 /// dize sabiti uretir.
 fn version_script() -> String {
     format!(
-        "window.__BOGAHOST_NATIVE_VERSION__ = {:?};\nwindow.__BOGAHOST_APP_TITLE__ = {:?};\n",
+        "window.__BOGAHOST_NATIVE_VERSION__ = {:?};\nwindow.__BOGAHOST_APP_TITLE__ = {:?};\nwindow.__BOGAHOST_APP_KEY__ = {:?};\n",
         env!("CARGO_PKG_VERSION"),
-        APP_TITLE
+        APP_TITLE,
+        APP_KEY
     )
 }
 
@@ -922,6 +1142,9 @@ fn version_script() -> String {
 fn init_script() -> String {
     let mut script = version_script();
     script.push_str(INIT_SCRIPT);
+    // Medya izinleri, panel bildirim beslemesi, pano, ses kilidi ve tam ekran.
+    // AYRI bir IIFE'dir; INIT_SCRIPT bozulsa bile bagimsiz calisir.
+    script.push_str(EXTRA_SCRIPT);
     script
 }
 
@@ -1055,7 +1278,22 @@ const INIT_SCRIPT: &str = r#"
       this.onerror = null;
       this.onclose = null;
       var self = this;
-      invoke('bogahost_notify', { title: String(title == null ? '' : title), body: String(this.body) })
+      // Panelin KENDI `new Notification()` cagrisi ile besleme dinleyicisi AYNI
+      // tekillestirmeden gecer (EXTRA_SCRIPT) — ayni bildirim iki kez cikmaz.
+      // `tag` varsa anahtar odur; yoksa baslik+govde ozeti kullanilir.
+      var dedupKey = 'shim:' + (this.tag || (String(title) + '|' + String(this.body)));
+      var targetUrl = null;
+      try { targetUrl = (options.data && options.data.url) || options.url || null; } catch (eU) {}
+
+      if (typeof window.__bogahostNotifyOnce === 'function') {
+        try {
+          window.__bogahostNotifyOnce(dedupKey, String(title == null ? '' : title), String(this.body), targetUrl);
+          if (typeof self.onshow === 'function') { self.onshow(); }
+        } catch (eN) {}
+        return;
+      }
+
+      invoke('bogahost_notify', { title: String(title == null ? '' : title), body: String(this.body), url: targetUrl })
         .then(function () {
           try { if (typeof self.onshow === 'function') { self.onshow(); } } catch (e) {}
         })
@@ -1125,7 +1363,7 @@ const INIT_SCRIPT: &str = r#"
   try {
     window.__BOGAHOST_NATIVE_NOTIFY__ = true;
     window.__bogahostNotify = function (title, body) {
-      return invoke('bogahost_notify', { title: String(title || ''), body: String(body || '') });
+      return invoke('bogahost_notify', { title: String(title || ''), body: String(body || ''), url: null });
     };
   } catch (e) {}
 
@@ -1226,7 +1464,7 @@ const INIT_SCRIPT: &str = r#"
       msg = 'Dosya indirilemedi. Bağlantınızı denetleyip yeniden deneyin.';
     }
     toast(msg);
-    try { invoke('bogahost_notify', { title: 'İndirme başarısız', body: msg }); } catch (e) {}
+    try { invoke('bogahost_notify', { title: 'İndirme başarısız', body: msg, url: null }); } catch (e) {}
   }
 
   document.addEventListener('click', function (ev) {
@@ -1520,6 +1758,590 @@ const INIT_SCRIPT: &str = r#"
   } else {
     scheduleBadge();
   }
+})();
+"#;
+
+/// INIT_SCRIPT'ten SONRA enjekte edilen ikinci kopru.
+///
+/// Ayri bir IIFE ve ayri bir koruma bayragi kullanir; boylece iki betikten biri
+/// hata verse bile digeri calismaya devam eder. Icerik:
+///   1. eylemli uyari kutusu (izin reddinde "Sistem Ayarlarini Ac" dugmesi),
+///   2. tekillestirilmis native bildirim (`__bogahostNotifyOnce`),
+///   3. PANEL BILDIRIMLERI -> NATIVE BILDIRIM (asil duzeltme; ek ag yuku yok),
+///   4. kamera/mikrofon/ekran hatalarinda anlasilir geri bildirim,
+///   5. pano kopyalama yedegi,
+///   6. ses kilidi (macOS'ta autoplay politikasi icin),
+///   7. tam ekran yedegi (macOS'ta HTML fullscreen calismaz),
+///   8. bildirim izni reddedildiginde ayar dugmesi.
+const EXTRA_SCRIPT: &str = r#"
+(function () {
+  if (window.__BOGAHOST_NATIVE_EXTRA__) { return; }
+  window.__BOGAHOST_NATIVE_EXTRA__ = true;
+
+  var APP_KEY = String(window.__BOGAHOST_APP_KEY__ || '');
+
+  function invoke(cmd, args) {
+    try {
+      var t = window.__TAURI__;
+      if (t && t.core && typeof t.core.invoke === 'function') { return t.core.invoke(cmd, args); }
+      if (t && typeof t.invoke === 'function') { return t.invoke(cmd, args); }
+      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+        return window.__TAURI_INTERNALS__.invoke(cmd, args);
+      }
+    } catch (e) {}
+    return Promise.reject(new Error('ipc-yok'));
+  }
+
+  function toast(msg) {
+    try { if (typeof window.__bogahostToast === 'function') { window.__bogahostToast(msg); return; } } catch (e) {}
+    try { console.warn('[bogahost]', msg); } catch (e2) {}
+  }
+
+  // =========================================================================
+  // 1) EYLEMLI UYARI KUTUSU
+  // =========================================================================
+  // Sessiz hata YOK: izin reddedildiginde kullaniciya ne oldugu SOYLENIR ve
+  // ilgili sistem ayarini acan bir dugme verilir.
+  var BOX_ID = 'bogahost-native-actionbox';
+
+  function actionBox(title, message, buttonLabel, settingsKind) {
+    try {
+      var old = document.getElementById(BOX_ID);
+      if (old && old.parentNode) { old.parentNode.removeChild(old); }
+
+      var host = document.body || document.documentElement;
+      if (!host) { return; }
+
+      var wrap = document.createElement('div');
+      wrap.id = BOX_ID;
+      wrap.setAttribute('style', 'position:fixed;left:50%;top:22px;transform:translateX(-50%);z-index:2147483647;max-width:min(92vw,460px);padding:15px 18px;border-radius:12px;background:#22242c;color:#e6e8ee;border:1px solid rgba(255,255,255,.13);box-shadow:0 10px 34px rgba(0,0,0,.42);font:13px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;');
+
+      var h = document.createElement('div');
+      h.setAttribute('style', 'font-weight:600;font-size:14px;margin-bottom:5px;');
+      h.textContent = title;
+      wrap.appendChild(h);
+
+      var p = document.createElement('div');
+      p.setAttribute('style', 'opacity:.82;');
+      p.textContent = message;
+      wrap.appendChild(p);
+
+      var row = document.createElement('div');
+      row.setAttribute('style', 'margin-top:13px;display:flex;gap:8px;justify-content:flex-end;');
+
+      // Ayar dugmesi YALNIZCA platformda gercekten bir ayar adresi varsa anlamli.
+      // Adres yoksa Rust tarafi sessizce hicbir sey yapmaz; bu yuzden dugme
+      // ancak bir "kind" verildiginde cizilir.
+      if (settingsKind) {
+        var b1 = document.createElement('button');
+        b1.type = 'button';
+        b1.textContent = buttonLabel || 'Sistem Ayarlarını Aç';
+        b1.setAttribute('style', 'background:#5443D2;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:13px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;');
+        b1.onclick = function () { invoke('bogahost_open_settings', { kind: settingsKind }).catch(function () {}); };
+        row.appendChild(b1);
+      }
+
+      var b2 = document.createElement('button');
+      b2.type = 'button';
+      b2.textContent = 'Kapat';
+      b2.setAttribute('style', 'background:transparent;color:#c9cdd8;border:1px solid rgba(255,255,255,.16);border-radius:8px;padding:8px 14px;font:13px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;');
+      b2.onclick = function () { try { if (wrap.parentNode) { wrap.parentNode.removeChild(wrap); } } catch (e) {} };
+      row.appendChild(b2);
+
+      wrap.appendChild(row);
+      host.appendChild(wrap);
+
+      setTimeout(function () { try { if (wrap.parentNode) { wrap.parentNode.removeChild(wrap); } } catch (e) {} }, 20000);
+    } catch (e) {}
+  }
+  try { window.__bogahostActionBox = actionBox; } catch (e) {}
+
+  // =========================================================================
+  // 2) TEKILLESTIRILMIS NATIVE BILDIRIM
+  // =========================================================================
+  // Hem panelin `new Notification()` cagrisi hem de asagidaki besleme dinleyicisi
+  // BURADAN gecer — ayni bildirim IKI KEZ gosterilmez.
+  var seen = Object.create(null);
+  var seenOrder = [];
+  var SEEN_MAX = 500;
+
+  window.__bogahostNotifyOnce = function (key, title, body, url) {
+    try {
+      if (key) {
+        if (seen[key]) { return false; }
+        seen[key] = 1;
+        seenOrder.push(key);
+        while (seenOrder.length > SEEN_MAX) { delete seen[seenOrder.shift()]; }
+      }
+      invoke('bogahost_notify', {
+        title: String(title == null ? '' : title),
+        body: String(body == null ? '' : body),
+        url: url ? String(url) : null
+      }).catch(function () {});
+      return true;
+    } catch (e) { return false; }
+  };
+
+  // =========================================================================
+  // 3) PANEL BILDIRIMLERI -> NATIVE BILDIRIM   (ASIL DUZELTME)
+  // =========================================================================
+  // KOK NEDEN: paneller masaustu bildirimini SERVICE WORKER + WEB PUSH ile
+  // gosteriyor. Native WebView'de `serviceWorker`/`PushManager` YOKTUR; panelin
+  // `pushInit()` fonksiyonu ilk satirda sessizce cikiyor. Panel bildirimi
+  // yalnizca sayfa ICI baloncuk (toast) + bip olarak gosteriyor, `new
+  // Notification()` HIC cagrilmiyor — bu yuzden v1.5.0'daki Notification
+  // koprusu de hicbir zaman tetiklenmiyordu. Sonuc: uygulamada HICBIR bildirim.
+  //
+  // COZUM: panel ZATEN her ~30 sn bildirim beslemesini yokluyor. Kendi
+  // yoklamamizi eklemek yerine `fetch` sarmalanip O YANIT dinleniyor —
+  // sunucuya EK YUK BINMEZ (bugun yasanan 429 sorunu tekrarlanmaz).
+  // Panel yoklamasi hic gorulmezse (ornegin besleme yenilenmiyorsa) 45 sn sonra
+  // yedek yoklama devreye girer.
+  var FEED_RE = /\/notifications(\/feed)?(\?|$)/;
+  var feedSeenAt = 0;
+  var maxId = null;
+  var chatCursor = null;
+  var BASE_KEY = 'bogahost_native_feed_' + (APP_KEY || 'app');
+
+  function baselineLoad() {
+    try { var v = parseInt(localStorage.getItem(BASE_KEY) || '', 10); return isNaN(v) ? null : v; } catch (e) { return null; }
+  }
+  function baselineSave(v) { try { localStorage.setItem(BASE_KEY, String(v)); } catch (e) {} }
+
+  // DCIM / Finans / Görevler bicimi: {unread, items:[{id,title,body,url,age_s}]}
+  function handleStandardFeed(d) {
+    var items = (d && d.items) || [];
+    if (!items.length) { return; }
+
+    var max = 0;
+    for (var i = 0; i < items.length; i++) { if (items[i].id > max) { max = items[i].id; } }
+
+    if (maxId === null) {
+      // ILK GORUS: gecmis bildirimleri TOPLUCA gosterme.
+      var stored = baselineLoad();
+      if (stored !== null) {
+        maxId = stored;
+      } else {
+        // Kayit yoksa yalnizca 60 sn'den YENI olanlar duyurulur.
+        var old = 0;
+        for (var j = 0; j < items.length; j++) {
+          if ((items[j].age_s || 0) > 60 && items[j].id > old) { old = items[j].id; }
+        }
+        maxId = old;
+      }
+    }
+
+    var fresh = [];
+    for (var k = 0; k < items.length; k++) { if (items[k].id > maxId) { fresh.push(items[k]); } }
+    fresh.sort(function (a, b) { return a.id - b.id; });
+
+    // Cok birikmisse masaustunu bildirimle doldurma.
+    var show = fresh.slice(-4);
+    if (fresh.length > show.length) {
+      window.__bogahostNotifyOnce('bulk:' + max, APP_TITLE_SAFE(), fresh.length + ' yeni bildirim var.', null);
+    }
+    for (var m = 0; m < show.length; m++) {
+      var n = show[m];
+      window.__bogahostNotifyOnce('feed:' + n.id, n.title || APP_TITLE_SAFE(), n.body || '', n.url || null);
+    }
+
+    if (max > maxId) { maxId = max; baselineSave(max); }
+  }
+
+  function APP_TITLE_SAFE() {
+    try { return String(window.__BOGAHOST_APP_TITLE__ || 'Bogahost'); } catch (e) { return 'Bogahost'; }
+  }
+
+  // Chat bicimi: {ok, init, messages:[], new_conversations:[], internal_messages:[], max_*}
+  function handleChatFeed(d) {
+    if (!d || d.ok !== true) { return; }
+    // Imleci HER yanittan tazele (yedek yoklama bunu kullanir).
+    chatCursor = {
+      msg: d.max_msg || 0,
+      conv: d.max_conv || 0,
+      internal: d.max_internal || 0
+    };
+    // Ilk cagri yalnizca imlec kurar — gecmis TOPLUCA gosterilmez.
+    if (d.init) { return; }
+
+    var out = [];
+    var convs = d.new_conversations || [];
+    for (var a = 0; a < convs.length; a++) {
+      out.push({
+        k: 'conv:' + convs[a].id,
+        t: 'Yeni sohbet · ' + (convs[a].visitor || 'Ziyaretçi'),
+        b: convs[a].preview || 'Sohbet başladı',
+        u: '/admin/chats?c=' + convs[a].id
+      });
+    }
+    var msgs = d.messages || [];
+    for (var b = 0; b < msgs.length; b++) {
+      out.push({
+        k: 'msg:' + msgs[b].id,
+        t: msgs[b].visitor || 'Ziyaretçi',
+        b: msgs[b].preview || 'Yeni mesaj',
+        u: '/admin/chats?c=' + msgs[b].conversation_id
+      });
+    }
+    var ints = d.internal_messages || [];
+    for (var c = 0; c < ints.length; c++) {
+      out.push({
+        k: 'int:' + ints[c].id,
+        t: 'Personel · ' + (ints[c].from || 'Ekip'),
+        b: ints[c].preview || '',
+        u: '/admin/internal'
+      });
+    }
+
+    var show = out.slice(-4);
+    if (out.length > show.length) {
+      window.__bogahostNotifyOnce('cbulk:' + chatCursor.msg + '-' + chatCursor.conv, APP_TITLE_SAFE(), out.length + ' yeni bildirim var.', null);
+    }
+    for (var e = 0; e < show.length; e++) {
+      window.__bogahostNotifyOnce(show[e].k, show[e].t, show[e].b, show[e].u);
+    }
+  }
+
+  function consumeFeed(data) {
+    try {
+      if (!data || typeof data !== 'object') { return; }
+      feedSeenAt = Date.now();
+      // Bicimi ALANA gore ayirt et (URL'e degil): Chat farkli bir sema dondurur.
+      if (Object.prototype.hasOwnProperty.call(data, 'items')) { handleStandardFeed(data); }
+      else if (Object.prototype.hasOwnProperty.call(data, 'max_msg')) { handleChatFeed(data); }
+    } catch (e) {}
+  }
+
+  // ---- Panelin KENDI yoklamasini dinle (ek istek yok) ----
+  var nativeFetch = window.fetch;
+  if (typeof nativeFetch === 'function') {
+    window.fetch = function (input, init) {
+      var promise = nativeFetch.apply(this, arguments);
+      try {
+        var method = 'GET';
+        var u = '';
+        if (typeof input === 'string') { u = input; }
+        else if (input && typeof input === 'object') { u = input.url || ''; method = input.method || 'GET'; }
+        if (init && init.method) { method = init.method; }
+
+        if (u && String(method).toUpperCase() === 'GET' && FEED_RE.test(String(u))) {
+          promise.then(function (res) {
+            try {
+              if (!res || !res.ok) { return; }
+              // Govdeyi TUKETME: panel ayni yaniti kendi okuyacak.
+              res.clone().json().then(consumeFeed).catch(function () {});
+            } catch (e) {}
+          }).catch(function () {});
+        }
+      } catch (e) {}
+      return promise;
+    };
+  }
+
+  // ---- Yedek yoklama (panel yoklamiyorsa) ----
+  // Sunucuya EK YUK BINMEMESI icin yalnizca 45 sn boyunca HIC besleme yaniti
+  // gorulmediyse baslar ve panel yoklamasi geri gelirse KENDINI DURDURUR.
+  var backoff = 0;
+  var pollTimer = null;
+
+  function feedUrl() {
+    if (APP_KEY === 'chat') {
+      if (!chatCursor) { return '/admin/notifications'; }
+      return '/admin/notifications?after_msg=' + chatCursor.msg +
+             '&after_conv=' + chatCursor.conv +
+             '&after_internal=' + chatCursor.internal;
+    }
+    return '/admin/notifications/feed';
+  }
+
+  function looksLikePanel() {
+    try {
+      // Giris ekraninda yoklama YAPMA (401/302 dongusu olusmasin).
+      if (document.querySelector('input[type="password"]')) { return false; }
+      return String(location.pathname || '').indexOf('/admin') === 0;
+    } catch (e) { return false; }
+  }
+
+  function pollOnce() {
+    if (!looksLikePanel()) { return; }
+    // Panel kendi yokluyorsa (son 90 sn icinde yanit gorduk) KARISMA.
+    if (feedSeenAt && (Date.now() - feedSeenAt) < 90000) { return; }
+
+    nativeFetch(feedUrl(), {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function (res) {
+      // 429/503: sunucu bogulmus -> ustel geri cekilme.
+      if (res.status === 429 || res.status === 503) { backoff = Math.min(backoff ? backoff * 2 : 60000, 300000); return null; }
+      // Oturum yok / yetki yok: yoklamayi TAMAMEN durdur.
+      if (res.status === 401 || res.status === 403) { stopPolling(); return null; }
+      if (!res.ok) { backoff = Math.min(backoff ? backoff * 2 : 60000, 300000); return null; }
+      backoff = 0;
+      return res.json();
+    }).then(function (d) {
+      if (d) { consumeFeed(d); }
+    }).catch(function () {
+      backoff = Math.min(backoff ? backoff * 2 : 60000, 300000);
+    });
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function startPolling() {
+    if (pollTimer) { return; }
+    // 30 sn taban; geri cekilme varsa o kadar bekle.
+    var base = 30000;
+    pollTimer = setInterval(function () {
+      if (backoff > 0) {
+        backoff -= base;
+        if (backoff < 0) { backoff = 0; }
+        return;
+      }
+      pollOnce();
+    }, base);
+  }
+
+  // NOT: pencere GIZLIYKEN de calisir (uygulama acik oldugu surece bildirim
+  // gelmeli). WebView arka planda zamanlayiciyi yavaslatabilir; bu bir
+  // isletim sistemi davranisidir, kabuk tarafindan asilamaz.
+  setTimeout(function () {
+    if (!feedSeenAt && looksLikePanel()) { pollOnce(); }
+    startPolling();
+  }, 45000);
+
+  // =========================================================================
+  // 4) KAMERA / MIKROFON / EKRAN PAYLASIMI
+  // =========================================================================
+  // macOS: wry, WKWebView izin istegini KENDISI onaylar; asil kapi isletim
+  // sistemi (TCC) ve Hardened Runtime entitlement'laridir — bkz.
+  // src-tauri/Info.plist ve src-tauri/Bogahost.entitlements.
+  // Windows: WebView2 KENDI izin penceresini gosterir. Kullanici bir kez
+  // "Engelle" derse secim profile YAZILIR ve pencere BIR DAHA CIKMAZ; asagidaki
+  // mesaj bu durumu acikca anlatir.
+  function mediaMessage(err, isDisplay) {
+    var name = (err && (err.name || err.constructor && err.constructor.name)) || '';
+    var what = isDisplay ? 'Ekran paylaşımı' : 'Kamera/mikrofon';
+
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+      return {
+        title: what + ' izni verilmedi',
+        msg: 'İzin reddedildi. Sistem Ayarları > Gizlilik bölümünden bu uygulamaya izin verip uygulamayı yeniden başlatın.',
+        kind: isDisplay ? 'screen' : 'camera'
+      };
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+      return { title: what + ' bulunamadı', msg: 'Bilgisayarda uygun bir kamera/mikrofon bulunamadı ya da istenen ayarlar desteklenmiyor.', kind: null };
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return { title: what + ' kullanılamıyor', msg: 'Cihaz başka bir uygulama tarafından kullanılıyor olabilir. Diğer uygulamaları kapatıp yeniden deneyin.', kind: isDisplay ? 'screen' : 'camera' };
+    }
+    if (name === 'AbortError') {
+      return { title: what + ' başlatılamadı', msg: 'Donanım hatası nedeniyle başlatılamadı. Uygulamayı yeniden başlatmayı deneyin.', kind: null };
+    }
+    return {
+      title: what + ' başlatılamadı',
+      msg: 'Beklenmeyen bir hata oluştu' + (name ? ' (' + name + ')' : '') + '. İzinleri denetleyip yeniden deneyin.',
+      kind: isDisplay ? 'screen' : 'camera'
+    };
+  }
+
+  function reportMediaError(err, isDisplay) {
+    var info = mediaMessage(err, isDisplay);
+    actionBox(info.title, info.msg, 'Sistem Ayarlarını Aç', info.kind);
+  }
+  try { window.__bogahostMediaError = reportMediaError; } catch (e) {}
+
+  var md = navigator.mediaDevices;
+
+  if (!md || typeof md.getUserMedia !== 'function') {
+    // WebView medya API'sini HIC sunmuyor: sessiz kalma, sebebini soyle.
+    var stub = {
+      getUserMedia: function () {
+        var e = new Error('Bu sürümde kamera/mikrofon desteklenmiyor.');
+        e.name = 'NotSupportedError';
+        actionBox('Kamera/mikrofon desteklenmiyor',
+          'Bu masaüstü sürümü medya yakalamayı desteklemiyor. Sesli/görüntülü arama için tarayıcıdan veya mobil uygulamadan girin.', null, null);
+        return Promise.reject(e);
+      },
+      enumerateDevices: function () { return Promise.resolve([]); }
+    };
+    stub.getDisplayMedia = stub.getUserMedia;
+    try { Object.defineProperty(navigator, 'mediaDevices', { value: stub, configurable: true }); } catch (e) {}
+  } else {
+    // Ornek uzerine KENDI ozelligimizi koyariz (prototip degistirilmez).
+    var origGUM = md.getUserMedia.bind(md);
+    md.getUserMedia = function (constraints) {
+      return origGUM(constraints).catch(function (err) {
+        reportMediaError(err, false);
+        throw err;
+      });
+    };
+
+    if (typeof md.getDisplayMedia === 'function') {
+      var origGDM = md.getDisplayMedia.bind(md);
+      md.getDisplayMedia = function (constraints) {
+        return origGDM(constraints).catch(function (err) {
+          reportMediaError(err, true);
+          throw err;
+        });
+      };
+    } else {
+      // macOS 14.0-14.5 araliginda WKWebView + wry'nin izin temsilcisi
+      // birlikte ekran paylasimini kapatabiliyor (wry#1195, HALA ACIK).
+      md.getDisplayMedia = function () {
+        var e = new Error('Ekran paylaşımı bu sürümde kullanılamıyor.');
+        e.name = 'NotSupportedError';
+        actionBox('Ekran paylaşımı kullanılamıyor',
+          'Bu masaüstü sürümünde ekran paylaşımı desteklenmiyor. Tarayıcıdan girerek paylaşabilirsiniz.', null, null);
+        return Promise.reject(e);
+      };
+    }
+  }
+
+  // Eski cagri bicimi (`navigator.getUserMedia`) kullanan paneller icin kopru.
+  try {
+    if (typeof navigator.getUserMedia !== 'function' && navigator.mediaDevices) {
+      navigator.getUserMedia = function (c, ok, fail) {
+        navigator.mediaDevices.getUserMedia(c).then(ok).catch(fail || function () {});
+      };
+    }
+  } catch (e) {}
+
+  // =========================================================================
+  // 5) PANO (kopyala/yapistir)
+  // =========================================================================
+  // WebView2'de `navigator.clipboard.readText()` izin ister ve Tauri bu istegi
+  // ele almadigi icin REDDEDILIR. `writeText` ise kullanici hareketi olmadan
+  // basarisiz olabilir. Her iki durumda da eski `execCommand` yoluna duseriz —
+  // "Kopyala" dugmesi sessizce calismamis gibi gorunmesin.
+  function execCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = String(text == null ? '' : text);
+      ta.setAttribute('style', 'position:fixed;top:-1000px;left:-1000px;opacity:0;');
+      (document.body || document.documentElement).appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      try { if (ta.parentNode) { ta.parentNode.removeChild(ta); } } catch (e2) {}
+      return ok;
+    } catch (e3) { return false; }
+  }
+
+  try {
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: function (t) { return execCopy(t) ? Promise.resolve() : Promise.reject(new Error('kopyalanamadi')); },
+          readText: function () { return Promise.reject(new Error('okuma-desteklenmiyor')); }
+        },
+        configurable: true
+      });
+    } else if (typeof navigator.clipboard.writeText === 'function') {
+      var origWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = function (t) {
+        return origWrite(t).catch(function (err) {
+          if (execCopy(t)) { return; }
+          toast('Panoya kopyalanamadı.');
+          throw err;
+        });
+      };
+    }
+  } catch (e) {}
+
+  // =========================================================================
+  // 6) SES KILIDI (bildirim sesi / arama zili)
+  // =========================================================================
+  // Windows'ta `--autoplay-policy=no-user-gesture-required` ile cozuldu.
+  // macOS'ta karsiligi YOKTUR (wry'de `with_autoplay` var ama Tauri 2 disari
+  // acmaz), bu yuzden ILK kullanici hareketinde AudioContext uyandirilir ve
+  // sessiz bir ses calinir — sonraki zil/bip sesleri engellenmez.
+  (function () {
+    var unlocked = false;
+    function unlock() {
+      if (unlocked) { return; }
+      unlocked = true;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) {
+          if (!window.__bogahostAudioCtx) { window.__bogahostAudioCtx = new Ctx(); }
+          var ac = window.__bogahostAudioCtx;
+          if (ac.state === 'suspended') { ac.resume(); }
+          var b = ac.createBuffer(1, 1, 22050);
+          var src = ac.createBufferSource();
+          src.buffer = b;
+          src.connect(ac.destination);
+          src.start(0);
+        }
+      } catch (e) {}
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+    }
+    window.addEventListener('pointerdown', unlock, true);
+    window.addEventListener('keydown', unlock, true);
+  })();
+
+  // =========================================================================
+  // 7) TAM EKRAN
+  // =========================================================================
+  // macOS'ta HTML `element.requestFullscreen()` CALISMAZ: wry ilgili
+  // WKPreferences anahtarini yalnizca `fullscreen` ozelligi (Tauri'de
+  // `macos-private-api`) acikken kurar; o da OZEL API oldugu ve App Store
+  // riski tasidigi icin ACILMADI. Istek basarisiz olursa PENCERE tam ekran
+  // yapilir — kullanici acisindan sonuc buyuk olcude aynidir.
+  try {
+    var El = window.Element;
+    if (El && El.prototype) {
+      var origRFS = El.prototype.requestFullscreen ||
+                    El.prototype.webkitRequestFullscreen ||
+                    El.prototype.mozRequestFullScreen;
+
+      El.prototype.requestFullscreen = function () {
+        var self = this;
+        try {
+          if (origRFS) {
+            var r = origRFS.apply(self, arguments);
+            if (r && typeof r.then === 'function') {
+              return r.catch(function () { return invoke('bogahost_set_fullscreen', { on: true }); });
+            }
+            return Promise.resolve(r);
+          }
+        } catch (e) {}
+        return invoke('bogahost_set_fullscreen', { on: true });
+      };
+
+      var origExit = document.exitFullscreen;
+      document.exitFullscreen = function () {
+        try {
+          if (origExit) {
+            var r2 = origExit.apply(document, arguments);
+            if (r2 && typeof r2.then === 'function') {
+              return r2.catch(function () { return invoke('bogahost_set_fullscreen', { on: false }); });
+            }
+            return Promise.resolve(r2);
+          }
+        } catch (e) {}
+        return invoke('bogahost_set_fullscreen', { on: false });
+      };
+    }
+  } catch (e) {}
+
+  // =========================================================================
+  // 8) BILDIRIM IZNI REDDEDILDIYSE ACIKLAMA + AYAR DUGMESI
+  // =========================================================================
+  try {
+    window.__bogahostNotifySettings = function () {
+      return invoke('bogahost_open_settings', { kind: 'notifications' });
+    };
+    window.__bogahostNotifyDeniedBox = function () {
+      actionBox('Bildirimler kapalı',
+        'Masaüstü bildirimleri için bu uygulamaya bildirim izni verilmeli. Sistem Ayarları > Bildirimler bölümünden açabilirsiniz.',
+        'Bildirim Ayarlarını Aç', 'notifications');
+    };
+  } catch (e) {}
 })();
 "#;
 
@@ -2108,7 +2930,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
         }
         "notify-status" => {
-            let granted = notification_granted(app);
+            // Windows'ta durum guvenilir okunamaz (yukaridaki nota bakin):
+            // tiklama HER ZAMAN ayarlari acar.
+            let granted = if cfg!(target_os = "windows") {
+                false
+            } else {
+                notification_granted(app)
+            };
             if granted {
                 notify(
                     app,
@@ -2120,6 +2948,16 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
             let h = app.clone();
             std::thread::spawn(move || refresh_notification_menu(&h));
+        }
+        // Bildirime tiklama olayi olmadigi icin hedef adres BURADAN acilir.
+        "notify-last-open" => {
+            let target = app
+                .try_state::<AppState>()
+                .and_then(|st| st.last_notify_url.lock().ok().and_then(|u| u.clone()));
+            match target {
+                Some(u) => open_in_main_window(app, &u),
+                None => page_toast(app, "Henüz açılacak bir bildirim yok."),
+            }
         }
         // Pasif bilgi ogesi: tiklanamaz, yine de emniyet icin yutulur.
         "version-info" => {}
@@ -2408,10 +3246,46 @@ fn ensure_notification_permission(app: &AppHandle) {
             "Bildirimler açıldı. Panel bildirimleri artık masaüstünde gösterilecek.",
         );
     }
+
+    // Izin REDDEDILDIYSE sessiz kalma: sayfada aciklama + "Bildirim Ayarlarını
+    // Aç" dugmesi goster.
+    if !granted {
+        show_notification_denied_box(app);
+    }
+}
+
+/// Bildirim izni yoksa sayfada aciklayici kutu + ayar dugmesi gosterir.
+///
+/// Windows'ta durum GUVENILIR okunamadigi icin (bkz. `refresh_notification_menu`
+/// — plugin orada daima `Granted` doner) bu kutu HIC cikarilmaz: yanlis alarm
+/// vermektense hic vermemek yeglenir.
+#[cfg(target_os = "windows")]
+fn show_notification_denied_box(_app: &AppHandle) {}
+
+#[cfg(not(target_os = "windows"))]
+fn show_notification_denied_box(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(
+            "try { window.__bogahostNotifyDeniedBox && window.__bogahostNotifyDeniedBox(); } catch (e) {}",
+        );
+    }
 }
 
 /// Tepsi menusundeki "Bildirimler: ..." ogesinin etiketini gunceller.
+///
+/// DURUSTLUK NOTU: `tauri-plugin-notification`, Windows masaustunde bir izin
+/// kavrami OLMADIGI icin `permission_state()` cagrisindan HER ZAMAN `Granted`
+/// dondurur. Bunu "Bildirimler: açık" diye gostermek YANILTICIDIR — kullanici
+/// Windows Ayarlar'dan bildirimleri kapatmis olabilir ve uygulama bunu goremez.
+/// Bu yuzden Windows'ta durum IDDIA EDILMEZ, ayara YONLENDIRILIR.
 fn refresh_notification_menu(app: &AppHandle) {
+    #[cfg(target_os = "windows")]
+    let label = {
+        let _ = notification_granted(app);
+        "Bildirimler: Windows ayarlarından yönetilir"
+    };
+
+    #[cfg(not(target_os = "windows"))]
     let label = if notification_granted(app) {
         "Bildirimler: açık"
     } else {

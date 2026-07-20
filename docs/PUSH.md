@@ -43,7 +43,57 @@ Shim yalnızca `window.Notification` **yoksa** kurulur — çalışan bir WebVie
 Ayrıca paneller native kabuğu ayırt edebilsin diye `window.__BOGAHOST_NATIVE_NOTIFY__ = true`
 ve doğrudan çağrılabilen `window.__bogahostNotify(title, body)` sunulur.
 
+## Masaüstü (Tauri) — besleme köprüsü (v1.6.0) ⭐ ASIL DÜZELTME
+
+v1.5.0 köprüsü **yetersizdi**, çünkü yanlış varsayıma dayanıyordu: panellerin
+`new Notification()` çağırdığı varsayılmıştı. **Çağırmıyorlar.**
+
+**Gerçek akış (kaynak koddan doğrulandı):**
+
+1. Panel her ~30 sn bildirim beslemesini yoklar
+   (`/admin/notifications/feed` — DCIM / Finans / Görevler;
+   `/admin/notifications` — Chat, imleç tabanlı).
+2. Yeni kayıt varsa **sayfa içi baloncuk (LCToast) + bip** gösterir.
+3. Masaüstü bildirimi için ayrıca **service worker + web push** kullanır
+   (`pushInit()` → `navigator.serviceWorker` + `PushManager`).
+
+Native WebView'de 3. adım **hiç çalışmaz** — `serviceWorker` ve `PushManager` yoktur,
+`pushInit()` ilk satırda `return` eder. `new Notification()` de hiç çağrılmadığı için
+v1.5.0 shim'i **asla tetiklenmedi**. Kullanıcının "hiçbir bildirim gelmiyor"
+şikâyetinin tam sebebi budur.
+
+**v1.6.0 çözümü:** `EXTRA_SCRIPT` içinde `window.fetch` sarmalanır ve panelin
+**kendi** besleme yanıtı (`res.clone().json()`) dinlenir.
+
+| Konu | Karar | Gerekçe |
+|---|---|---|
+| Ek istek | **Yok** | Panel zaten yokluyor; gövde klonlanıp okunur. 429 riski artmaz |
+| Tekilleştirme | `localStorage` imleci + anahtar seti | Aynı bildirim iki kez çıkmaz |
+| İlk açılış | Yalnız imleç kurulur | Geçmiş bildirimler toplu gösterilmez |
+| Chat farklı şeması | Alan adına göre ayrılır (`items` vs `max_msg`) | URL'e değil gövdeye bakılır |
+| Yedek yoklama | 45 sn hiç yanıt görülmezse başlar | Panel yoklamazsa da bildirim gelsin |
+| Geri çekilme | 429/503/hata → üstel, 5 dk tavan; 401/403 → durur | Sunucu boğulmasın |
+| Tıklama | Tepside **"Son bildirimi aç"** | Masaüstünde bildirime tıklama olayı **yok** (aşağıya bakın) |
+| Adres güvenliği | Yalnız `*.bogahost.com` kabul edilir | Panel kabuğu yabancı adrese götüremez |
+
+Panelin kendi `new Notification()` çağrısı da (varsa) **aynı** tekilleştirmeden geçer
+(`window.__bogahostNotifyOnce`), yani çift bildirim olmaz.
+
 ### Sınırlar (net olarak)
+
+- **UYGULAMA AÇIKKEN:** bildirimler gelir. ✅ (v1.6.0 ile düzeltildi)
+- **UYGULAMA KAPALIYKEN:** bildirim **gelmez**. ❌ Bu bir hata değil, mimari sınırdır:
+  gerçek APNs push için **Apple Developer hesabı + imzalı/notarize edilmiş uygulama +
+  push entitlement (`aps-environment`) + APNs gönderim ucu** gerekir. macOS'ta imzasız
+  bir uygulama APNs token'ı **alamaz**. Windows'ta karşılığı WNS'tir ve o da paket
+  kimliği (MSIX) ister. Bu depoda **yoktur**.
+- Bildirimin **kendisine tıklama** olayı `tauri-plugin-notification` tarafından
+  masaüstünde sunulmaz. Bu yüzden hedef adres saklanıp tepsi menüsündeki
+  **"Son bildirimi aç"** öğesine bağlandı — uydurma bir API kullanılmadı.
+- Pencere gizliyken zamanlayıcı işletim sistemi tarafından yavaşlatılabilir;
+  bu kabuk tarafından aşılamaz.
+
+### Eski sınırlar (v1.5.0 shim'i — hâlâ geçerli)
 
 - Bu **gerçek web-push DEĞİLDİR.** WebView'de `PushManager` yoktur; panel push aboneliği
   kuramaz ve **uygulama kapalıyken sunucudan bildirim gelmez.**

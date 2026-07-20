@@ -32,6 +32,74 @@ sürüm olduğunu hiçbir yerden göremiyordu.
   bölümü eklendi; bu liste tek ortak kaynaktan (`config/native_changelog.php`)
   üretilir.
 
+### Düzeltildi — sunucu bildirimleri masaüstüne HİÇ gelmiyordu (kritik)
+- **Kök neden bulundu.** Paneller masaüstü bildirimini **service worker + web push**
+  ile gösteriyor. Native WebView'de `serviceWorker` ve `PushManager` **yoktur**;
+  panelin `pushInit()` fonksiyonu ilk satırda sessizce çıkıyor, bildirim yalnızca
+  sayfa içi baloncuk + bip olarak kalıyordu. Panel `new Notification()` **hiç
+  çağırmadığı** için 1.5.0'daki Notification köprüsü de asla tetiklenmiyordu.
+  Sonuç: DCIM / Görevler / Finans / Chat — dördünde de masaüstünde hiçbir bildirim yok.
+- **Çözüm.** Kabuk artık panelin **kendi** bildirim beslemesi yanıtını dinliyor
+  (`fetch` sarmalayıcı). Panel zaten ~30 sn'de bir yokladığı için **sunucuya ek yük
+  binmez** — bugün yaşanan 429 sorunu tekrarlanmaz. Yeni kayıt geldiğinde native
+  masaüstü bildirimi gösterilir.
+- Tekilleştirme `localStorage` imleci ile yapılır: aynı bildirim iki kez çıkmaz,
+  ilk açılışta **geçmiş bildirimler toplu gösterilmez** (yalnız imleç kurulur).
+  Panelin kendi `new Notification()` çağrısı da aynı tekilleştirmeden geçer.
+- Panel yoklaması hiç görülmezse 45 sn sonra **yedek yoklama** devreye girer
+  (30 sn taban, 429/hata durumunda üstel geri çekilme 5 dk'ya kadar, 401/403'te durur).
+- Bildirimin hedef adresi saklanır; tepsi menüsündeki **"Son bildirimi aç"** öğesi
+  ilgili sayfayı ana pencerede açar. (Masaüstünde bildirimin kendisine tıklama
+  olayı `tauri-plugin-notification` tarafından **sunulmuyor**.)
+- **Sınır:** bu yol yalnızca **uygulama açıkken** çalışır. Uygulama kapalıyken
+  bildirim gelmesi gerçek APNs push gerektirir — bkz. `docs/PUSH.md`.
+
+### Düzeltildi — kamera / mikrofon (sesli & görüntülü arama)
+- **macOS kök nedeni:** `Info.plist`'te `NSCameraUsageDescription` /
+  `NSMicrophoneUsageDescription` **yoktu**. Bu anahtarlar olmadan macOS TCC katmanı
+  kamera/mikrofona erişmeye çalışan uygulamayı **izin sorusu bile göstermeden
+  öldürür** — "hiç tepki vermiyor" şikâyetinin sebebi buydu. Ayrıca Tauri'de
+  `hardenedRuntime` **varsayılan olarak açıktır** ve entitlement verilmeden
+  kamera/mikrofon çekirdek tarafından reddedilir.
+- `src-tauri/Info.plist` (Türkçe açıklama metinleriyle) ve
+  `src-tauri/Bogahost.entitlements` eklendi; entitlements dosyası
+  `bundle.macOS.entitlements` ile bağlandı.
+- İzin reddedilirse artık **sessiz kalınmıyor**: ne olduğunu anlatan bir kutu ve
+  ilgili sistem ayarını açan düğme gösteriliyor (macOS ve Windows).
+
+### Düzeltildi — sürükle-bırak ile dosya yükleme
+- Tauri'nin kendi sürükle-bırak işleyicisi varsayılan olarak açıktı ve işletim
+  sistemi olayını yutuyordu; bunun yan etkisi sayfanın `drop` olayının **hiç
+  tetiklenmemesi**, yani `<input type=file>` alanına dosya sürüklenememesiydi.
+  Bu davranış Windows'a özgü değildir, macOS'ta da geçerlidir.
+  `disable_drag_drop_handler()` ile kapatıldı (ana pencere + önizleme penceresi).
+
+### Düzeltildi — bildirim sesi / arama zili (Windows)
+- WebView2'nin otomatik oynatma yasağı zili susturuyordu.
+  `--autoplay-policy=no-user-gesture-required` eklendi; Tauri'nin varsayılan
+  argümanları **yerine geçtiği** için varsayılanlar aynen korundu.
+- macOS'ta karşılığı yoktur (wry'de var, Tauri dışarı açmıyor); orada ses kilidi
+  ilk kullanıcı hareketinde açılır.
+
+### Değişti — dürüstlük düzeltmeleri
+- Tepsideki "Bildirimler: açık" göstergesi **Windows'ta her zaman "açık"
+  diyordu** — çünkü `tauri-plugin-notification` orada izin kavramı olmadığı için
+  daima `Granted` döner. Artık Windows'ta durum iddia edilmiyor,
+  "Windows ayarlarından yönetilir" denip ayara yönlendiriliyor.
+- Pano kopyalama başarısız olursa `execCommand` yedeğine düşülüyor.
+- macOS'ta HTML tam ekran (`element.requestFullscreen`) çalışmadığı için
+  başarısızlıkta **pencere** tam ekran yapılıyor.
+
+### Bilinen sınırlar (kabuk tarafından aşılamaz)
+- **macOS'ta 4 uygulama oturum/çerez paylaşmaz.** `data_directory` yalnızca
+  Windows ve Linux arka uçlarında etkilidir; WKWebView'de wry bu değeri sessizce
+  yok sayar. Her kabukta ayrı giriş yapılır.
+- **Geolocation** masaüstünde çalışmaz (wry ilgili temsilciyi bağlamıyor).
+- **Ekran paylaşımı** macOS 14.0–14.5 aralığında bozuk olabilir (wry#1195, hâlâ açık).
+- `tauri.conf.json` içindeki **CSP uzak panellere uygulanmaz** — Tauri onu yalnızca
+  kendi sunduğu yerel içeriğe HTTP başlığı olarak ekler. Panellerin CSP'si
+  sunucudan gelir.
+
 ## 1.5.1
 
 ### Düzeltildi

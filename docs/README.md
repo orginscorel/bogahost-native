@@ -14,6 +14,7 @@ Proje özeti ve mimari için kök [`../README.md`](../README.md).
 | [PUBLISH.md](PUBLISH.md) | Google Play, App Store/TestFlight, Microsoft Store/MSI, macOS notarize+DMG |
 | [PWA.md](PWA.md) | Mağazasız PWA kurulumu + `.well-known` (assetlinks / AASA) adımı |
 | [PUSH.md](PUSH.md) | Bildirim gerçeği: web-push vs. native FCM/APNs |
+| [WEB-YETENEKLERI.md](WEB-YETENEKLERI.md) | Kamera/mikrofon, ekran paylaşımı, SSE, sürükle-bırak, pano, ses, tam ekran… hangi yetenek hangi platformda çalışır, çalışmıyorsa **neden** |
 | [UPDATE.md](UPDATE.md) | Masaüstü **tam otomatik güncelleme**: mimari, `latest.json` şeması, imza anahtarı üretimi, GitHub secret'ları, Cloudflare notu, sorun giderme |
 | [TROUBLESHOOT.md](TROUBLESHOOT.md) | Yaygın hatalar ve çözümleri |
 
