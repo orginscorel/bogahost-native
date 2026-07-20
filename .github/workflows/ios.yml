@@ -84,13 +84,13 @@ jobs:
       matrix:
         include:
           - app: finans
-            APP: FINANS
+            app_upper: FINANS
           - app: dcim
-            APP: DCIM
+            app_upper: DCIM
           - app: chat
-            APP: CHAT
+            app_upper: CHAT
           - app: task
-            APP: TASK
+            app_upper: TASK
 
     env:
       WORKSPACE: capacitor/${{ matrix.app }}/ios/App/App.xcworkspace
@@ -144,7 +144,7 @@ jobs:
         env:
           CERT: ${{ secrets.APPLE_CERT }}
           # Uygulamaya özel profil varsa onu, yoksa ortak profili kullan.
-          PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.APP)] || secrets.PROVISIONING_PROFILE }}
+          PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.app_upper)] || secrets.PROVISIONING_PROFILE }}
           TEAM: ${{ secrets.TEAM_ID }}
           ASC_KEY: ${{ secrets.APPSTORE_KEY_ID }}
           ASC_ISSUER: ${{ secrets.APPSTORE_ISSUER_ID }}
@@ -186,7 +186,7 @@ jobs:
         env:
           APPLE_CERT: ${{ secrets.APPLE_CERT }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          PROVISIONING_PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.APP)] || secrets.PROVISIONING_PROFILE }}
+          PROVISIONING_PROFILE: ${{ secrets[format('PROVISIONING_PROFILE_{0}', matrix.app_upper)] || secrets.PROVISIONING_PROFILE }}
         run: |
           set -euo pipefail
           KEYCHAIN="$RUNNER_TEMP/build.keychain"
@@ -230,7 +230,7 @@ jobs:
           case "$PROFILE_APPID" in
             *"$BUNDLE_ID") : ;;
             *'*') echo "::warning title=Wildcard profil::$PROFILE_APPID bir wildcard App ID. Push (aps-environment) ve associated-domains wildcard ile ÇALIŞMAZ — uygulamaya özel profil kullanın (docs/IOS.md)." ;;
-            *) echo "::error title=Profil uyuşmuyor::Profil '$PROFILE_APPID' için, uygulama ise '$BUNDLE_ID'. PROVISIONING_PROFILE_${{ matrix.APP }} secret'ını kontrol edin." ; exit 1 ;;
+            *) echo "::error title=Profil uyuşmuyor::Profil '$PROFILE_APPID' için, uygulama ise '$BUNDLE_ID'. PROVISIONING_PROFILE_${{ matrix.app_upper }} secret'ını kontrol edin." ; exit 1 ;;
           esac
 
           echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
