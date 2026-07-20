@@ -97,6 +97,30 @@ const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 /// Pencere konumu/boyutu bu dosyada saklanir (uygulama yapilandirma klasoru).
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
+/// Bildirim yoklama araligi.
+///
+/// Saati RUST tutar (bkz. `start_notify_clock`), sayfa DEGIL. NEDEN: WebView
+/// zamanlayicilari (`setInterval`) pencere gizlendiginde/ortuldugunde isletim
+/// sistemi tarafindan KISILIR — tam da uygulama tepside dururken, yani
+/// bildirimin en cok beklendigi anda. Isletim sistemi is parcacigi kisilmez.
+const NOTIFY_POLL_INTERVAL: Duration = Duration::from_secs(45);
+
+/// Gosterilmis bildirim anahtarlarinin KALICI listesi (uygulama yapilandirma
+/// klasoru). 4 uygulamanin paket kimligi farkli oldugu icin bu dosya da
+/// uygulama basina AYRIDIR — biri digerinin bildirimini yutmaz.
+const NOTIFY_STATE_FILE: &str = "notify-state.json";
+
+/// Kalici olarak hatirlanan bildirim anahtari sayisi (halka tampon).
+const NOTIFY_SEEN_MAX: usize = 300;
+
+/// Tek turda EN FAZLA bu kadar bildirim gosterilir; fazlasi tek ozete duser
+/// (uzun sure kapali kalmis uygulama masaustunu bildirimle doldurmasin).
+const NOTIFY_BURST_MAX: usize = 4;
+
+/// ILK calistirmada (kalici liste henuz yokken) yalnizca bu yastan (saniye)
+/// GENC kayitlar duyurulur; gecmis besleme topluca patlamaz.
+const NOTIFY_FIRST_RUN_MAX_AGE: i64 = 120;
+
 /// Acilis/gecis yukleme katmani icin uygulama kimlikleri.
 /// (hostname, kisa ad, vurgu rengi, gecis durum metni)
 ///
@@ -270,6 +294,7 @@ pub fn run() {
             bogahost_save_file,
             bogahost_open_external,
             bogahost_notify,
+            bogahost_notify_feed,
             bogahost_notify_state,
             bogahost_notify_request,
             bogahost_open_popup,
@@ -509,6 +534,12 @@ pub fn run() {
                     refresh_autostart_menu(&h);
                 });
             }
+
+            // ----- Bildirim yoklama saati -----
+            // Tarayiciya / Apple'a (web-push, service worker, APNs) HIC bagli
+            // olmayan yol: kabuk panelin bildirim ucunu kendisi yoklatir ve
+            // sonucu NATIVE bildirim olarak gosterir. Bkz. `start_notify_clock`.
+            start_notify_clock(&handle);
 
             // ----- Guncelleme denetimi: acilista + UYGULAMA ACIKKEN periyodik -----
             //
@@ -1246,15 +1277,7 @@ fn bogahost_notify(
     body: Option<String>,
     url: Option<String>,
 ) -> Result<(), String> {
-    // Yalnizca KENDI alan adimizdaki adresler saklanir; sayfa keyfi bir adrese
-    // yonlendirme yaptiramaz.
-    if let Some(u) = url.as_deref().and_then(resolve_internal_url) {
-        if let Some(state) = app.try_state::<AppState>() {
-            if let Ok(mut slot) = state.last_notify_url.lock() {
-                *slot = Some(u);
-            }
-        }
-    }
+    remember_notify_url(&app, url.as_deref());
 
     let raw_title = title.unwrap_or_default();
     let final_title = if raw_title.trim().is_empty() {
@@ -1275,6 +1298,202 @@ fn bogahost_notify(
     // `notify` gosterimi ana thread'e kuyruklar; bu komut BEKLEMEZ.
     notify(&app, &final_title, &body.unwrap_or_default());
     Ok(())
+}
+
+/// "Son bildirimi ac" tepsi ogesinin hedefini gunceller.
+///
+/// Yalnizca KENDI alan adimizdaki adresler saklanir; sayfa keyfi bir adrese
+/// yonlendirme yaptiramaz (bkz. `resolve_internal_url`).
+fn remember_notify_url(app: &AppHandle, url: Option<&str>) {
+    let Some(target) = url.and_then(resolve_internal_url) else {
+        return;
+    };
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut slot) = state.last_notify_url.lock() {
+            *slot = Some(target);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Panel bildirim beslemesi -> native bildirim
+// ---------------------------------------------------------------------------
+//
+// MIMARI: saati RUST tutar, istegi SAYFA atar, kalicilik ve gosterim yine
+// RUST'tadir.
+//
+//   `start_notify_clock` (OS is parcacigi, kisilmaz)
+//        -> webview.eval("__bogahostFeedTick()")
+//             -> sayfa panelin bildirim ucunu `fetch` eder (oturum cerezi,
+//                CSRF ve yetki SAYFADA zaten cozulmustur)
+//                  -> invoke('bogahost_notify_feed', {items, unread})
+//                       -> BURASI: kalici tekillestirme + native bildirim + rozet
+//
+// Tarayici bildirim/push yiginina (service worker, PushManager, APNs) HICBIR
+// bagimlilik YOKTUR. Ayrinti ve sinirlar: docs/PUSH.md
+
+/// Sayfanin normallestirdigi tek besleme kaydi.
+#[derive(serde::Deserialize)]
+struct FeedItem {
+    /// Kayit basina BENZERSIZ anahtar ("feed:123", "msg:45", "conv:9").
+    key: String,
+    title: Option<String>,
+    body: Option<String>,
+    url: Option<String>,
+    /// Kaydin yasi (saniye) — yalnizca ILK calistirmada eskiyi elemek icin.
+    age_s: Option<i64>,
+}
+
+/// Sayfadan gelen besleme kayitlarini native bildirime cevirir.
+///
+/// SESSIZDIR: sayfa tarafi ag hatasi / 401 / 403 durumunda BURAYI HIC cagirmaz
+/// (bkz. `EXTRA_SCRIPT`), bu yuzden "bildirim alinamadi" tarzi bir uyari asla
+/// cikmaz. Burada da hicbir hata kullaniciya gosterilmez.
+#[tauri::command]
+fn bogahost_notify_feed(
+    app: AppHandle,
+    items: Vec<FeedItem>,
+    unread: Option<i64>,
+) -> Result<(), String> {
+    set_badge(&app, unread);
+
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    // `first_run` = kalici liste HENUZ YOK (ilk kurulum ya da temizlenmis
+    // yapilandirma). O turda gecmis besleme TOPLUCA duyurulmaz.
+    let (mut seen, first_run) = notify_seen_load(&app);
+
+    let mut fresh: Vec<&FeedItem> = Vec::new();
+    for item in &items {
+        if item.key.trim().is_empty() || seen.iter().any(|k| k == &item.key) {
+            continue;
+        }
+        // Anahtar, GOSTERILSIN YA DA GOSTERILMESIN isaretlenir: ilk turda
+        // elenen eski kayit sonraki turda geri gelmesin.
+        seen.push(item.key.clone());
+        if first_run && item.age_s.unwrap_or(0) > NOTIFY_FIRST_RUN_MAX_AGE {
+            continue;
+        }
+        fresh.push(item);
+    }
+
+    // Halka tampon: en eski anahtarlar dusuruluyor.
+    if seen.len() > NOTIFY_SEEN_MAX {
+        seen.drain(..seen.len() - NOTIFY_SEEN_MAX);
+    }
+    notify_seen_save(&app, &seen);
+
+    if fresh.is_empty() {
+        return Ok(());
+    }
+
+    // Cok birikmisse masaustunu doldurma: tek ozet + en yeni birkac tanesi.
+    if fresh.len() > NOTIFY_BURST_MAX {
+        let total = fresh.len();
+        notify(&app, APP_TITLE, &format!("{total} yeni bildirim var."));
+        fresh = fresh.split_off(total - NOTIFY_BURST_MAX);
+    }
+
+    for item in fresh {
+        // Bildirimin KENDISINE tiklama olayi masaustunde YOKTUR (bkz.
+        // `AppState::last_notify_url`); hedef adres tepsideki "Son bildirimi
+        // aç" ogesine baglanir.
+        remember_notify_url(&app, item.url.as_deref());
+
+        let title = item
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .unwrap_or(APP_TITLE);
+        notify(&app, title, item.body.as_deref().unwrap_or_default());
+    }
+
+    Ok(())
+}
+
+/// Okunmamis sayisini Dock / gorev cubugu rozetinde gosterir (0 ise kaldirir).
+///
+/// `set_badge_count` macOS ve Linux'ta calisir; Windows'ta desteklenmez ve
+/// hata SESSIZCE yutulur (rozet olmamasi bir arıza degildir).
+fn set_badge(app: &AppHandle, unread: Option<i64>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let count = match unread {
+        Some(n) if n > 0 => Some(n),
+        _ => None,
+    };
+    let _ = window.set_badge_count(count);
+}
+
+fn notify_state_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(NOTIFY_STATE_FILE))
+}
+
+/// Kalici "gosterildi" listesini okur.
+///
+/// Ikinci deger ILK CALISTIRMA bayragidir (dosya yok ya da okunamadi) — cagiran
+/// o turda gecmis kayitlari duyurmaz.
+fn notify_seen_load(app: &AppHandle) -> (Vec<String>, bool) {
+    let Some(path) = notify_state_path(app) else {
+        return (Vec::new(), true);
+    };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return (Vec::new(), true);
+    };
+    let keys = serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|value| value.get("keys")?.as_array().cloned())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    (keys, false)
+}
+
+fn notify_seen_save(app: &AppHandle, keys: &[String]) {
+    let Some(path) = notify_state_path(app) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+    }
+    if let Ok(text) = serde_json::to_string(&serde_json::json!({ "keys": keys })) {
+        let _ = std::fs::write(&path, text);
+    }
+}
+
+/// Bildirim yoklamasinin SAATI.
+///
+/// Isletim sistemi is parcacigidir; WebView'in arka plan kisitlamalarindan
+/// ETKILENMEZ. Her turda sayfadaki `__bogahostFeedTick` ACIKCA calistirilir —
+/// bu bir zamanlayici degil, dogrudan calistirmadir; pencere GIZLIYKEN de
+/// aninda kosar.
+fn start_notify_clock(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(NOTIFY_POLL_INTERVAL);
+
+        // Guncelleme kuruluyorsa / yeniden baslatiliyorsa karisma.
+        if RESTART_IN_PROGRESS.load(Ordering::SeqCst) || UPDATE_INSTALLING.load(Ordering::SeqCst) {
+            continue;
+        }
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.eval(
+                "try { window.__bogahostFeedTick && window.__bogahostFeedTick(); } catch (e) {}",
+            );
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -2290,64 +2509,71 @@ const EXTRA_SCRIPT: &str = r#"
   // Notification()` HIC cagrilmiyor — bu yuzden v1.5.0'daki Notification
   // koprusu de hicbir zaman tetiklenmiyordu. Sonuc: uygulamada HICBIR bildirim.
   //
-  // COZUM: panel ZATEN her ~30 sn bildirim beslemesini yokluyor. Kendi
-  // yoklamamizi eklemek yerine `fetch` sarmalanip O YANIT dinleniyor —
-  // sunucuya EK YUK BINMEZ (bugun yasanan 429 sorunu tekrarlanmaz).
-  // Panel yoklamasi hic gorulmezse (ornegin besleme yenilenmiyorsa) 45 sn sonra
-  // yedek yoklama devreye girer.
+  // COZUM (mimari): saati RUST tutar, istegi SAYFA atar, tekillestirme ve
+  // gosterim yine RUST'tadir.
+  //
+  //   Rust `start_notify_clock` (OS is parcacigi)
+  //     -> eval -> BURADAKI `__bogahostFeedTick`
+  //          -> panelin bildirim ucuna `fetch` (oturum cerezi + CSRF + yetki
+  //             sayfada ZATEN cozulmus)
+  //               -> invoke('bogahost_notify_feed') -> native bildirim + rozet
+  //
+  // NEDEN saat Rust'ta: `setInterval` pencere gizlendiginde isletim sistemi
+  // tarafindan KISILIR — tam da uygulama tepside dururken. `eval` ile ACIKCA
+  // calistirilan betik zamanlayici degildir, aninda kosar.
+  //
+  // NEDEN istek sayfada: oturum cerezi HttpOnly'dir ve panelin kendi yetki
+  // katmani (auth/perm ara katmanlari) sayfa baglaminda zaten gecerlidir;
+  // cerezi Rust'a tasimak fazladan kirilma noktasi olurdu.
+  //
+  // Panel PENCERE ACIKKEN kendisi zaten yokluyor: o yanit `fetch` sarmalayicisi
+  // ile ucretsiz dinlenir, kendi istegimiz ATLANIR (sunucuya ek yuk binmez).
   var FEED_RE = /\/notifications(\/feed)?(\?|$)/;
   var feedSeenAt = 0;
-  var maxId = null;
   var chatCursor = null;
-  var BASE_KEY = 'bogahost_native_feed_' + (APP_KEY || 'app');
-
-  function baselineLoad() {
-    try { var v = parseInt(localStorage.getItem(BASE_KEY) || '', 10); return isNaN(v) ? null : v; } catch (e) { return null; }
-  }
-  function baselineSave(v) { try { localStorage.setItem(BASE_KEY, String(v)); } catch (e) {} }
-
-  // DCIM / Finans / Görevler bicimi: {unread, items:[{id,title,body,url,age_s}]}
-  function handleStandardFeed(d) {
-    var items = (d && d.items) || [];
-    if (!items.length) { return; }
-
-    var max = 0;
-    for (var i = 0; i < items.length; i++) { if (items[i].id > max) { max = items[i].id; } }
-
-    if (maxId === null) {
-      // ILK GORUS: gecmis bildirimleri TOPLUCA gosterme.
-      var stored = baselineLoad();
-      if (stored !== null) {
-        maxId = stored;
-      } else {
-        // Kayit yoksa yalnizca 60 sn'den YENI olanlar duyurulur.
-        var old = 0;
-        for (var j = 0; j < items.length; j++) {
-          if ((items[j].age_s || 0) > 60 && items[j].id > old) { old = items[j].id; }
-        }
-        maxId = old;
-      }
-    }
-
-    var fresh = [];
-    for (var k = 0; k < items.length; k++) { if (items[k].id > maxId) { fresh.push(items[k]); } }
-    fresh.sort(function (a, b) { return a.id - b.id; });
-
-    // Cok birikmisse masaustunu bildirimle doldurma.
-    var show = fresh.slice(-4);
-    if (fresh.length > show.length) {
-      window.__bogahostNotifyOnce('bulk:' + max, APP_TITLE_SAFE(), fresh.length + ' yeni bildirim var.', null);
-    }
-    for (var m = 0; m < show.length; m++) {
-      var n = show[m];
-      window.__bogahostNotifyOnce('feed:' + n.id, n.title || APP_TITLE_SAFE(), n.body || '', n.url || null);
-    }
-
-    if (max > maxId) { maxId = max; baselineSave(max); }
-  }
+  var halted = false;
+  var backoff = 0;
 
   function APP_TITLE_SAFE() {
     try { return String(window.__BOGAHOST_APP_TITLE__ || 'Bogahost'); } catch (e) { return 'Bogahost'; }
+  }
+
+  // Normallestirilmis kayitlari Rust'a verir.
+  // Oturum ici `seen` yalnizca AYNI yanitin iki yoldan (sarmalayici + kendi
+  // yoklamamiz) gelmesini eler; KALICI tekillestirme Rust'tadir.
+  function pushFeed(list, unread) {
+    var fresh = [];
+    for (var i = 0; i < list.length; i++) {
+      var it = list[i];
+      if (!it.key || seen[it.key]) { continue; }
+      seen[it.key] = 1;
+      seenOrder.push(it.key);
+      while (seenOrder.length > SEEN_MAX) { delete seen[seenOrder.shift()]; }
+      fresh.push(it);
+    }
+    var count = (typeof unread === 'number') ? unread : null;
+    // Yeni kayit yoksa bile rozeti tazelemek icin sayiyi gonder.
+    if (!fresh.length && count === null) { return; }
+    try { invoke('bogahost_notify_feed', { items: fresh, unread: count }).catch(function () {}); } catch (e) {}
+  }
+
+  // DCIM / Finans / Görevler bicimi: {unread, items:[{id,title,body,url,read,age_s}]}
+  function handleStandardFeed(d) {
+    var items = (d && d.items) || [];
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var n = items[i];
+      // Panelde ZATEN okunmus kaydi masaustunde duyurma.
+      if (n.read) { continue; }
+      out.push({
+        key: 'feed:' + n.id,
+        title: n.title || APP_TITLE_SAFE(),
+        body: n.body || '',
+        url: n.url || null,
+        age_s: n.age_s || 0
+      });
+    }
+    pushFeed(out, typeof d.unread === 'number' ? d.unread : null);
   }
 
   // Chat bicimi: {ok, init, messages:[], new_conversations:[], internal_messages:[], max_*}
@@ -2366,44 +2592,45 @@ const EXTRA_SCRIPT: &str = r#"
     var convs = d.new_conversations || [];
     for (var a = 0; a < convs.length; a++) {
       out.push({
-        k: 'conv:' + convs[a].id,
-        t: 'Yeni sohbet · ' + (convs[a].visitor || 'Ziyaretçi'),
-        b: convs[a].preview || 'Sohbet başladı',
-        u: '/admin/chats?c=' + convs[a].id
+        key: 'conv:' + convs[a].id,
+        title: 'Yeni sohbet · ' + (convs[a].visitor || 'Ziyaretçi'),
+        body: convs[a].preview || 'Sohbet başladı',
+        url: '/admin/chats?c=' + convs[a].id,
+        age_s: 0
       });
     }
     var msgs = d.messages || [];
     for (var b = 0; b < msgs.length; b++) {
       out.push({
-        k: 'msg:' + msgs[b].id,
-        t: msgs[b].visitor || 'Ziyaretçi',
-        b: msgs[b].preview || 'Yeni mesaj',
-        u: '/admin/chats?c=' + msgs[b].conversation_id
+        key: 'msg:' + msgs[b].id,
+        title: msgs[b].visitor || 'Ziyaretçi',
+        body: msgs[b].preview || 'Yeni mesaj',
+        url: '/admin/chats?c=' + msgs[b].conversation_id,
+        age_s: 0
       });
     }
     var ints = d.internal_messages || [];
     for (var c = 0; c < ints.length; c++) {
       out.push({
-        k: 'int:' + ints[c].id,
-        t: 'Personel · ' + (ints[c].from || 'Ekip'),
-        b: ints[c].preview || '',
-        u: '/admin/internal'
+        key: 'int:' + ints[c].id,
+        title: 'Personel · ' + (ints[c].from || 'Ekip'),
+        body: ints[c].preview || '',
+        url: '/admin/internal',
+        age_s: 0
       });
     }
 
-    var show = out.slice(-4);
-    if (out.length > show.length) {
-      window.__bogahostNotifyOnce('cbulk:' + chatCursor.msg + '-' + chatCursor.conv, APP_TITLE_SAFE(), out.length + ' yeni bildirim var.', null);
-    }
-    for (var e = 0; e < show.length; e++) {
-      window.__bogahostNotifyOnce(show[e].k, show[e].t, show[e].b, show[e].u);
-    }
+    // Rozet: bekleyen (karsilanmamis) sohbet sayisi.
+    pushFeed(out, typeof d.waiting === 'number' ? d.waiting : null);
   }
 
-  function consumeFeed(data) {
+  // `fromPanel` = yaniti PANEL istedi (biz degil). Yalnizca o durumda
+  // `feedSeenAt` tazelenir; kendi istegimiz kendini bastirmasin diye
+  // (aksi halde bir tur atlanir ve aralik iki katina cikardi).
+  function consumeFeed(data, fromPanel) {
     try {
       if (!data || typeof data !== 'object') { return; }
-      feedSeenAt = Date.now();
+      if (fromPanel) { feedSeenAt = Date.now(); }
       // Bicimi ALANA gore ayirt et (URL'e degil): Chat farkli bir sema dondurur.
       if (Object.prototype.hasOwnProperty.call(data, 'items')) { handleStandardFeed(data); }
       else if (Object.prototype.hasOwnProperty.call(data, 'max_msg')) { handleChatFeed(data); }
@@ -2427,7 +2654,9 @@ const EXTRA_SCRIPT: &str = r#"
             try {
               if (!res || !res.ok) { return; }
               // Govdeyi TUKETME: panel ayni yaniti kendi okuyacak.
-              res.clone().json().then(consumeFeed).catch(function () {});
+              res.clone().json()
+                .then(function (d) { consumeFeed(d, true); })
+                .catch(function () {});
             } catch (e) {}
           }).catch(function () {});
         }
@@ -2436,12 +2665,7 @@ const EXTRA_SCRIPT: &str = r#"
     };
   }
 
-  // ---- Yedek yoklama (panel yoklamiyorsa) ----
-  // Sunucuya EK YUK BINMEMESI icin yalnizca 45 sn boyunca HIC besleme yaniti
-  // gorulmediyse baslar ve panel yoklamasi geri gelirse KENDINI DURDURUR.
-  var backoff = 0;
-  var pollTimer = null;
-
+  // ---- Kabugun KENDI yoklamasi (saat Rust'ta) ----
   function feedUrl() {
     if (APP_KEY === 'chat') {
       if (!chatCursor) { return '/admin/notifications'; }
@@ -2460,54 +2684,52 @@ const EXTRA_SCRIPT: &str = r#"
     } catch (e) { return false; }
   }
 
-  function pollOnce() {
-    if (!looksLikePanel()) { return; }
-    // Panel kendi yokluyorsa (son 90 sn icinde yanit gorduk) KARISMA.
-    if (feedSeenAt && (Date.now() - feedSeenAt) < 90000) { return; }
+  // Rust saatinin her turda cagirdigi giris noktasi (`start_notify_clock`).
+  //
+  // TAMAMEN SESSIZDIR: ag hatasi, oturum dususu, 401/403 -> hicbir bildirim
+  // gosterilmez, yalnizca konsola yazilir. Her turda hata bildirimi CIKMAZ.
+  window.__bogahostFeedTick = function () {
+    try {
+      // Oturum/yetki yok: yoklama TAMAMEN durdu (sayfa yenilenince sifirlanir).
+      if (halted) { return; }
+      // Giris ekrani / panel disi sayfa.
+      if (!looksLikePanel()) { return; }
+      // Sunucu bogulmus -> ustel geri cekilme suresi dolmadi.
+      if (backoff > Date.now()) { return; }
+      // Panel PENCERE ACIKKEN kendisi yokluyor (son 60 sn icinde yanit gorduk):
+      // ayni ucu ikinci kez cagirip sunucuyu yorma.
+      if (feedSeenAt && (Date.now() - feedSeenAt) < 60000) { return; }
 
-    nativeFetch(feedUrl(), {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then(function (res) {
-      // 429/503: sunucu bogulmus -> ustel geri cekilme.
-      if (res.status === 429 || res.status === 503) { backoff = Math.min(backoff ? backoff * 2 : 60000, 300000); return null; }
-      // Oturum yok / yetki yok: yoklamayi TAMAMEN durdur.
-      if (res.status === 401 || res.status === 403) { stopPolling(); return null; }
-      if (!res.ok) { backoff = Math.min(backoff ? backoff * 2 : 60000, 300000); return null; }
-      backoff = 0;
-      return res.json();
-    }).then(function (d) {
-      if (d) { consumeFeed(d); }
-    }).catch(function () {
-      backoff = Math.min(backoff ? backoff * 2 : 60000, 300000);
-    });
+      nativeFetch(feedUrl(), {
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function (res) {
+        if (res.status === 401 || res.status === 403) {
+          halted = true;
+          console.warn('[bogahost] bildirim yoklamasi durdu: oturum/yetki yok');
+          return null;
+        }
+        if (!res.ok) { backoffBump(res.status); return null; }
+        backoff = 0;
+        backoffStep = 0;
+        return res.json();
+      }).then(function (d) {
+        if (d) { consumeFeed(d, false); }
+      }).catch(function (e) {
+        // Ag yok / DNS / TLS: sessizce geri cekil.
+        backoffBump(0);
+        console.warn('[bogahost] bildirim yoklamasi basarisiz:', e);
+      });
+    } catch (e) {}
+  };
+
+  // Ustel geri cekilme: 90 sn -> 3 dk -> 6 dk ... en fazla 15 dk.
+  var backoffStep = 0;
+  function backoffBump(status) {
+    backoffStep = Math.min(backoffStep ? backoffStep * 2 : 90000, 900000);
+    backoff = Date.now() + backoffStep;
+    console.warn('[bogahost] bildirim yoklamasi ertelendi (' + status + ')');
   }
-
-  function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  function startPolling() {
-    if (pollTimer) { return; }
-    // 30 sn taban; geri cekilme varsa o kadar bekle.
-    var base = 30000;
-    pollTimer = setInterval(function () {
-      if (backoff > 0) {
-        backoff -= base;
-        if (backoff < 0) { backoff = 0; }
-        return;
-      }
-      pollOnce();
-    }, base);
-  }
-
-  // NOT: pencere GIZLIYKEN de calisir (uygulama acik oldugu surece bildirim
-  // gelmeli). WebView arka planda zamanlayiciyi yavaslatabilir; bu bir
-  // isletim sistemi davranisidir, kabuk tarafindan asilamaz.
-  setTimeout(function () {
-    if (!feedSeenAt && looksLikePanel()) { pollOnce(); }
-    startPolling();
-  }, 45000);
 
   // =========================================================================
   // 4) KAMERA / MIKROFON / EKRAN PAYLASIMI

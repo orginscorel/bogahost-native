@@ -21,9 +21,13 @@ sağlamaz**. Gerçek native bildirim için platform servisleri gerekir:
 | iOS (Capacitor) | **APNs** | APNs Auth Key (`.p8`) + Apple Push yetkisi |
 | Windows/macOS (Tauri) | OS bildirimleri (`tauri-plugin-notification`) — uzaktan push için ayrı köprü | — |
 
-> **Karar:** Bildirim yeterliliği için en az sürtünme = uygulamayı **PWA olarak kurmak** (mevcut
-> web-push aynen çalışır). Native FCM/APNs yalnızca uygulama kapalıyken/arka planda garantili teslim
-> şartsa gereklidir ve **manuel kimlik bilgisi + kod entegrasyonu** ister.
+> **Karar (güncellendi):** Masaüstü kabuğunda bildirim için **PWA kurmak GEREKMEZ ve
+> beklenmez.** Kullanıcı uygulamayı açar; bildirimi **uygulamanın kendisi** getirir ve
+> **işletim sistemi bildirimi** olarak gösterir. Tarayıcı, Service Worker, `PushManager`,
+> VAPID ve Apple/APNs zincirinin tamamı masaüstü kabuğunda **devre dışıdır** —
+> bkz. [Masaüstü bildirim mimarisi](#masaüstü-tauri--bildirim-mimarisi-saat-rustta).
+> Native FCM/APNs yalnızca **Capacitor (Android/iOS)** tarafı için ve yalnızca uygulama
+> tamamen kapalıyken garantili teslim şartsa gereklidir.
 
 ## Masaüstü (Tauri) — Notification köprüsü (v1.5.0)
 
@@ -62,47 +66,95 @@ Native WebView'de 3. adım **hiç çalışmaz** — `serviceWorker` ve `PushMana
 v1.5.0 shim'i **asla tetiklenmedi**. Kullanıcının "hiçbir bildirim gelmiyor"
 şikâyetinin tam sebebi budur.
 
-**v1.6.0 çözümü:** `EXTRA_SCRIPT` içinde `window.fetch` sarmalanır ve panelin
-**kendi** besleme yanıtı (`res.clone().json()`) dinlenir.
+## Masaüstü (Tauri) — bildirim mimarisi (saat Rust'ta)
 
-| Konu | Karar | Gerekçe |
+**İlke:** Bildirimi **tarayıcı değil, uygulama** getirir ve **uygulama** gösterir.
+Kabuk; Service Worker, `PushManager`, VAPID, Apple/APNs zincirinin **hiçbirine bağlı değildir.**
+
+```
+Rust  start_notify_clock          (işletim sistemi iş parçacığı, 45 sn — kısılmaz)
+  └─ webview.eval("__bogahostFeedTick()")
+       └─ sayfa: fetch(panelin bildirim ucu)      (oturum çerezi + CSRF + yetki SAYFADA çözülü)
+            └─ invoke("bogahost_notify_feed", {items, unread})
+                 └─ Rust: kalıcı tekilleştirme → NATIVE bildirim + Dock/tepsi rozeti
+```
+
+### Neden bu bölüşüm?
+
+| Soru | Seçilen | Gerekçe |
 |---|---|---|
-| Ek istek | **Yok** | Panel zaten yokluyor; gövde klonlanıp okunur. 429 riski artmaz |
-| Tekilleştirme | `localStorage` imleci + anahtar seti | Aynı bildirim iki kez çıkmaz |
-| İlk açılış | Yalnız imleç kurulur | Geçmiş bildirimler toplu gösterilmez |
-| Chat farklı şeması | Alan adına göre ayrılır (`items` vs `max_msg`) | URL'e değil gövdeye bakılır |
-| Yedek yoklama | 45 sn hiç yanıt görülmezse başlar | Panel yoklamazsa da bildirim gelsin |
-| Geri çekilme | 429/503/hata → üstel, 5 dk tavan; 401/403 → durur | Sunucu boğulmasın |
-| Tıklama | Tepside **"Son bildirimi aç"** | Masaüstünde bildirime tıklama olayı **yok** (aşağıya bakın) |
-| Adres güvenliği | Yalnız `*.bogahost.com` kabul edilir | Panel kabuğu yabancı adrese götüremez |
+| **Saati kim tutar?** | **Rust** (OS iş parçacığı) | Sayfadaki `setInterval` pencere **gizlendiğinde/örtüldüğünde** işletim sistemi tarafından kısılır — tam da uygulama tepsideyken, yani bildirimin en çok beklendiği anda. `eval` ile **açıkça çalıştırılan** betik zamanlayıcı değildir; pencere gizliyken de anında koşar. |
+| **İsteği kim atar?** | **Sayfa** | Oturum çerezi `HttpOnly`'dir ve panelin `auth`/`perm` ara katmanları sayfa bağlamında zaten geçerlidir. Çerezi Rust'a taşımak (`cookies_for_url`) mümkün ama fazladan bir kırılma noktası olurdu. |
+| **Kalıcılık/gösterim?** | **Rust** | `localStorage` panel tarafından temizlenebilir; `app_config_dir` uygulamanın kendi verisidir. |
 
-Panelin kendi `new Notification()` çağrısı da (varsa) **aynı** tekilleştirmeden geçer
-(`window.__bogahostNotifyOnce`), yani çift bildirim olmaz.
+### Kullanılan panel ucu (YENİ UÇ YAZILMADI)
 
-### Sınırlar (net olarak)
+Zilin **zaten** yokladığı uç aynen kullanılır — backend'e tek satır dokunulmadı.
 
-- **UYGULAMA AÇIKKEN:** bildirimler gelir. ✅ (v1.6.0 ile düzeltildi)
-- **UYGULAMA KAPALIYKEN:** bildirim **gelmez**. ❌ Bu bir hata değil, mimari sınırdır:
-  gerçek APNs push için **Apple Developer hesabı + imzalı/notarize edilmiş uygulama +
-  push entitlement (`aps-environment`) + APNs gönderim ucu** gerekir. macOS'ta imzasız
-  bir uygulama APNs token'ı **alamaz**. Windows'ta karşılığı WNS'tir ve o da paket
-  kimliği (MSIX) ister. Bu depoda **yoktur**.
-- Bildirimin **kendisine tıklama** olayı `tauri-plugin-notification` tarafından
-  masaüstünde sunulmaz. Bu yüzden hedef adres saklanıp tepsi menüsündeki
-  **"Son bildirimi aç"** öğesine bağlandı — uydurma bir API kullanılmadı.
-- Pencere gizliyken zamanlayıcı işletim sistemi tarafından yavaşlatılabilir;
-  bu kabuk tarafından aşılamaz.
+| Uygulama | Uç | Şema |
+|---|---|---|
+| Finans / DCIM / Görevler | `GET /admin/notifications/feed` | `{unread, items:[{id,title,body,url,read,age_s}]}` |
+| Chat | `GET /admin/notifications?after_msg&after_conv&after_internal` | `{ok, messages[], new_conversations[], internal_messages[], max_*, waiting}` |
 
-### Eski sınırlar (v1.5.0 shim'i — hâlâ geçerli)
+Şema **gövdedeki alana** göre ayırt edilir (`items` vs `max_msg`), URL'e göre değil.
+Chat kayıtları (`msg:` / `conv:` / `int:`) kabuk tarafında başlık/gövde/adrese normalize edilir.
 
-- Bu **gerçek web-push DEĞİLDİR.** WebView'de `PushManager` yoktur; panel push aboneliği
-  kuramaz ve **uygulama kapalıyken sunucudan bildirim gelmez.**
-- Çalışan şey: **panel açıkken** üretilen her bildirimin masaüstünde görünmesi ve
-  "Bildirim aç" akışının gerçekten izin alıp **test bildirimi göstermesi**.
-- Panel push aboneliği kuramadığında kendi fallback'ine (yoklama/SSE) düşer — bu **kasıtlıdır**.
-- Uygulama kapalıyken garantili teslim isteniyorsa **native köprü** gerekir: Windows'ta WNS,
-  macOS'ta APNs. Bu, kabuk tarafında ayrı bir arka plan servisi + sunucu tarafında ikinci bir
-  gönderim hedefi demektir; **bu depoda YOKTUR** ve manuel kurulum ister.
+### Kararlar
+
+| Konu | Karar |
+|---|---|
+| Ek sunucu yükü | **Pencere açıkken sıfır**: panel zaten yokluyor, `window.fetch` sarmalanıp yanıt gövdesi klonlanarak okunur. Kendi isteğimiz yalnızca **60 sn'dir panel yanıtı görülmediyse** atılır (yani pratikte pencere gizliyken). |
+| Tekilleştirme | **Kalıcı**, `app_config_dir/notify-state.json` içinde son **300** bildirim anahtarı (halka tampon). Uygulama yeniden başlayınca eski bildirimler **tekrar patlamaz**. |
+| 4 uygulama ayrımı | Paket kimlikleri farklı → `app_config_dir` farklı → **her uygulama kendi listesini** tutar. |
+| İlk çalıştırma | Kalıcı liste henüz yoksa yalnızca **120 sn'den genç** kayıtlar duyurulur; gerisi sessizce "görüldü" işaretlenir. |
+| Patlama koruması | Tek turda en fazla **4** bildirim; fazlası tek "**N yeni bildirim var**" özetine düşer. |
+| Okunmuşlar | Panelde `read` işaretli kayıt masaüstünde **duyurulmaz**. |
+| Rozet | `unread` (Chat'te `waiting`) → `set_badge_count` (macOS/Linux Dock). **Windows'ta desteklenmez**, hata sessizce yutulur. |
+| Sessizlik | Ağ hatası / 5xx → **üstel geri çekilme** (90 sn → 15 dk tavan). 401/403 → yoklama **tamamen durur** (sayfa yenilenince sıfırlanır). Hiçbirinde **kullanıcıya bildirim çıkmaz**, yalnızca konsola yazılır. |
+| Giriş ekranı | `/admin` dışındaysa veya sayfada parola alanı varsa yoklama **yapılmaz** (401 döngüsü olmasın). |
+| Adres güvenliği | Bildirimin `url` alanı yalnızca `*.bogahost.com` ise kabul edilir (`resolve_internal_url`). |
+
+### Bildirime tıklama — dürüst durum
+
+`tauri-plugin-notification` (v2) masaüstünde bildirime **tıklama/aksiyon geri çağrısı
+SUNMAZ** — `NotificationBuilder`'da `on_click`/`on_action` **yoktur** (docs.rs ile
+doğrulandı). Bu yüzden hedef adres saklanır ve tepsi menüsündeki
+**"Son bildirimi aç"** öğesine bağlanır; tıklanınca sayfa ana pencerede açılır ve
+pencere öne getirilir. **Olmayan bir API uydurulmadı.**
+
+### Ne zaman ne çalışır?
+
+| Durum | Bildirim düşer mi? | Nasıl |
+|---|---|---|
+| Pencere **açık ve önde** | ✅ | Panelin kendi yoklaması sarmalayıcıdan okunur (ek istek yok) |
+| Pencere **arkada / örtülü** | ✅ | Rust saati 45 sn'de bir `eval` eder; panel yoklaması dursa da kabuk kendi ister |
+| Pencere **kapalı, uygulama tepside** | ✅ | Aynı — WebView canlıdır, saat Rust'tadır |
+| Oturum açılışında **`--hidden` başlatıldı** | ✅ | v1.7.0 autostart; pencere hiç açılmaz, kabuk tepside yoklamaya devam eder |
+| Panel oturumu düştü (401/403) | ❌ (sessiz) | Yoklama durur; kullanıcı panele girince kendiliğinden sürer |
+| Uygulama **tamamen kapalı (süreç yok)** | ❌ | **Fiziksel sınır** — aşağıya bakın |
+
+> **Kısılma notu (dürüst):** Rust saati kısılmaz, ancak `eval` ile tetiklenen `fetch`
+> WebView içinde koşar. WebKit/WebView2'nin örtülü pencerede ağ isteğini geciktirmesi
+> teorik olarak mümkündür. Bu **ölçülmedi** (bu makinede Rust yok, derlenemedi).
+> Ölçülene kadar iddia edilen tek şey: **zamanlayıcı kısılması bu tasarımda ortadan
+> kalkmıştır**, çünkü artık zamanlayıcı kullanılmıyor.
+
+### Kritik sınır — uygulama TAMAMEN kapalıyken
+
+Süreç yoksa bu yöntem **çalışmaz** ve bu bir hata değil, **fiziksel sınırdır**:
+
+- Gerçek APNs push için **Apple Developer hesabı + imzalı/notarize edilmiş uygulama +
+  push entitlement (`aps-environment`) + APNs gönderim ucu** gerekir. macOS'ta **imzasız**
+  bir uygulama APNs token'ı **alamaz**. Windows'taki karşılığı WNS'tir ve o da **MSIX paket
+  kimliği** ister. Bu depo **imzasız kabuk üretir**; ikisi de **YOKTUR**.
+- **Pratikte sorun oluşturmaz:** v1.7.0 ile oturum açılışında **sessizce tepside başlatma**
+  (`--hidden` + autostart) eklendi, close-to-tray zaten vardı. Uygulama fiilen **sürekli
+  çalışır**, dolayısıyla bildirim her zaman düşer. "Süreç yok" durumu yalnızca kullanıcı
+  **bilerek Cmd+Q / Çıkış** dediğinde oluşur — ve o an bir kez uyarı gösterilir.
+
+> **Not:** WebView'de `PushManager` yoktur ve panel push aboneliği kuramaz. Bu **artık bir
+> eksiklik değildir** — masaüstü kabuğu bildirim için web-push zincirini hiç kullanmıyor.
+> Kullanıcının PWA/Safari ile uğraşmasına **gerek yoktur**.
 
 ## Native push eklemek (özet adımlar — manuel)
 
@@ -122,9 +174,10 @@ yapmaz**, ayrı bir iş kalemidir.
 4. Backend, APNs'e (`.p8` JWT) gönderim yapacak şekilde genişletilir.
 
 ### Masaüstü (Tauri)
-- Yerel bildirim: `tauri-plugin-notification`.
-- Uzaktan tetikleme için uygulama açıkken WebView'deki mevcut SSE/web-push zaten çalışır; kapalıyken
-  push istenirse ayrı bir native köprü/agent gerekir.
+- **Gerekmiyor.** Kabuk paneli kendisi yokluyor ve bildirimi kendisi gösteriyor
+  (bkz. [bildirim mimarisi](#masaüstü-tauri--bildirim-mimarisi-saat-rustta)).
+- APNs/WNS yalnızca uygulama **tamamen kapalıyken** teslim şartsa gerekir; o da imzalı
+  uygulama + paket kimliği ister.
 
 ## Masaüstü (Tauri) — "kapalıyken de bildirim" (v1.6.0 sonrası)
 
@@ -141,7 +194,7 @@ bildirimler düşmeli."*
 |---|---|
 | **Otomatik başlatma (autostart)** | `tauri-plugin-autostart` — bilgisayar açılınca uygulama `--hidden` argümanıyla sessizce başlar, pencere açılmaz, yalnızca tepside durur |
 | **Close-to-tray** (zaten vardı) | Pencere kapatılınca uygulama çıkmaz, tepside çalışmaya devam eder |
-| **Notification köprüsü** (zaten vardı) | Tepside çalışırken WebView canlıdır; panelin SSE/fetch beslemesi kesintisiz işler ve her bildirim native masaüstü bildirimi olur |
+| **Bildirim yoklayıcı** (saat Rust'ta) | Tepside çalışırken WebView canlıdır; Rust saati 45 sn'de bir yoklamayı tetikler ve her yeni kayıt native masaüstü bildirimi olur |
 
 Sonuç: uygulama **fiilen sürekli çalışır**, kullanıcı açısından "kapalıyken de bildirim
 geliyor" beklentisi karşılanır.
@@ -176,6 +229,11 @@ Tam çıkış **engellenmez**. Yalnızca **ilk seferde** bilgilendirme diyaloğu
 
 ## Özet
 
-- **Bugün çalışan:** Web Push, PWA + masaüstü tarayıcı (iOS'ta yalnızca kurulu PWA).
-- **Native kabukta garantili arka plan push:** FCM (Android) + APNs (iOS) — manuel kimlik + entegrasyon.
-- Bu depo push **kodu/anahtarı içermez**; yalnızca kabuğu üretir.
+- **Masaüstü kabuğu (Tauri):** bildirimi **uygulama** getirir ve **uygulama** gösterir.
+  Tarayıcı / Service Worker / `PushManager` / VAPID / Apple **kullanılmaz**. PWA kurmaya
+  **gerek yoktur**. Uygulama açık veya tepsideyken bildirim düşer; tamamen kapalıyken düşmez.
+- **Web (tarayıcı / kurulu PWA):** mevcut Web Push aynen çalışmaya devam eder — bu depo ona
+  dokunmaz.
+- **Capacitor (Android/iOS) tarafında garantili arka plan push:** FCM + APNs — manuel kimlik
+  + entegrasyon ister.
+- Bu depo push **kodu/anahtarı içermez** ve **panel dosyalarına dokunmaz**; yalnızca kabuğu üretir.
