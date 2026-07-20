@@ -73,6 +73,24 @@ const NETWORK_TIMEOUT: Duration = Duration::from_secs(7);
 /// timeout comert tutulur.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// CLOUDFLARE ATLAMA (origin-pin). Cloudflare, `reqwest` gibi otomatik / sunucu
+/// tarafi istemcileri "tarayici degil" diye CHALLENGE'lar; bu yuzden kopru
+/// indirmesi (Parasut e-belge) origin'e hic ulasamadan "Dosya indirilemedi"
+/// hatasi veriyordu. WebView'in KENDI `fetch`'i gercek tarayici + `cf_clearance`
+/// oldugu icin gecerdi, `reqwest` gecmezdi. Cozum: kendi alt alan adlarimizi
+/// DOGRUDAN origin IP'sine (`ORIGIN_IP`) cozup Cloudflare'i tamamen atlamak.
+/// TLS SNI ve `Host` ORIJINAL alan adi kalir; AutoSSL origin sertifikasi bu
+/// adlar icin gecerli oldugundan sertifika dogrulamasi ACIK birakilir
+/// (`danger_accept_invalid_certs` KULLANILMAZ). Yalnizca bu dort alt alan adi
+/// pinlenir; diger host'lar (ornegin duz `bogahost.com`) normal yoldan gider.
+const ORIGIN_IP: [u8; 4] = [46, 224, 208, 126];
+const ORIGIN_PINNED_HOSTS: [&str; 4] = [
+    "finans.bogahost.com",
+    "dcim.bogahost.com",
+    "chat.bogahost.com",
+    "task.bogahost.com",
+];
+
 /// Otomatik guncelleme yeni surumun indirilecegi taban adres (manuel yedek yol).
 /// Dosya adi: `<app>-<surum>-macos.dmg` / `<app>-<surum>-windows-x86_64-setup.exe`.
 const DOWNLOAD_BASE_URL: &str = "https://native.bogahost.com/downloads";
@@ -4357,10 +4375,19 @@ async fn bogahost_fetch_download(
         format!("BogahostNative/{} ({})", env!("CARGO_PKG_VERSION"), APP_KEY)
     });
 
-    let client = reqwest::Client::builder()
+    // Origin-pin: bogahost alt alan adlarini DOGRUDAN origin IP'sine cozup
+    // Cloudflare'i atla (bkz. ORIGIN_PINNED_HOSTS). CF, reqwest'i challenge'lar;
+    // bu olmadan indirme origin'e hic ulasmaz ("Dosya indirilemedi"). SNI/Host
+    // orijinal alan adi kalir; TLS dogrulamasi origin sertifikasiyla yapilir.
+    let origin_addr = std::net::SocketAddr::from((ORIGIN_IP, 443));
+    let mut builder = reqwest::Client::builder()
         .connect_timeout(NETWORK_TIMEOUT)
         .timeout(DOWNLOAD_TIMEOUT)
-        .user_agent(ua)
+        .user_agent(ua);
+    for host in ORIGIN_PINNED_HOSTS {
+        builder = builder.resolve(host, origin_addr);
+    }
+    let client = builder
         .build()
         .map_err(|_| "network".to_string())?;
 
