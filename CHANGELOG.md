@@ -1,3 +1,107 @@
+## 1.5.0
+
+Kullanıcı geri bildirimi üzerine **masaüstü (Tauri) kabuklarına** odaklanan sürüm.
+Dört uygulamada da (Finans / DCIM / Chat / Görevler) `lib.rs` birebir aynıdır;
+yalnızca `APP_KEY` / `APP_TITLE` sabitleri farklıdır.
+
+### Düzeltildi — "Bu tarayıcı bildirimi desteklemiyor"
+- **Kök neden:** Tauri WebView'i `window.Notification` **sunmuyor**. Panellerin
+  Bildirim/Cihazlar ekranı bu nesneyi arayıp bulamayınca "desteklemiyor" diyordu.
+- Sayfaya enjekte edilen betiğe **Notification API köprüsü** eklendi: standart
+  `new Notification(...)`, `Notification.permission` ve `Notification.requestPermission()`
+  artık native masaüstü bildirimine bağlanıyor (`bogahost_notify`,
+  `bogahost_notify_state`, `bogahost_notify_request` komutları).
+- `requestPermission()` sistem izin penceresini **arka planda** açar (arayüz donmaz),
+  sonucu kısa aralıklarla yoklar. İzin verilince kullanıcının görmesi için bir
+  **test bildirimi** gösterilir.
+- İzin henüz alınmamışken durum `"denied"` değil **`"default"`** raporlanır; böylece
+  panel "Bildirim aç" düğmesini gizlemez.
+- **Sınır (dürüst not):** Bu **gerçek web-push değildir.** WebView'de `PushManager`
+  yoktur; uygulama kapalıyken sunucudan bildirim gelmez. Panel açıkken üretilen
+  bildirimler masaüstünde görünür. Ayrıntı: `docs/PUSH.md`.
+
+### Düzeltildi — PDF/CSV indirmede 404
+- **Kök neden:** `target="_blank"` taşıyan indirme linkleri ve `window.open(...)`
+  çağrıları **ana pencereyi** indirme adresine götürüyordu (`location.href`).
+  Sunucu eki (attachment) yerine hata/yönlendirme dönerse panelin kendisi 404
+  sayfasına düşüyordu. `target="_blank"` taşıyan **POST form'ları** ise WebView'de
+  hiç çalışmıyordu (yeni pencere açılamaz).
+- Artık panellerin **üç indirme biçimi de** kapsanıyor:
+  1. `GET` + `Content-Disposition` → WebView'in kendi indirme akışı (değişmedi),
+  2. `download` niteliği / yeni sekme hedefli indirme linkleri → oturum çerezleriyle
+     `fetch` edilip `bogahost_save_file` köprüsüyle diske yazılır, **panel yerinde kalır**,
+  3. `target="_blank"` **POST form'ları** → form verisiyle istek atılır, sonuç diske yazılır.
+- Dosya adı `Content-Disposition` başlığından okunur (`filename*` UTF-8 dahil).
+- **Sessiz 404 kalktı:** hata durumunda sayfada anlaşılır bir mesaj + native bildirim
+  gösterilir ("Dosya bulunamadı (404)…", "Bu dosyayı indirme izniniz yok." vb.).
+- Çok büyük dosyalarda (>48 MB) köprü yerine WebView'in kendi indirme akışına düşülür.
+
+### Düzeltildi — Açılan PDF/CSV'den uygulamaya geri dönülemiyordu
+- **Kök neden:** Yeni sekmede açılmak istenen iç adresler ana pencerede açılıyordu.
+  Sunucu PDF/görsel döndürünce WebView dosyayı yerinde görüntülüyor, panel kayboluyor
+  ve görünür bir "geri" yolu kalmıyordu — kullanıcı kilitleniyordu.
+- Bu adresler artık **ayrı, çerçeveli ve kapatılabilir bir önizleme penceresinde**
+  açılıyor (`popup-*`): başlık çubuğu + kapat düğmesi, **ESC** ile kapanma, sağ üstte
+  belirgin **"Kapat (ESC)"** ve **"Yazdır"** düğmeleri. **Ana pencere panelde kalır.**
+- Ek kurtarma yolu: Görünüm menüsüne **"Panele dön" (Cmd/Ctrl+Shift+H)** eklendi —
+  pencere herhangi bir sebeple panelden koptuysa tek tıkla geri döner.
+- İndirilen dosya sistem varsayılan uygulamasında açılmaya devam eder; ana pencere
+  ele geçirilmez.
+
+### Düzeltildi — Uygulamalar arası geçişte tekrar giriş isteniyordu
+- **Kök neden:** Bu projede **SSO bilinçli olarak yoktur**; her uygulama kendi alan
+  adında ayrı doğrular. Ancak 4 kabuğun **her biri kendi WebView çerez deposunu**
+  kullanıyordu: DCIM uygulamasında alınan oturum çerezi, Finans uygulamasından DCIM'e
+  geçildiğinde **görünmüyordu**.
+- 4 kabuk artık **ortak bir WebView veri klasörünü** paylaşıyor
+  (`<local-data>/BogahostNative/webview`). Her uygulamaya **bir kez** giriş yapılır;
+  geçişlerde ve uygulama yeniden açıldığında oturum korunur.
+- Bu **SSO değildir** — sunucu tarafına dokunulmadı, yalnızca çerezler paylaşılıyor.
+- **Not:** Bu sürüme geçerken çerez deposu değiştiği için her uygulamada **bir kereye
+  mahsus** yeniden giriş gerekir.
+
+### Düzeltildi — Task → Finans geçişi çalışmıyor görünüyordu
+- 4 uygulamanın `APPS` tablosu, menü kurulumu, CSP host listesi ve Capacitor
+  `allowNavigation` listesi karşılaştırıldı: **hepsi simetrik**, eksik host yok.
+- Gerçek sebep görünürlüktü: geçişte gösterilen **"Yükleniyor…" katmanı** yalnızca
+  sayfa yüklenmesi bittiğinde kaldırılıyordu. Hedef sayfa hiç yüklenmezse (ağ hatası,
+  403, sunucu yanıt vermiyor) katman **kalıcı** olarak ekranı kaplıyor ve kullanıcı
+  bunu "geçiş yok / uygulama dondu" olarak görüyordu.
+- Katman artık en geç **15 saniye** sonunda kaldırılıyor. Ayrıca hedef uygulama 403/401
+  dönüyorsa aşağıdaki erişim ekranı çıkıyor.
+
+### Yeni — Erişimi engellenmiş kullanıcıya net mesaj
+- "Uygulamalar" menüsünden geçiş sonrası hedef adres bir kez daha sorgulanır (HEAD,
+  desteklenmiyorsa GET). Sunucu **403/401** dönüyorsa beyaz/404 sayfa yerine
+  **"Erişim izniniz yok — Bu uygulamaya geçiş izniniz yok. Yöneticiniz bu uygulamaya
+  erişiminizi kapatmış olabilir."** ekranı ve bir **"Geri dön"** düğmesi gösterilir.
+
+### Yeni — İndirme konumu şeffaflığı
+- Bildirim artık dosyanın **tam konumunu** yazıyor ("İndirildi: rapor.pdf" /
+  "Konum: /Users/…/Downloads").
+- Sayfada da kısa bir bilgi mesajı çıkıyor: "İndirildi: rapor.pdf → /…/Downloads".
+- Tepsi menüsündeki **"Son indirilen dosyayı göster"** artık klasörü açmakla kalmıyor,
+  dosyayı **seçili** gösteriyor (macOS `open -R` / Windows `explorer /select,`).
+- **Yapılmadı (bilinçli):** "İndirme klasörünü seç" ayarı. Klasör seçici için gereken
+  `FilePath` → `PathBuf` dönüşümü doğrulanamadı ve derleme yapılamadığı için riskli
+  bulundu; konum şeffaflığı yerine geçici çözüm olarak sunuldu.
+
+### Yeni — Yazdırma (Cmd/Ctrl+P)
+- Görünüm menüsüne **"Yazdır…" (Cmd/Ctrl+P)** eklendi.
+- macOS'ta WebView'in **native yazdırma diyalogu** (`WebviewWindow::print()`) kullanılır;
+  wry bu API'yi yalnızca macOS'ta destekler. Windows/Linux'ta sayfanın kendi
+  `window.print()` akışı çağrılır (wry belgelerine göre tüm platformlarda çalışır).
+  **Her durumda tek bir yazdırma diyalogu açılır.**
+- Panelin kendi "Yazdır" düğmeleri için sayfanın gerçek `print` fonksiyonu
+  `window.__bogahostNativePrint` olarak saklanır.
+- Önizleme penceresindeki PDF, o pencerenin kendi **"Yazdır"** düğmesiyle yazdırılır.
+
+### Değişti
+- `on_download` gövdesi `download_requested` / `download_finished` fonksiyonlarına
+  ayrıldı; ana pencere ve önizleme pencereleri **aynı** indirme mantığını kullanıyor.
+- `capabilities/default.json` ve `capabilities/remote.json` artık `popup-*` pencere
+  desenini de kapsıyor (önizleme pencerelerinde köprü çalışsın diye).
+
 ## 1.4.0
 
 ### Yeni

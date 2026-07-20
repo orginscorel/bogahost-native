@@ -25,6 +25,35 @@ sağlamaz**. Gerçek native bildirim için platform servisleri gerekir:
 > web-push aynen çalışır). Native FCM/APNs yalnızca uygulama kapalıyken/arka planda garantili teslim
 > şartsa gereklidir ve **manuel kimlik bilgisi + kod entegrasyonu** ister.
 
+## Masaüstü (Tauri) — Notification köprüsü (v1.5.0)
+
+**Sorun:** Tauri WebView'i `window.Notification` **sunmuyor**. Panellerin Bildirim/Cihazlar
+ekranı bu nesneyi arayıp bulamayınca *"Bu tarayıcı bildirimi desteklemiyor"* diyordu.
+
+**Çözüm:** Sayfaya enjekte edilen betik (`INIT_SCRIPT`) standart Notification API'sinin bir
+**shim**'ini kurar ve native masaüstü bildirimine bağlar:
+
+| Sayfa tarafı | Native komut | Davranış |
+|---|---|---|
+| `new Notification(t, {body})` | `bogahost_notify` | Masaüstü bildirimi gösterir |
+| `Notification.permission` | `bogahost_notify_state` | `"granted"` veya `"default"` |
+| `Notification.requestPermission()` | `bogahost_notify_request` | Sistem izin penceresini **arka planda** açar, sonucu yoklar, izin verilirse **test bildirimi** gösterir |
+
+Shim yalnızca `window.Notification` **yoksa** kurulur — çalışan bir WebView bozulmaz.
+Ayrıca paneller native kabuğu ayırt edebilsin diye `window.__BOGAHOST_NATIVE_NOTIFY__ = true`
+ve doğrudan çağrılabilen `window.__bogahostNotify(title, body)` sunulur.
+
+### Sınırlar (net olarak)
+
+- Bu **gerçek web-push DEĞİLDİR.** WebView'de `PushManager` yoktur; panel push aboneliği
+  kuramaz ve **uygulama kapalıyken sunucudan bildirim gelmez.**
+- Çalışan şey: **panel açıkken** üretilen her bildirimin masaüstünde görünmesi ve
+  "Bildirim aç" akışının gerçekten izin alıp **test bildirimi göstermesi**.
+- Panel push aboneliği kuramadığında kendi fallback'ine (yoklama/SSE) düşer — bu **kasıtlıdır**.
+- Uygulama kapalıyken garantili teslim isteniyorsa **native köprü** gerekir: Windows'ta WNS,
+  macOS'ta APNs. Bu, kabuk tarafında ayrı bir arka plan servisi + sunucu tarafında ikinci bir
+  gönderim hedefi demektir; **bu depoda YOKTUR** ve manuel kurulum ister.
+
 ## Native push eklemek (özet adımlar — manuel)
 
 Bu adımlar canlı backend'e ve kabuk projelerine kod/anahtar ekler; **bu depo bunları otomatik

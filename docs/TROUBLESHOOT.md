@@ -95,6 +95,62 @@
   içinde **açıkça** kuruluyor. Menüye yeni öğe eklerken bu fonksiyondaki Düzen menüsünü
   silmeyin — kopyala/yapıştır kısayolları oradan gelir.
 
+## v1.5.0 ile gelen davranışlar (masaüstü)
+
+**"Bu tarayıcı bildirimi desteklemiyor" diyordu**
+- Tauri WebView'i `window.Notification` sunmaz. v1.5.0 sayfaya bir **Notification shim**
+  enjekte eder ve native bildirime bağlar. "Bildirim aç" artık gerçekten izin ister ve
+  izin verilince bir **test bildirimi** gösterir.
+- Bu **web-push değildir**: `PushManager` yoktur, uygulama kapalıyken bildirim gelmez.
+  Ayrıntı ve sınırlar: [PUSH.md](PUSH.md).
+
+**PDF/CSV indirmede 404**
+- Kök neden: `target="_blank"` linkleri ve `window.open(...)` **ana pencereyi** indirme
+  adresine götürüyordu; sunucu attachment yerine hata dönerse panelin kendisi 404'e düşüyordu.
+  `target="_blank"` POST form'ları ise hiç çalışmıyordu.
+- v1.5.0 bunları `fetch` + `bogahost_save_file` köprüsüyle indirir; **panel yerinde kalır**.
+  Hata olursa sayfada anlaşılır mesaj + bildirim çıkar (sessiz 404 yok).
+- Hâlâ 404 alıyorsanız adres gerçekten sunucuda yoktur — mesajdaki durum kodu bunu söyler.
+
+**Açılan PDF/CSV'den geri dönemiyorum**
+- v1.5.0'da yeni sekme hedefli iç adresler **ayrı, kapatılabilir önizleme penceresinde**
+  açılır (`popup-*`): başlık çubuğu, **ESC**, sağ üstte "Kapat (ESC)" ve "Yazdır".
+- Ana pencere yine de panelden koptuysa: **Görünüm ▸ Panele dön (Cmd/Ctrl+Shift+H)**.
+
+**Her uygulamada yeniden giriş isteniyor**
+- Bu projede **SSO yoktur** (her uygulama kendi alan adında doğrular). v1.5.0'dan itibaren
+  4 kabuk **ortak bir WebView çerez deposunu** paylaşır
+  (`<local-data>/BogahostNative/webview`), böylece her uygulamaya **bir kez** girilir.
+- v1.4.0 → v1.5.0 geçişinde çerez deposu değiştiği için **bir kereye mahsus** yeniden
+  giriş gerekir. Bu normaldir.
+- Oturum hâlâ unutuluyorsa bu klasörün yazılabilir olduğunu doğrulayın; klasör
+  oluşturulamazsa kabuk sessizce **uygulamaya özel** depoya düşer (çalışır ama paylaşmaz).
+
+**"Bu uygulamaya geçiş izniniz yok" ekranı**
+- Hedef uygulama **403/401** döndürdüğünde çıkar (ör. yönetimce kapatılmış DCIM erişimi).
+  Beyaz/404 sayfa yerine bilgi ekranı + "Geri dön" düğmesi gösterilir. Bu bir hata değil,
+  sunucunun verdiği yetki cevabıdır — erişim için yöneticinize başvurun.
+
+**Uygulamalar arası geçiş "çalışmıyor" / ekranda "Yükleniyor…" kalıyor**
+- 4 uygulamanın `APPS` tablosu, CSP host listesi ve `allowNavigation` listesi **simetriktir**;
+  eksik host yoktur (task → finans dahil).
+- Eski davranışta hedef sayfa hiç yüklenmezse "Yükleniyor…" katmanı kalıcı kalıyordu.
+  v1.5.0'da katman en geç **15 saniye** sonunda kaldırılır.
+
+**Dosya nereye indi?**
+- Bildirimde **tam konum** yazar; sayfada da "İndirildi: <ad> → <klasör>" mesajı çıkar.
+- Tepsi menüsü ▸ **"Son indirilen dosyayı göster"** dosyayı klasörde **seçili** açar
+  (macOS `open -R`, Windows `explorer /select,`).
+- Hedef klasör kullanıcının **İndirilenler** klasörüdür. Klasörü değiştirme ayarı
+  v1.5.0'da **yoktur** (bkz. CHANGELOG "Yapılmadı").
+
+**Yazdırma (Cmd/Ctrl+P)**
+- **Görünüm ▸ Yazdır…** menüsü eklendi. macOS'ta WebView'in native yazdırma diyalogu
+  kullanılır; wry bu API'yi **yalnızca macOS'ta** destekler. Windows/Linux'ta sayfanın
+  `window.print()` akışı çağrılır.
+- Windows'ta yazdırma diyalogu açılmıyorsa sayfanın kendi print akışı engellenmiş olabilir;
+  bu durumda raporu PDF olarak indirip sistem uygulamasından yazdırın.
+
 ## CI
 
 **Workflow imzalama adımını atladı**

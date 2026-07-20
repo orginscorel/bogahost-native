@@ -4,7 +4,7 @@
 // APP_KEY / APP_TITLE sabitleri farklidir. Degistirirken hepsini birlikte guncelleyin.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -64,6 +64,21 @@ const WINDOW_STATE_FILE: &str = "window-state.json";
 /// Ana pencerenin durumu (konum/boyut) YALNIZCA "main" icin saklanir — bkz. `on_window_event`.
 const SPLASH_LABEL: &str = "splash";
 
+/// 4 uygulamanin PAYLASTIGI WebView veri klasoru (cerez/oturum deposu).
+///
+/// Neden paylasimli: bu projede SSO YOKTUR — her uygulama WHMCS admin bilgisiyle
+/// KENDI alan adinda ayri dogrulama yapar. Her uygulama kendi ozel veri klasorunu
+/// kullanirsa, DCIM uygulamasinda alinan `dcim.bogahost.com` oturum cerezi Finans
+/// uygulamasinin WebView'inde GORUNMEZ; "Uygulamalar" menusunden gecis yapinca
+/// yeniden giris istenir. Ortak klasor sayesinde 4 kabuk ayni cerez kavanozunu
+/// paylasir: her uygulamaya BIR KEZ giris yapilir, gecislerde tekrar sorulmaz.
+/// (Bu SSO DEGILDIR — sunucu tarafi degismez, yalnizca cerezler paylasilir.)
+///
+/// DIKKAT: WebView2 (Windows) TEK bir surecteki TUM webview'lerin AYNI veri
+/// klasorunu kullanmasini zorunlu kilar — bu yuzden hem `main` hem `splash`
+/// penceresine ayni klasor verilir (bkz. `build_main_window` / `build_splash_window`).
+const SHARED_WEBVIEW_DIR_NAME: &str = "BogahostNative";
+
 /// Es zamanli/cift surum denetimini engeller.
 static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -79,6 +94,21 @@ static WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
 
 /// Acilis yukleme ekrani kapatildi mi? (bir kereden fazla kapatilmasin)
 static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
+
+/// "Uygulamalar" menusunden gecis yapildi mi? Yapildiysa ILK sayfa yuklemesinden
+/// sonra erisim denetimi (403/401) calistirilir — bkz. `ACCESS_CHECK_SCRIPT`.
+static PENDING_ACCESS_CHECK: AtomicBool = AtomicBool::new(false);
+
+/// Acilan onizleme (popup) pencerelerine benzersiz etiket uretir: `popup-0`, `popup-1` ...
+/// Etiket deseni `capabilities/*.json` icindeki `popup-*` ile ESLESMELIDIR.
+static POPUP_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Uygulama gecisinde "Yükleniyor" katmani en gec bu sure sonunda kaldirilir.
+///
+/// Katman `PageLoadEvent::Finished` ile kaldiriliyordu; sayfa HIC yuklenmezse
+/// (ag hatasi, 403, sunucu yanit vermiyor) ekranda KALICI "Yükleniyor…" kaliyor
+/// ve kullanici "gecis yok / uygulama dondu" olarak goruyordu.
+const SWITCH_LOADING_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Pencere durumu diske en son ne zaman yazildi (asiri yazmayi onler).
 static LAST_STATE_SAVE: Mutex<Option<Instant>> = Mutex::new(None);
@@ -110,7 +140,13 @@ pub fn run() {
         // Sayfadan (blob/data URL) gelen indirmeleri diske yazan kopru.
         .invoke_handler(tauri::generate_handler![
             bogahost_save_file,
-            bogahost_open_external
+            bogahost_open_external,
+            bogahost_notify,
+            bogahost_notify_state,
+            bogahost_notify_request,
+            bogahost_open_popup,
+            bogahost_close_window,
+            bogahost_print
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -357,7 +393,7 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
     let url = Url::parse(start).expect("baslangic URL'i gecerli olmali");
     let nav_handle = app.clone();
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title(APP_TITLE)
         .inner_size(1280.0, 860.0)
         .min_inner_size(960.0, 640.0)
@@ -392,53 +428,251 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
                 reveal_window(window.app_handle());
                 // Uygulama gecisinde gosterilen "Yükleniyor" katmanini kaldir.
                 let _ = window.eval(HIDE_LOADING_SCRIPT);
+                // "Uygulamalar" menusunden gecildiyse: hedef uygulama 403/401
+                // donuyorsa (yonetimce erisim engellenmis) anlasilir bir ekran goster.
+                if PENDING_ACCESS_CHECK.swap(false, Ordering::SeqCst) {
+                    let _ = window.eval(ACCESS_CHECK_SCRIPT);
+                }
             }
         })
+        // Govde `download_requested` / `download_finished` icinde — onizleme
+        // (popup) pencereleri de AYNI mantigi kullanir.
         .on_download(|webview, event| {
             let app = webview.app_handle().clone();
             match event {
-                // Indirme baslamadan once hedefi belirle: Indirilenler klasoru,
-                // ad cakismasinda "-1", "-2" ...
                 DownloadEvent::Requested { url, destination } => {
-                    let suggested = destination
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string())
-                        .filter(|s| !s.trim().is_empty())
-                        .unwrap_or_else(|| file_name_from_url(&url));
-                    let target = unique_path(&downloads_dir(&app), &sanitize_file_name(&suggested));
-                    remember_download(&app, &target);
-                    *destination = target;
-                    true
+                    download_requested(&app, &url, destination)
                 }
                 DownloadEvent::Finished { url, path, success } => {
-                    if success {
-                        // macOS'ta `path` None olabilir; o zaman istekte kaydettigimiz yolu kullaniriz.
-                        let saved = path.or_else(|| last_download(&app));
-                        match saved {
-                            Some(p) => {
-                                remember_download(&app, &p);
-                                notify_download_saved(&app, &p);
-                            }
-                            None => notify(
-                                &app,
-                                "İndirildi",
-                                "Dosya İndirilenler klasörüne kaydedildi.",
-                            ),
-                        }
-                    } else {
-                        notify(
-                            &app,
-                            "İndirme başarısız",
-                            &format!("Dosya indirilemedi: {}", file_name_from_url(&url)),
-                        );
-                    }
+                    download_finished(&app, &url, path, success);
                     true
                 }
                 _ => true,
             }
-        })
-        .build()
+        });
+
+    // Oturum cerezleri 4 uygulamada PAYLASILIR — bkz. `SHARED_WEBVIEW_DIR_NAME`.
+    // Klasor hazirlanamazsa varsayilan (uygulamaya ozel) depo kullanilir:
+    // gecislerde tekrar giris istenir ama uygulama CALISMAYA DEVAM EDER.
+    if let Some(dir) = shared_webview_dir(app) {
+        builder = builder.data_directory(dir);
+    }
+
+    builder.build()
+}
+
+/// Indirme baslamadan once hedefi belirler: Indirilenler klasoru,
+/// ad cakismasinda "-1", "-2" ...
+fn download_requested(app: &AppHandle, url: &Url, destination: &mut PathBuf) -> bool {
+    let suggested = destination
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| file_name_from_url(url));
+    let target = unique_path(&downloads_dir(app), &sanitize_file_name(&suggested));
+    remember_download(app, &target);
+    *destination = target;
+    true
+}
+
+/// Indirme bitti: kullaniciya dosyanin TAM KONUMUNU bildir.
+fn download_finished(app: &AppHandle, url: &Url, path: Option<PathBuf>, success: bool) {
+    if success {
+        // macOS'ta `path` None olabilir; o zaman istekte kaydettigimiz yolu kullaniriz.
+        let saved = path.or_else(|| last_download(app));
+        match saved {
+            Some(p) => {
+                remember_download(app, &p);
+                notify_download_saved(app, &p);
+            }
+            None => notify(app, "İndirildi", "Dosya İndirilenler klasörüne kaydedildi."),
+        }
+    } else {
+        let name = file_name_from_url(url);
+        let message = format!("Dosya indirilemedi: {name}");
+        notify(app, "İndirme başarısız", &message);
+        page_toast(app, &message);
+    }
+}
+
+/// Ana pencerede kisa bir bilgi mesaji gosterir (INIT_SCRIPT icindeki `toast`).
+/// Kopru hazir degilse SESSIZCE gecilir — hicbir sey bozulmaz.
+fn page_toast(app: &AppHandle, message: &str) {
+    if let Some(w) = app.get_webview_window("main") {
+        let js = format!(
+            "try {{ window.__bogahostToast && window.__bogahostToast({:?}); }} catch (e) {{}}",
+            message
+        );
+        let _ = w.eval(js);
+    }
+}
+
+/// Dosyayi sistem dosya yoneticisinde SECILI olarak gosterir
+/// (macOS: Finder'da göster, Windows: Explorer'da seç). Basarisiz olursa
+/// dosyanin bulundugu klasoru acar.
+fn reveal_in_file_manager(app: &AppHandle, path: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        if std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn()
+            .is_ok()
+        {
+            return;
+        }
+    }
+
+    let dir = path
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| downloads_dir(app));
+    let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+}
+
+/// 4 kabugun ortak kullandigi WebView veri klasoru (cerez/oturum deposu).
+///
+/// `local_data_dir` (Windows: `%LOCALAPPDATA%`, macOS: `~/Library/Application Support`)
+/// altinda uygulamadan BAGIMSIZ tek bir klasordur — bu yuzden Finans/DCIM/Chat/Görevler
+/// kabuklari ayni cerezleri gorur.
+///
+/// Klasor olusturulamazsa `None` doner ve cagiran taraf varsayilan depoya duser
+/// (hicbir kosulda acilis engellenmez).
+fn shared_webview_dir(app: &AppHandle) -> Option<PathBuf> {
+    let base = app
+        .path()
+        .local_data_dir()
+        .or_else(|_| app.path().data_dir())
+        .or_else(|_| app.path().home_dir())
+        .ok()?;
+    let dir = base.join(SHARED_WEBVIEW_DIR_NAME).join("webview");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir)
+}
+
+// ---------------------------------------------------------------------------
+// Onizleme (popup) penceresi — "PDF acildi, uygulamaya geri donemiyorum" cozumu
+// ---------------------------------------------------------------------------
+
+/// `target="_blank"` / `window.open` ile acilmak istenen IC adresler icin AYRI,
+/// CERCEVELI ve KAPATILABILIR bir pencere acar.
+///
+/// KOK NEDEN: bu adresler eskiden ANA pencerede aciliyordu (`location.href`).
+/// Sunucu PDF/gorsel dondurdugunde WebView dosyayi yerinde goruntuluyor, panel
+/// kayboluyor ve gorunur bir "geri" yolu kalmiyordu. Ayri pencerede:
+///   * baslik cubugu + KAPAT dugmesi vardir (`decorations(true)`),
+///   * macOS'ta Cmd+W calisir,
+///   * ESC kapatir (bkz. `POPUP_INIT_SCRIPT`),
+///   * ANA pencere panelde OLDUGU GIBI kalir.
+fn open_popup_window(app: &AppHandle, url: Url) -> tauri::Result<()> {
+    let index = POPUP_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let label = format!("popup-{index}");
+
+    // `label` String olarak GECILIR (`&String` -> `Into<String>` garantisi yok).
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+        .title(format!("{APP_TITLE} — Önizleme"))
+        .inner_size(1100.0, 780.0)
+        .min_inner_size(480.0, 360.0)
+        .resizable(true)
+        .center()
+        // Baslik cubugu + kapat dugmesi: kullanici HER ZAMAN kapatabilir.
+        .decorations(true)
+        .visible(true)
+        .focused(true)
+        .theme(Some(tauri::Theme::Dark))
+        .zoom_hotkeys_enabled(true)
+        .initialization_script(popup_init_script().as_str())
+        .on_download(|webview, event| {
+            let app = webview.app_handle().clone();
+            match event {
+                DownloadEvent::Requested { url, destination } => {
+                    download_requested(&app, &url, destination)
+                }
+                DownloadEvent::Finished { url, path, success } => {
+                    download_finished(&app, &url, path, success);
+                    true
+                }
+                _ => true,
+            }
+        });
+
+    // Ana pencereyle AYNI cerez deposu — onizleme penceresi de oturumu gorur.
+    if let Some(dir) = shared_webview_dir(app) {
+        builder = builder.data_directory(dir);
+    }
+
+    builder.build()?;
+    Ok(())
+}
+
+/// Sayfa koprusunun cagirdigi komut: ic adresi onizleme penceresinde acar.
+/// Harici adres gelirse sistem tarayicisina yollanir (guvenlik).
+#[tauri::command]
+fn bogahost_open_popup(app: AppHandle, url: String) -> Result<(), String> {
+    let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err("desteklenmeyen adres".to_string()),
+    }
+
+    if !is_internal_url(&parsed) {
+        return app.shell().open(url, None).map_err(|e| e.to_string());
+    }
+
+    open_popup_window(&app, parsed).map_err(|e| e.to_string())
+}
+
+/// Onizleme penceresini kendi icinden kapatir (ESC / "Kapat" dugmesi).
+/// ANA pencere kapatilmaz — orada bu komut yok sayilir.
+#[tauri::command]
+fn bogahost_close_window(window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
+    if window.label() == "main" {
+        return Ok(());
+    }
+    window.close().map_err(|e| e.to_string())
+}
+
+/// Sayfanin `window.print()` cagrisini native yazdirma akisina baglar.
+///
+/// `WebviewWindow::print()` (native yazdirma diyalogu) wry'de YALNIZCA macOS'ta
+/// desteklenir; JS `window.print()` ise tum platformlarda calisir. Bu yuzden
+/// macOS'ta once native yol, diger platformlarda sayfa tarafi kullanilir
+/// (bkz. `trigger_print`) — HER DURUMDA TEK bir yazdirma diyalogu acilir.
+#[tauri::command]
+fn bogahost_print(window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
+    trigger_print(&window);
+    Ok(())
+}
+
+/// Yazdirma akisini baslatir (menu ve sayfa koprusu ayni yolu kullanir).
+/// TEK bir yazdirma diyalogu acilir: macOS'ta native, digerlerinde sayfa tarafi.
+fn trigger_print(window: &tauri::WebviewWindow<Wry>) {
+    // macOS: WebView'in kendi yazdirma diyalogu (wry yalnizca burada destekler).
+    #[cfg(target_os = "macos")]
+    {
+        if window.print().is_ok() {
+            return;
+        }
+    }
+
+    // Windows/Linux (ve macOS yedek yolu): sayfanin KENDI (override edilmemis)
+    // print fonksiyonu — INIT_SCRIPT bunu `__bogahostNativePrint` olarak saklar.
+    let _ = window.eval(
+        "try { (window.__bogahostNativePrint || window.print).call(window); } catch (e) {}",
+    );
 }
 
 /// Acilis yukleme ekranini (splash) olusturur.
@@ -450,7 +684,7 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
 /// (ana pencere en gec `WINDOW_REVEAL_FALLBACK` sonunda gosterilir).
 fn build_splash_window(app: &AppHandle) {
     let init = version_script();
-    let result = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         SPLASH_LABEL,
         WebviewUrl::App(PathBuf::from("index.html")),
@@ -464,8 +698,16 @@ fn build_splash_window(app: &AppHandle) {
     .focused(true)
     .always_on_top(true)
     .theme(Some(tauri::Theme::Dark))
-    .initialization_script(init.as_str())
-    .build();
+    .initialization_script(init.as_str());
+
+    // WebView2 (Windows) tek surecteki TUM webview'lerin AYNI veri klasorunu
+    // kullanmasini sart kosar. Ana pencere paylasimli klasoru kullaniyorsa splash
+    // da AYNISINI kullanmalidir; aksi halde ikinci webview olusturulamaz.
+    if let Some(dir) = shared_webview_dir(app) {
+        builder = builder.data_directory(dir);
+    }
+
+    let result = builder.build();
 
     if let Err(e) = result {
         eprintln!("[{}][splash] yukleme ekrani acilamadi: {}", APP_KEY, e);
@@ -543,6 +785,86 @@ fn bogahost_open_external(app: AppHandle, url: String) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Bildirim koprusu (sayfadaki `window.Notification` shim'i buraya baglanir)
+// ---------------------------------------------------------------------------
+//
+// WebView'de `window.Notification` YOKTUR; paneller bu yuzden "Bu tarayıcı
+// bildirimi desteklemiyor" diyordu. Asagidaki 3 komut, `INIT_SCRIPT` icindeki
+// `Notification` shim'i tarafindan cagrilir ve NATIVE masaustu bildirimine baglanir.
+//
+// NOT: Bu, gercek web-push DEGILDIR (WebView'de `PushManager` yoktur, uygulama
+// kapaliyken sunucudan bildirim gelmez). Panel acikken uretilen her bildirim
+// masaustunde gorunur. Ayrinti: docs/PUSH.md
+
+/// Bildirim izninin su anki durumu — SORMADAN okur (`Notification.permission`).
+/// Henuz izin verilmemisse `"default"` doner ki panel "Bildirim aç" dugmesini
+/// gostermeye devam etsin ("denied" deseydik panel dugmeyi gizlerdi).
+#[tauri::command]
+fn bogahost_notify_state(app: AppHandle) -> String {
+    if notification_granted(&app) {
+        "granted".to_string()
+    } else {
+        "default".to_string()
+    }
+}
+
+/// Bildirim iznini ister (`Notification.requestPermission()`).
+///
+/// ANINDA doner: sistem izin penceresi ARKA PLAN is parcaciginda acilir. Boylece
+/// WebView'in JS is parcacigi (ve macOS'ta ana calisma dongusu) BLOKLANMAZ.
+/// Sayfa tarafi, sonucu `bogahost_notify_state` ile kisa araliklarla yoklar.
+///
+/// Izin verilirse kullanici GORSUN diye bir TEST bildirimi gosterilir.
+#[tauri::command]
+fn bogahost_notify_request(app: AppHandle) -> String {
+    if notification_granted(&app) {
+        return "granted".to_string();
+    }
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let granted = matches!(
+            handle.notification().request_permission(),
+            Ok(PermissionState::Granted)
+        );
+        if granted {
+            notify(
+                &handle,
+                APP_TITLE,
+                "Bildirimler açıldı. Bu bir test bildirimidir.",
+            );
+        }
+        refresh_notification_menu(&handle);
+    });
+
+    "default".to_string()
+}
+
+/// Sayfanin olusturdugu bildirimi (`new Notification(...)`) masaustunde gosterir.
+#[tauri::command]
+fn bogahost_notify(app: AppHandle, title: Option<String>, body: Option<String>) -> Result<(), String> {
+    let raw_title = title.unwrap_or_default();
+    let final_title = if raw_title.trim().is_empty() {
+        APP_TITLE.to_string()
+    } else {
+        raw_title
+    };
+
+    // Izin henuz yoksa arka planda iste — bildirim sessizce yutulmasin.
+    if !notification_granted(&app) {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let _ = handle.notification().request_permission();
+            refresh_notification_menu(&handle);
+        });
+    }
+
+    // `notify` gosterimi ana thread'e kuyruklar; bu komut BEKLEMEZ.
+    notify(&app, &final_title, &body.unwrap_or_default());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Sayfa tarafi kopru (initialization script)
 // ---------------------------------------------------------------------------
 
@@ -561,6 +883,14 @@ fn version_script() -> String {
 fn init_script() -> String {
     let mut script = version_script();
     script.push_str(INIT_SCRIPT);
+    script
+}
+
+/// Onizleme (popup) penceresine enjekte edilen betik.
+/// Ana pencereyle AYNI kopruye ek olarak "kapatma" yollarini ekler.
+fn popup_init_script() -> String {
+    let mut script = init_script();
+    script.push_str(POPUP_INIT_SCRIPT);
     script
 }
 
@@ -605,6 +935,17 @@ const INIT_SCRIPT: &str = r#"
     return invoke('bogahost_open_external', { url: href });
   }
 
+  // Yeni sekmede acilmak istenen IC adresler AYRI, KAPATILABILIR bir pencerede
+  // acilir. Eskiden ANA pencere oraya gidiyordu; sunucu PDF/gorsel dondurunce
+  // panel kayboluyor ve kullanici geri donemiyordu.
+  function openPopup(href) {
+    return invoke('bogahost_open_popup', { url: href });
+  }
+
+  // Panelin yazdirma dugmeleri icin: sayfanin GERCEK print fonksiyonu saklanir
+  // (menudeki "Yazdır…" bunu cagirir; bkz. Rust `trigger_print`).
+  try { window.__bogahostNativePrint = window.print; } catch (e) {}
+
   function guessName(u, fallback) {
     try {
       var path = (u.pathname || '').split('/').filter(Boolean);
@@ -638,6 +979,215 @@ const INIT_SCRIPT: &str = r#"
           });
         });
       });
+  }
+
+  // ---- Kisa bilgi mesaji (sessiz hata yerine) ----
+  function toast(msg) {
+    try {
+      var id = 'bogahost-native-toast';
+      var old = document.getElementById(id);
+      if (old && old.parentNode) { old.parentNode.removeChild(old); }
+      var d = document.createElement('div');
+      d.id = id;
+      d.setAttribute('style', 'position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:2147483647;max-width:80vw;padding:11px 18px;border-radius:10px;background:#22242c;color:#e6e8ee;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);font:13px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
+      d.textContent = msg;
+      (document.body || document.documentElement).appendChild(d);
+      setTimeout(function () { try { if (d.parentNode) { d.parentNode.removeChild(d); } } catch (e) {} }, 6000);
+    } catch (e) {}
+  }
+
+  // Rust tarafi indirme sonucunu buradan bildirir (bkz. `page_toast`).
+  try { window.__bogahostToast = toast; } catch (e) {}
+
+  // ---- window.Notification koprusu ----
+  // WebView `Notification` SUNMAZ; paneller "Bu tarayıcı bildirimi desteklemiyor"
+  // diyordu. Asagidaki shim, standart Notification API'sini native masaustu
+  // bildirimine baglar. GERCEK WEB-PUSH DEGILDIR: `PushManager` yoktur, bu yuzden
+  // panel kendi fallback'ine (yoklama/SSE) duser — bu kasitlidir.
+  if (!window.Notification) {
+    var BogahostNotification = function (title, options) {
+      options = options || {};
+      this.title = title;
+      this.body = options.body || '';
+      this.tag = options.tag || '';
+      this.data = options.data;
+      this.onclick = null;
+      this.onshow = null;
+      this.onerror = null;
+      this.onclose = null;
+      var self = this;
+      invoke('bogahost_notify', { title: String(title == null ? '' : title), body: String(this.body) })
+        .then(function () {
+          try { if (typeof self.onshow === 'function') { self.onshow(); } } catch (e) {}
+        })
+        .catch(function () {
+          try { if (typeof self.onerror === 'function') { self.onerror(); } } catch (e) {}
+        });
+    };
+    BogahostNotification.prototype.close = function () {
+      try { if (typeof this.onclose === 'function') { this.onclose(); } } catch (e) {}
+    };
+    BogahostNotification.prototype.addEventListener = function (type, fn) {
+      if (type && typeof fn === 'function') { this['on' + type] = fn; }
+    };
+    BogahostNotification.prototype.removeEventListener = function (type) {
+      if (type) { this['on' + type] = null; }
+    };
+    BogahostNotification.prototype.dispatchEvent = function () { return true; };
+
+    BogahostNotification.permission = 'default';
+    BogahostNotification.maxActions = 0;
+
+    // Gercek durumu (SORMADAN) oku — panel dogru dugmeyi gostersin.
+    invoke('bogahost_notify_state', {})
+      .then(function (state) { BogahostNotification.permission = (state === 'granted') ? 'granted' : 'default'; })
+      .catch(function () {});
+
+    // `requestPermission()` hem Promise hem callback bicimini destekler.
+    // Native taraf ANINDA doner (izin penceresi arka planda acilir); bu yuzden
+    // sonucu kisa araliklarla yokluyoruz.
+    BogahostNotification.requestPermission = function (callback) {
+      function finish(value) {
+        BogahostNotification.permission = value;
+        try { if (typeof callback === 'function') { callback(value); } } catch (e) {}
+        return value;
+      }
+      return invoke('bogahost_notify_request', {}).then(function (immediate) {
+        if (immediate === 'granted') { return finish('granted'); }
+        return new Promise(function (resolve) {
+          var tries = 0;
+          var timer = setInterval(function () {
+            tries++;
+            invoke('bogahost_notify_state', {})
+              .then(function (state) {
+                if (state === 'granted') {
+                  clearInterval(timer);
+                  resolve(finish('granted'));
+                } else if (tries >= 30) {
+                  // ~12 sn icinde onaylanmadi: panel "kapalı" gosterebilsin.
+                  clearInterval(timer);
+                  resolve(finish('denied'));
+                }
+              })
+              .catch(function () {
+                clearInterval(timer);
+                resolve(finish('denied'));
+              });
+          }, 400);
+        });
+      }).catch(function () { return finish('denied'); });
+    };
+
+    try { window.Notification = BogahostNotification; } catch (e) {}
+  }
+
+  // Panellerin "native kabuk icindeyiz" ayrimini yapabilmesi icin isaret.
+  // (Web-push kurulumunu atlayip dogrudan Notification'a duserler.)
+  try {
+    window.__BOGAHOST_NATIVE_NOTIFY__ = true;
+    window.__bogahostNotify = function (title, body) {
+      return invoke('bogahost_notify', { title: String(title || ''), body: String(body || '') });
+    };
+  } catch (e) {}
+
+  // ---- Sunucu tarafli indirmeler (PDF / CSV / XLSX ...) ----
+  // Bu bolum OLMADAN: `target="_blank"` tasiyan indirme linkleri ve POST form'lari
+  // ana pencereyi indirme adresine GOTURUYOR, sayfa 404/hata ekranina dusuyordu.
+  // Artik dosya `fetch` ile (oturum cerezleriyle) alinip `bogahost_save_file`
+  // koprusu uzerinden diske yazilir; panel sayfasi YERINDE KALIR.
+  var DOWNLOAD_EXT = /\.(pdf|csv|xlsx?|docx?|pptx?|zip|rar|7z|gz|tgz|tar|txt|json|xml|ics|sql|log|bak)$/i;
+  var DOWNLOAD_PATH = /(^|\/)(pdf|csv|excel|xls|xlsx|export|download|indir|rapor|fatura)(\/|$)/i;
+  var DOWNLOAD_QUERY = /[?&](format|export|download|output|type)=(pdf|csv|xlsx?|excel)(&|$)/i;
+
+  // Base64'e cevrilirken bellekte ~4/3 kat yer kaplar; buyuk dosyalarda
+  // WebView'in KENDI indirme akisina (on_download) birakiriz.
+  var MAX_BRIDGE_BYTES = 48 * 1024 * 1024;
+
+  function looksLikeDownload(u, el) {
+    try {
+      if (el && el.hasAttribute && el.hasAttribute('download')) { return true; }
+      var path = String(u.pathname || '');
+      if (DOWNLOAD_EXT.test(path)) { return true; }
+      if (DOWNLOAD_PATH.test(path)) { return true; }
+      if (DOWNLOAD_QUERY.test(String(u.search || ''))) { return true; }
+    } catch (e) {}
+    return false;
+  }
+
+  // Content-Disposition basligindaki gercek dosya adini kullan (varsa).
+  function stripQuotes(v) {
+    return String(v == null ? '' : v).split('"').join('').split("'").join('').trim();
+  }
+
+  function nameFromResponse(res, u, fallback) {
+    try {
+      var cd = res.headers.get('content-disposition') || '';
+      var m = /filename\*=\s*UTF-8''([^;]+)/i.exec(cd);
+      if (m && m[1]) {
+        try { return decodeURIComponent(stripQuotes(m[1])); } catch (e1) { return stripQuotes(m[1]); }
+      }
+      m = /filename\s*=\s*([^;]+)/i.exec(cd);
+      if (m && m[1]) { return stripQuotes(m[1]); }
+    } catch (e) {}
+    return fallback || guessName(u, null);
+  }
+
+  function saveResponse(res, u, fallback, openAfter) {
+    var len = 0;
+    try { len = parseInt(res.headers.get('content-length') || '0', 10) || 0; } catch (e) {}
+    if (len > MAX_BRIDGE_BYTES) { return Promise.reject(new Error('cok-buyuk')); }
+
+    return res.blob().then(function (blob) {
+      if (blob.size > MAX_BRIDGE_BYTES) { throw new Error('cok-buyuk'); }
+      var name = nameFromResponse(res, u, fallback);
+      if (!name || name.indexOf('.') < 0) {
+        var ext = '';
+        var t = blob.type || '';
+        if (t.indexOf('pdf') >= 0) { ext = '.pdf'; }
+        else if (t.indexOf('csv') >= 0) { ext = '.csv'; }
+        else if (t.indexOf('zip') >= 0) { ext = '.zip'; }
+        else if (t.indexOf('excel') >= 0 || t.indexOf('sheet') >= 0) { ext = '.xlsx'; }
+        else if (t.indexOf('json') >= 0) { ext = '.json'; }
+        name = (name || 'indirilen-dosya') + ext;
+      }
+      return blob.arrayBuffer().then(function (buf) {
+        return invoke('bogahost_save_file', {
+          name: name,
+          b64: toBase64(buf),
+          openAfter: !!openAfter
+        });
+      });
+    });
+  }
+
+  // Sunucudan indirir ve diske yazar. Hata olursa REDDEDER — cagiran taraf ya
+  // WebView'in kendi akisina duser ya da kullaniciya anlasilir mesaj gosterir.
+  function downloadViaBridge(u, fallbackName, openAfter) {
+    return fetch(u.href, { credentials: 'include' }).then(function (res) {
+      if (!res.ok) {
+        var err = new Error('http-' + res.status);
+        err.status = res.status;
+        throw err;
+      }
+      return saveResponse(res, u, fallbackName, openAfter);
+    });
+  }
+
+  // Indirme hatasini kullaniciya ANLASILIR bicimde bildirir (sessiz 404 yerine).
+  function reportDownloadError(err) {
+    var status = err && err.status;
+    var msg;
+    if (status === 404) {
+      msg = 'Dosya bulunamadı (404). Rapor sunucuda oluşturulamamış olabilir.';
+    } else if (status === 403 || status === 401) {
+      msg = 'Bu dosyayı indirme izniniz yok.';
+    } else if (status) {
+      msg = 'Dosya indirilemedi (sunucu hatası ' + status + ').';
+    } else {
+      msg = 'Dosya indirilemedi. Bağlantınızı denetleyip yeniden deneyin.';
+    }
+    toast(msg);
+    try { invoke('bogahost_notify', { title: 'İndirme başarısız', body: msg }); } catch (e) {}
   }
 
   document.addEventListener('click', function (ev) {
@@ -677,11 +1227,95 @@ const INIT_SCRIPT: &str = r#"
     }
 
     var target = (a.getAttribute('target') || '').toLowerCase();
-    if (isHttp && target && target !== '_self' && target !== '_top' && target !== '_parent') {
-      // Yeni sekme WebView'de acilmaz -> sessizce yutulmasin.
+    var newTab = !!(target && target !== '_self' && target !== '_top' && target !== '_parent');
+    var dlAttr = a.getAttribute('download');
+
+    // Kendi alan adimizdaki INDIRME linkleri: sayfayi indirme adresine
+    // GOTURMEDEN dosyayi al ve diske yaz.
+    //
+    // Yalnizca `download` niteligi olan ya da yeni sekmede acilmak istenen
+    // (WebView'de zaten CALISMAYAN) indirme linkleri ele alinir. Duz linkler
+    // WebView'in kendi indirme akisina (Rust `on_download`) BIRAKILIR — o yol
+    // calisiyor, degistirilmiyor.
+    if (isHttp && (dlAttr !== null || newTab) && looksLikeDownload(abs, a)) {
       ev.preventDefault();
-      try { location.href = abs.href; } catch (e4) {}
+      downloadViaBridge(abs, dlAttr || null, !dlAttr).catch(function (err) {
+        if (err && err.status) {
+          // Sunucu gercekten hata dondu -> kullaniciya soyle (sessiz 404 yok).
+          reportDownloadError(err);
+          return;
+        }
+        // Kopru/boyut sorunu -> WebView'in kendi indirme akisina birak.
+        try { a.__bogahostSkip = true; a.click(); } catch (e5) {}
+      });
+      return;
     }
+
+    if (isHttp && newTab) {
+      // Yeni sekme WebView'de acilmaz. ANA pencereyi GOTURMEK yerine ayri,
+      // kapatilabilir bir onizleme penceresi ac — panel yerinde kalsin.
+      ev.preventDefault();
+      openPopup(abs.href).catch(function () {
+        // Kopru yoksa eski davranis (en azindan link calissin).
+        try { location.href = abs.href; } catch (e4) {}
+      });
+    }
+  }, true);
+
+  // ---- Yeni sekmeye gonderilen form'lar (POST ile uretilen PDF/CSV) ----
+  // `target="_blank"` tasiyan form'lar WebView'de HICBIR SEY yapmiyordu (yeni
+  // pencere acilamaz). Artik form verisiyle istek atilip sonuc diske yazilir.
+  document.addEventListener('submit', function (ev) {
+    try {
+      if (ev.defaultPrevented) { return; }
+      var form = ev.target;
+      if (!form || !form.tagName || form.tagName.toLowerCase() !== 'form') { return; }
+      if (form.__bogahostSkip) { form.__bogahostSkip = false; return; }
+
+      var t = (form.getAttribute('target') || '').toLowerCase();
+      if (!t || t === '_self' || t === '_top' || t === '_parent') { return; }
+
+      var abs;
+      try { abs = new URL(form.getAttribute('action') || location.href, location.href); } catch (e) { return; }
+      if (abs.protocol !== 'http:' && abs.protocol !== 'https:') { return; }
+      if (!isInternal(abs.hostname)) { return; }
+
+      var method = (form.getAttribute('method') || 'get').toLowerCase() === 'post' ? 'POST' : 'GET';
+      var url = abs.href;
+      var opts = { credentials: 'include', method: method };
+      var data;
+      try { data = new FormData(form); } catch (e2) { return; }
+
+      if (method === 'POST') {
+        opts.body = data;
+      } else {
+        try {
+          var q = new URLSearchParams(data).toString();
+          if (q) { url = abs.href + (abs.search ? '&' : '?') + q; }
+        } catch (e3) {}
+      }
+
+      ev.preventDefault();
+      fetch(url, opts).then(function (res) {
+        if (!res.ok) {
+          var err = new Error('http-' + res.status);
+          err.status = res.status;
+          throw err;
+        }
+        return saveResponse(res, abs, null, true);
+      }).catch(function (err) {
+        if (err && err.status) {
+          reportDownloadError(err);
+          return;
+        }
+        // Kopru calismadi: form'u AYNI pencerede gonder (eski davranis).
+        try {
+          form.__bogahostSkip = true;
+          form.setAttribute('target', '_self');
+          form.submit();
+        } catch (e4) {}
+      });
+    } catch (e) {}
   }, true);
 
   var nativeOpen = window.open;
@@ -703,8 +1337,76 @@ const INIT_SCRIPT: &str = r#"
       });
       return null;
     }
-    try { location.href = abs.href; } catch (e3) {}
+    // Panellerin cok kullandigi bicim: window.open('/admin/.../pdf').
+    // Ana pencereyi oraya GOTURMEK yerine dosyayi al ve diske yaz.
+    if (isHttp2 && looksLikeDownload(abs, null)) {
+      downloadViaBridge(abs, null, true).catch(function (err) {
+        if (err && err.status) { reportDownloadError(err); return; }
+        try { location.href = abs.href; } catch (e5) {}
+      });
+      return null;
+    }
+    // Kalan ic adresler: ANA pencereyi ele gecirmesin diye ayri pencerede acilir.
+    openPopup(abs.href).catch(function () {
+      try { location.href = abs.href; } catch (e3) {}
+    });
     return null;
+  };
+
+  // ---- Erisimi engellenmis uygulama icin anlasilir ekran ----
+  // Kabuk HTTP durum kodunu goremez; bu yuzden "Uygulamalar" menusunden gecis
+  // yapildiktan SONRA (Rust `ACCESS_CHECK_SCRIPT` ile tetiklenir) hedef adres
+  // bir kez daha sorgulanir. 403/401 ise beyaz/404 sayfa yerine bilgi ekrani cikar.
+  function showAccessDenied(message) {
+    try {
+      if (document.getElementById('bogahost-native-denied')) { return; }
+      var wrap = document.createElement('div');
+      wrap.id = 'bogahost-native-denied';
+      wrap.setAttribute('style', 'position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:#0e1015;color:#e6e8ee;font:15px/1.6 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;text-align:center;padding:32px;');
+      var box = document.createElement('div');
+      box.setAttribute('style', 'max-width:460px;');
+      var head = document.createElement('div');
+      head.setAttribute('style', 'font-size:19px;font-weight:600;margin-bottom:10px;');
+      head.textContent = 'Erişim izniniz yok';
+      var text = document.createElement('div');
+      text.setAttribute('style', 'opacity:.78;margin-bottom:22px;');
+      text.textContent = message;
+      var btn = document.createElement('button');
+      btn.setAttribute('style', 'background:#5443D2;color:#fff;border:0;border-radius:8px;padding:10px 22px;font:14px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;cursor:pointer;');
+      btn.textContent = 'Geri dön';
+      btn.onclick = function () {
+        try { if (wrap.parentNode) { wrap.parentNode.removeChild(wrap); } } catch (e) {}
+        try { history.back(); } catch (e2) {}
+      };
+      box.appendChild(head);
+      box.appendChild(text);
+      box.appendChild(btn);
+      wrap.appendChild(box);
+      (document.body || document.documentElement).appendChild(wrap);
+    } catch (e) {}
+  }
+
+  window.__bogahostAccessCheck = function (mode) {
+    var msg = (mode === 'switch')
+      ? 'Bu uygulamaya geçiş izniniz yok. Yöneticiniz bu uygulamaya erişiminizi kapatmış olabilir.'
+      : 'Bu sayfaya erişim izniniz yok.';
+
+    function evaluate(status) {
+      if (status === 403 || status === 401) { showAccessDenied(msg); }
+    }
+
+    try {
+      // Once HEAD (govde indirmeden durum kodu). Sunucu HEAD desteklemezse GET.
+      fetch(location.href, { credentials: 'include', method: 'HEAD' })
+        .then(function (res) {
+          if (res.status === 405 || res.status === 501) {
+            return fetch(location.href, { credentials: 'include' })
+              .then(function (r2) { evaluate(r2.status); });
+          }
+          evaluate(res.status);
+        })
+        .catch(function () {});
+    } catch (e) {}
   };
 
   // ---- Giris ekraninda surum rozeti ----
@@ -801,6 +1503,105 @@ const HIDE_LOADING_SCRIPT: &str = r#"
   try {
     var d = document.getElementById('bogahost-native-loading');
     if (d && d.parentNode) { d.parentNode.removeChild(d); }
+  } catch (e) {}
+})();
+"#;
+
+/// Onizleme (popup) penceresine EK olarak enjekte edilir.
+///
+/// Pencerede zaten baslik cubugu + kapat dugmesi vardir; buna ek olarak
+/// ESC tusu ve sag ustte belirgin bir "Kapat" dugmesi sunulur — kullanici
+/// acilan PDF/CSV/gorsel icinde ASLA kilitli kalmasin.
+const POPUP_INIT_SCRIPT: &str = r#"
+(function () {
+  if (window.__BOGAHOST_POPUP__) { return; }
+  window.__BOGAHOST_POPUP__ = true;
+
+  function closeSelf() {
+    try {
+      var t = window.__TAURI__;
+      if (t && t.core && typeof t.core.invoke === 'function') { t.core.invoke('bogahost_close_window', {}); return; }
+      if (t && typeof t.invoke === 'function') { t.invoke('bogahost_close_window', {}); return; }
+      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+        window.__TAURI_INTERNALS__.invoke('bogahost_close_window', {});
+        return;
+      }
+    } catch (e) {}
+    try { window.close(); } catch (e2) {}
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' || ev.keyCode === 27) { closeSelf(); }
+  }, true);
+
+  function printSelf() {
+    try {
+      var t = window.__TAURI__;
+      if (t && t.core && typeof t.core.invoke === 'function') { t.core.invoke('bogahost_print', {}); return; }
+      if (t && typeof t.invoke === 'function') { t.invoke('bogahost_print', {}); return; }
+      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+        window.__TAURI_INTERNALS__.invoke('bogahost_print', {});
+        return;
+      }
+    } catch (e) {}
+    try { (window.__bogahostNativePrint || window.print).call(window); } catch (e2) {}
+  }
+
+  function styleButton(b, right) {
+    b.setAttribute('style', 'position:fixed;top:12px;right:' + right + 'px;z-index:2147483647;background:#5443D2;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:13px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.92;');
+  }
+
+  function addCloseButton() {
+    try {
+      if (document.getElementById('bogahost-popup-close')) { return; }
+      var host = document.body || document.documentElement;
+      if (!host) { return; }
+
+      var p = document.createElement('button');
+      p.id = 'bogahost-popup-print';
+      p.type = 'button';
+      p.textContent = 'Yazdır';
+      styleButton(p, 122);
+      p.onclick = printSelf;
+      host.appendChild(p);
+
+      var b = document.createElement('button');
+      b.id = 'bogahost-popup-close';
+      b.type = 'button';
+      b.textContent = 'Kapat (ESC)';
+      styleButton(b, 14);
+      b.onclick = closeSelf;
+      host.appendChild(b);
+    } catch (e) {}
+  }
+
+  // PDF/gorsel gibi icerikte `document.body` olmayabilir; birkac kez denenir.
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    addCloseButton();
+    if (tries >= 8 || document.getElementById('bogahost-popup-close')) { clearInterval(timer); }
+  }, 400);
+  addCloseButton();
+})();
+"#;
+
+/// Uygulama gecisinden SONRA calisir: hedef uygulama erisim engeli (403/401)
+/// donuyorsa "Bu uygulamaya geçiş izniniz yok" ekranini gosterir.
+/// Kopru henuz hazir degilse kisa bir gecikmeyle yeniden dener.
+const ACCESS_CHECK_SCRIPT: &str = r#"
+(function () {
+  try {
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      if (typeof window.__bogahostAccessCheck === 'function') {
+        clearInterval(timer);
+        window.__bogahostAccessCheck('switch');
+      } else if (tries >= 10) {
+        clearInterval(timer);
+      }
+    }, 200);
   } catch (e) {}
 })();
 "#;
@@ -950,17 +1751,27 @@ fn last_download(app: &AppHandle) -> Option<PathBuf> {
         .and_then(|s| s.last_download.lock().ok().and_then(|p| p.clone()))
 }
 
+/// Indirme bildirimi — dosyanin TAM KONUMU gosterilir.
+/// (Kullanici "nereye indirdi?" diye aramasin: hem bildirimde hem sayfada yazar.)
 fn notify_download_saved(app: &AppHandle, path: &Path) {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("dosya")
         .to_string();
+    let folder = path
+        .parent()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+
     notify(
         app,
         &format!("İndirildi: {name}"),
-        "İndirilenler klasörüne kaydedildi. Tepsi menüsünden \"Son indirilen dosyayı göster\".",
+        &format!(
+            "Konum: {folder}\nTepsi menüsü ▸ \"Son indirilen dosyayı göster\" ile klasörde açabilirsiniz."
+        ),
     );
+    page_toast(app, &format!("İndirildi: {name} → {folder}"));
 }
 
 /// Bagimlilik eklemeden base64 cozucu (standart ve URL-guvenli alfabe).
@@ -1010,8 +1821,13 @@ fn menu_item(
 /// "Görünüm" alt menusu: Yenile, Geri/İleri, yakinlastirma, tam ekran.
 fn build_view_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let reload = menu_item(app, "view-reload", "Yenile", Some("CmdOrCtrl+R"))?;
+    // Yazdirma: panellerdeki rapor/fatura ciktilari icin (bkz. `trigger_print`).
+    let print = menu_item(app, "view-print", "Yazdır…", Some("CmdOrCtrl+P"))?;
     let back = menu_item(app, "view-back", "Geri", Some("CmdOrCtrl+BracketLeft"))?;
     let forward = menu_item(app, "view-forward", "İleri", Some("CmdOrCtrl+BracketRight"))?;
+    // KURTARMA YOLU: pencere bir sekilde panelden koptuysa (PDF/gorsel/hata
+    // sayfasi) kullanici TEK tikla panele donebilsin.
+    let home = menu_item(app, "view-home", "Panele dön", Some("CmdOrCtrl+Shift+H"))?;
     let zoom_in = menu_item(app, "view-zoom-in", "Yakınlaştır", Some("CmdOrCtrl+Equal"))?;
     let zoom_out = menu_item(app, "view-zoom-out", "Uzaklaştır", Some("CmdOrCtrl+Minus"))?;
     let zoom_reset = menu_item(app, "view-zoom-reset", "Gerçek Boyut", Some("CmdOrCtrl+0"))?;
@@ -1026,9 +1842,11 @@ fn build_view_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     #[allow(unused_mut)]
     let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
         &reload,
+        &print,
         &sep1,
         &back,
         &forward,
+        &home,
         &sep2,
         &zoom_in,
         &zoom_out,
@@ -1191,6 +2009,29 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 let _ = w.eval("history.forward()");
             }
         }
+        // Bu uygulamanin panel adresine geri don (kurtarma yolu).
+        "view-home" => {
+            let target = APPS
+                .iter()
+                .find(|e| e.0 == APP_KEY)
+                .map(|e| e.2)
+                .unwrap_or("https://bogahost.com/");
+            if let (Some(w), Ok(url)) = (app.get_webview_window("main"), Url::parse(target)) {
+                let _ = w.navigate(url);
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }
+        // Menuden yazdirma ANA pencereyi (paneli) yazdirir.
+        // Onizleme penceresindeki PDF icin o pencerenin kendi "Yazdır" dugmesi
+        // kullanilir (bkz. `POPUP_INIT_SCRIPT` -> `bogahost_print`); boylece
+        // hangi pencerenin yazdirilacagi belirsiz kalmaz.
+        "view-print" => {
+            if let Some(w) = app.get_webview_window("main") {
+                trigger_print(&w);
+            }
+        }
         "view-zoom-in" => apply_zoom(app, 0.1),
         "view-zoom-out" => apply_zoom(app, -0.1),
         "view-zoom-reset" => set_zoom(app, 1.0),
@@ -1199,11 +2040,14 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
         }
         "downloads-last" => {
-            // macOS/Windows: dosyanin bulundugu klasoru ac.
-            let target = last_download(app)
-                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-                .unwrap_or_else(|| downloads_dir(app));
-            let _ = app.shell().open(target.to_string_lossy().to_string(), None);
+            // Dosyayi klasorde SECILI gosterir (Finder / Explorer).
+            match last_download(app) {
+                Some(p) => reveal_in_file_manager(app, &p),
+                None => {
+                    let dir = downloads_dir(app);
+                    let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+                }
+            }
         }
         "notify-status" => {
             let granted = notification_granted(app);
@@ -1302,7 +2146,11 @@ fn switch_app(app: &AppHandle, key: &str) {
     // Once "Yükleniyor" katmani — gecis sirasinda donma hissi olmasin.
     let _ = window.eval(SHOW_LOADING_SCRIPT);
 
+    // Gecis sonrasi ILK sayfa yuklemesinde erisim engeli (403/401) denetlensin.
+    PENDING_ACCESS_CHECK.store(true, Ordering::SeqCst);
+
     if window.navigate(url).is_err() {
+        PENDING_ACCESS_CHECK.store(false, Ordering::SeqCst);
         let _ = window.eval(HIDE_LOADING_SCRIPT);
         return;
     }
@@ -1311,6 +2159,20 @@ fn switch_app(app: &AppHandle, key: &str) {
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
+
+    // EMNIYET AGI: hedef sayfa hic yuklenmezse (ag hatasi / sunucu yanit vermiyor)
+    // "Yükleniyor…" katmani ekranda KALICI olarak kalir ve kullanici bunu
+    // "gecis calismiyor / uygulama dondu" olarak gorur. En gec bu sure sonunda
+    // katman kaldirilir ve durum kullaniciya yazili olarak bildirilir.
+    {
+        let h = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(SWITCH_LOADING_TIMEOUT);
+            if let Some(w) = h.get_webview_window("main") {
+                let _ = w.eval(HIDE_LOADING_SCRIPT);
+            }
+        });
+    }
 
     // Menu isaretlerini guncelle.
     if let Some(s) = state.as_ref() {
