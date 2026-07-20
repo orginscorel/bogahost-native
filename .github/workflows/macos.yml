@@ -271,12 +271,13 @@ jobs:
         run: |
           lftp -c "
             set ftp:ssl-force true;
+            set ftp:use-site-chmod false;
             set ftp:ssl-protect-data true;
             set ssl:verify-certificate no;
             set net:max-retries 3;
             set net:timeout 20;
             open -u '$FTP_USER','$FTP_PASS' '$FTP_HOST';
-            mirror -R --verbose --parallel=2 out/ ./;
+            mirror -R --no-perms --verbose --parallel=2 out/ ./;
             bye
           "
           echo "Yuklendi → https://native.bogahost.com/"

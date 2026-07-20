@@ -1,7 +1,7 @@
 {
   "name": "bogahost-tauri-dcim",
   "productName": "Bogahost DCIM",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "description": "Bogahost DCIM — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://dcim.bogahost.com/admin) WebView ile yukler.",
   "scripts": {
