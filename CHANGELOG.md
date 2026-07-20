@@ -1,3 +1,11 @@
+## 1.2.1
+
+### Düzeltildi
+- **macOS: pencere kapatılınca Dock'ta kalıyor ama tıklayınca açılmıyordu.** Uygulama
+  kapatmada tepsiye gizleniyor (doğru davranış), ancak macOS'un Dock tıklamasında
+  gönderdiği `Reopen` olayı hiç işlenmiyordu; bu yüzden pencere bir daha geri gelmiyordu.
+  Artık Dock ikonuna tıklayınca pencere gösterilip öne getiriliyor.
+
 # Değişiklik Günlüğü
 
 Bu depo Bogahost'un 4 sisteminin (Finans / DCIM / Chat / Görevler) native

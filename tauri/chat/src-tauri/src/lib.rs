@@ -302,8 +302,20 @@ pub fn run() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("Bogahost Tauri uygulamasi calistirilirken hata");
+        .build(tauri::generate_context!())
+        .expect("Bogahost Tauri uygulamasi olusturulurken hata")
+        .run(|app_handle, event| match event {
+            // macOS: pencere kapatilinca uygulama Dock'ta calisir kalir (close-to-tray).
+            // Dock ikonuna tiklaninca macOS "Reopen" olayi gonderir; BU ISLENMEZSE pencere
+            // bir daha geri gelmez. Bildirilen "dock'ta duruyor ama acilmiyor" hatasi buydu.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                if !has_visible_windows {
+                    show_main_window(app_handle);
+                }
+            }
+            _ => {}
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +424,16 @@ fn reveal_window(app: &AppHandle) {
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Pencereyi her cagrilista gosterir + one getirir.
+/// (Dock ikonuna tiklama / tepsiden "Goster" icin — reveal_window tek seferliktir.)
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_focus();
     }
 }

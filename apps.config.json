@@ -1,7 +1,7 @@
 {
   "$comment": "Bogahost native shell tanımları. Her uygulama CANLI URL'yi yükleyen bir WebView kabuğudur — backend/frontend koduna dokunulmaz. CI bu tanımlardan platform binary'leri üretir.",
   "vendor": "Bogahost",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "apps": [
     {
       "key": "finans",
