@@ -1,6 +1,6 @@
 {
   "name": "bogahost-native",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "Bogahost 4 sistemin (Finans/DCIM/Chat/Görevler) native kabukları — Capacitor (Android/iOS) + Tauri (Windows/macOS). Canlı PWA URL'sini yükler; backend/frontend'e dokunmaz.",
   "scripts": {
