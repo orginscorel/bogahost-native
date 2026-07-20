@@ -1,3 +1,14 @@
+## 1.3.0
+
+### Yeni
+- **Otomatik güncelleme aktif.** Updater public key'i (`5F2EECE9CC8FB8FD`) yapılandırmaya
+  eklendi. Bundan sonra uygulama yeni sürümü kendisi denetler, onay isteyip indirir,
+  kurar ve yeniden başlatır — elle indirme/kurma gerekmez.
+
+### Değişti
+- `apply-updater-config.mjs` artık commit edilmiş public key'i de kabul ediyor;
+  ayrı bir `TAURI_SIGNING_PUBLIC_KEY` secret'ı zorunlu değil.
+
 ## 1.2.1
 
 ### Düzeltildi

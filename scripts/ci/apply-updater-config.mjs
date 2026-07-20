@@ -37,16 +37,28 @@ if (!app) {
 const configPath = resolve(REPO_ROOT, 'tauri', app, 'src-tauri', 'tauri.conf.json');
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 
-if (!pubkey || pubkey === PLACEHOLDER) {
+// Pubkey oncelik sirasi:
+//   1) --pubkey argumani (TAURI_SIGNING_PUBLIC_KEY secret'i)
+//   2) tauri.conf.json'a COMMIT EDILMIS gercek pubkey (public deger, gizli degil)
+// Ikisi de yoksa updater kapatilir (build yine de yesil kalir).
+const committed = config?.plugins?.updater?.pubkey?.trim();
+const effective =
+  pubkey && pubkey !== PLACEHOLDER
+    ? pubkey
+    : committed && committed !== PLACEHOLDER
+      ? committed
+      : '';
+
+if (!effective) {
   console.log(
-    `::warning title=Updater kapali::${app} — public key verilmedi. ` +
+    `::warning title=Updater kapali::${app} — public key yok (ne secret ne de tauri.conf.json). ` +
       'Updater artifact/imza URETILMEYECEK. Anahtar uretimi: docs/UPDATE.md'
   );
   process.exit(0);
 }
 
 // Minisign public key, base64 kodlu ~56+ karakterlik tek satirdir.
-if (!/^[A-Za-z0-9+/=]{40,}$/.test(pubkey)) {
+if (!/^[A-Za-z0-9+/=]{40,}$/.test(effective)) {
   console.error(
     'HATA: TAURI_SIGNING_PUBLIC_KEY beklenen bicimde degil (tek satir base64).\n' +
       '.pub dosyasinin ICERIGININ TAMAMI degil, "untrusted comment" satirindan SONRAKI satir kullanilmali.'
@@ -56,7 +68,7 @@ if (!/^[A-Za-z0-9+/=]{40,}$/.test(pubkey)) {
 
 config.plugins ??= {};
 config.plugins.updater ??= {};
-config.plugins.updater.pubkey = pubkey;
+config.plugins.updater.pubkey = effective;
 
 config.bundle ??= {};
 config.bundle.createUpdaterArtifacts = true;

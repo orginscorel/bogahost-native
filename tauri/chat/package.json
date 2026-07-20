@@ -1,7 +1,7 @@
 {
   "name": "bogahost-tauri-chat",
   "productName": "Bogahost Chat",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "description": "Bogahost Chat — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://chat.bogahost.com/admin) WebView ile yukler.",
   "scripts": {
