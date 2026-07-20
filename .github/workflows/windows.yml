@@ -65,6 +65,8 @@ jobs:
       - name: Install app dependencies (${{ matrix.app }})
         working-directory: tauri/${{ matrix.app }}
         run: npm install
+      - name: Sürüm tutarlılığı denetimi
+        run: node scripts/ci/check-versions.mjs
 
       # src-tauri/icons/ ikon klasörünü doldurur (icon.ico dahil).
       # tauri.conf.json > bundle.icon buna başvurur; olmadan build "icon not found" verir.

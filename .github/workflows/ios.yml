@@ -113,6 +113,8 @@ jobs:
       # Kök bağımlılıklar: scripts/ (gen-icons → sharp) + @capacitor/cli.
       - name: Install root dependencies
         run: npm install
+      - name: Sürüm tutarlılığı denetimi
+        run: node scripts/ci/check-versions.mjs
 
       # Per-app bağımlılıklar: @capacitor/ios|core + eklentiler.
       - name: Install app dependencies (${{ matrix.app }})
