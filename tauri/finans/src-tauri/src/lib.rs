@@ -806,12 +806,42 @@ fn app_home_url() -> &'static str {
         .unwrap_or("https://bogahost.com/")
 }
 
-/// Adres BELGE gibi mi duruyor? (yalnizca dosya uzantisina bakar — sunucunun
-/// `Content-Type`'ini burada goremeyiz.) Sayfa koprusu icindeki
-/// `looksLikeDownload` ile ayni ailedendir ama KASITLI OLARAK daha dardir:
-/// bu yol gezinme IPTAL ETMEZ, yalnizca gerceklesmis bir gezinmeyi geri alir.
+/// Adres BELGE gibi mi duruyor? (sunucunun `Content-Type`'ini burada goremeyiz.)
+/// Sayfa koprusu icindeki `looksLikeDownload` ile ayni ailedendir; bu yol
+/// gezinme IPTAL ETMEZ, yalnizca gerceklesmis bir gezinmeyi geri alir.
+///
+/// ONEMLI (KOK NEDEN duzeltmesi): Paraşüt fatura PDF uclari UZANTISIZDIR
+/// (`/finans/parasut/fatura/sales/123?indir=1`, `/finans/parasut/e-fatura-pdf/123`).
+/// Eski surum SADECE dosya uzantisina bakiyordu; bu uclari KACIRIYOR ve emniyet
+/// agi HIC calismiyordu — kullanici PDF acilinca panele donemiyordu. Artik
+/// "İndir" niyeti tasiyan bayraklar (`?indir=1` vb.) ve uzantisiz belge yollari
+/// da taninir. (HTML yazdirma onizlemeleri — `/raporlar/pdf`, `/teklifler/{id}/pdf`
+/// — burada KASITLI OLARAK eslenmez: onlar HTML doner ve ayri onizleme
+/// penceresinde acilir; geri-alma bir HTML sayfayi yanlislikla kapatmasin.)
 fn looks_like_document_url(url: &Url) -> bool {
     let path = url.path().to_ascii_lowercase();
+    let query = url.query().unwrap_or("").to_ascii_lowercase();
+
+    // 1) Uzantisiz ama KESIN indirme niyeti tasiyan bayraklar (deger onemsiz).
+    let has_flag = |name: &str| {
+        query.split(|c: char| c == '&' || c == ';').any(|kv| {
+            kv.split('=').next().map(|k| k == name).unwrap_or(false)
+        })
+    };
+    if has_flag("indir") || has_flag("download") || has_flag("dl") || has_flag("export") {
+        return true;
+    }
+
+    // 2) Uzantisiz belge yollari (yolun icinde acik sinyal).
+    if path.contains("/e-fatura-pdf")
+        || path.contains("/e-arsiv-pdf")
+        || path.ends_with("/dekont")
+        || path.contains("/dekont/")
+    {
+        return true;
+    }
+
+    // 3) Klasik: yol bir dosya uzantisiyla bitiyorsa.
     let ext = match path.rsplit_once('.') {
         Some((_, e)) => e,
         None => return false,
@@ -856,27 +886,45 @@ fn guard_document_navigation(app: &AppHandle, url: &Url) {
     let target = url.clone();
     let app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(1200));
-        let Some(window) = app.get_webview_window("main") else {
+        // WKWebView belgeyi ANA CERCEVEDE yerlestirene kadar `window.url()`
+        // guncellenmemis olabilir; kisa araliklarla (12 x 250ms ≈ 3sn) bakariz.
+        //
+        // iframe AYRIMI (gomulu PDF onizlemeleri bozulmasin): yalnizca UST
+        // CERCEVE adresi GERCEKTEN bir belge ise geri aliriz. Gezinme bir
+        // iframe'deyse ust cerceve adresi HALA panelin HTML adresidir
+        // (`looks_like_document_url` false) -> dokunmayiz. Bu, eski surumdeki
+        // "adres birebir esitligi" kapisindan DAHA saglamdir (yonlendirme /
+        // sorgu normalizasyonu / WKWebView'in URL'i gec bildirmesi durumlarinda
+        // eski kapi erken cikip geri-donusu HIC yapmiyordu — kilitlenme buydu).
+        let mut returned = false;
+        for _ in 0..12 {
+            std::thread::sleep(Duration::from_millis(250));
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            match window.url() {
+                Ok(current) if looks_like_document_url(&current) => {
+                    return_to_panel(&window);
+                    returned = true;
+                    break;
+                }
+                Ok(current) if is_internal_url(&current) => {
+                    // Ust cerceve panel sayfasi -> gezinme iframe'deydi ya da
+                    // kullanici zaten donduruldu. Dokunma.
+                    return;
+                }
+                // Adres henuz belirsiz (about:blank / bos) -> tekrar dene.
+                _ => {}
+            }
+        }
+        if !returned {
             return;
-        };
-        // Ust duzey adres hala belge mi? Degilse (iframe / kullanici baska yere
-        // gitti) dokunma.
-        match window.url() {
-            Ok(current) if current.as_str() == target.as_str() => {}
-            _ => return,
         }
-
-        // Panele DON — kullanici hicbir kosulda kilitli kalmaz.
-        if let Ok(home) = Url::parse(app_home_url()) {
-            let _ = window.navigate(home);
-        }
-
-        // Panel yeniden yuklendikten sonra dosyayi kopru uzerinden indir
-        // (oturum cerezleriyle) — kullanici tiklamasi bosa gitmesin.
+        // Panele donuldukten sonra dosyayi kopru uzerinden indir (oturum
+        // cerezleriyle) -> kullanici tiklamasi bosa gitmesin.
         let app2 = app.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(2500));
+            std::thread::sleep(Duration::from_millis(1500));
             if let Some(w) = app2.get_webview_window("main") {
                 let js = format!(
                     "try {{ window.__bogahostDownload && window.__bogahostDownload({:?}); }} catch (e) {{}}",
@@ -885,6 +933,44 @@ fn guard_document_navigation(app: &AppHandle, url: &Url) {
                 let _ = w.eval(js);
             }
         });
+    });
+}
+
+/// Ana pencereyi panele geri getirir — kullanici hicbir kosulda belgede kilitli
+/// kalmaz.
+///
+/// macOS/WKWebView'de ust duzey bir PDF ANA CERCEVEDE acildiginda dahili PDFKit
+/// goruntuleyicisi devreye girer: bu goruntuleyicide HTML/DOM YOKTUR, bu yuzden
+/// oraya gorunur bir "geri" seridi CIZILEMEZ. Geri donusun GARANTISI bu yuzden
+/// `navigate` (WKWebView.load) ile paneli yeniden yuklemektir; `load` PDF
+/// goruntuleyicisini de degistirir. WKWebView ilk `load`'u nadiren yutabildigi
+/// icin kisa bir gecikmeyle, ust cerceve HALA belge ise, bir kez daha denenir.
+/// (HTML belge — yazdirma onizlemesi — sayfalari icin ayrica sayfa koprusu
+/// `__bogahostShowBackStrip` ile sabit bir "‹ Panele dön" seridi cizer.)
+fn return_to_panel(window: &tauri::WebviewWindow) {
+    let Ok(home) = Url::parse(app_home_url()) else {
+        return;
+    };
+    // HTML belge ise gorunur serit ciz (native PDF'te sessizce no-op).
+    let _ = window.eval(
+        "try { window.__bogahostShowBackStrip && window.__bogahostShowBackStrip(); } catch (e) {}",
+    );
+    // Her kosulda panele don (PDF/HTML fark etmez) — GARANTILI kacis.
+    let _ = window.navigate(home.clone());
+    // Yeniden deneme: is parcacigina yalnizca `AppHandle` (Send) tasinir; pencere
+    // parcacik ICINDE yeniden alinir (dosyanin her yerinde kullanilan guvenli
+    // kalip — bkz. `guard_document_navigation`). WKWebView ilk `load`'u PDF
+    // goruntuleyici aktifken yutarsa, ust cerceve HALA belge ise bir kez daha.
+    let app = window.app_handle().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(450));
+        if let Some(w) = app.get_webview_window("main") {
+            if let Ok(current) = w.url() {
+                if looks_like_document_url(&current) {
+                    let _ = w.navigate(home);
+                }
+            }
+        }
     });
 }
 
@@ -1796,6 +1882,46 @@ const INIT_SCRIPT: &str = r#"
   // Rust tarafi indirme sonucunu buradan bildirir (bkz. `page_toast`).
   try { window.__bogahostToast = toast; } catch (e) {}
 
+  // ---- "‹ Panele dön" emniyet seridi ----
+  // Ust duzey gezinme bir BELGEYE ( or. HTML yazdirma onizlemesi) gidip paneli
+  // kapatirsa kullanici KILITLI kalmasin: sabit, en ust katmanda, kapatilamayan
+  // bir "Panele dön" seridi cizilir. Rust emniyet agi (`return_to_panel`) bunu
+  // `__bogahostShowBackStrip` ile tetikler; ayrica bir belge adresi UST DUZEY
+  // yuklenirse (kopru atlanmis olabilir) sayfa kendisi de gosterir.
+  //
+  // NOT: macOS/WKWebView native PDF goruntuleyicisinde HTML/DOM YOKTUR; serit
+  // orada CIZILEMEZ. O senaryonun garantisi Rust `navigate` ile paneli geri
+  // yuklemektir (bkz. `return_to_panel`).
+  var BACK_STRIP_ID = 'bogahost-native-back-strip';
+  function panelHomeHref() {
+    try { return location.origin + '/'; } catch (e) { return '/'; }
+  }
+  function goBackToPanel() {
+    try { if (window.history && history.length > 1) { history.back(); return; } } catch (e) {}
+    try { location.href = panelHomeHref(); } catch (e2) {}
+  }
+  function showBackStrip() {
+    try {
+      if (document.getElementById(BACK_STRIP_ID)) { return; }
+      var bar = document.createElement('div');
+      bar.id = BACK_STRIP_ID;
+      bar.setAttribute('style', 'position:fixed;left:0;right:0;top:0;z-index:2147483647;min-height:44px;display:flex;align-items:center;gap:12px;padding:8px 14px;background:#14161d;border-bottom:1px solid rgba(255,255,255,.14);box-shadow:0 4px 16px rgba(0,0,0,.4);font:14px/1.3 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '‹ Panele dön';
+      btn.setAttribute('style', 'flex:0 0 auto;cursor:pointer;background:#5443D2;color:#fff;border:0;border-radius:8px;padding:8px 16px;font:600 13px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
+      btn.onclick = goBackToPanel;
+      var label = document.createElement('span');
+      label.textContent = 'Belge görünümü — panele dönmek için soldaki düğmeyi kullanın.';
+      label.setAttribute('style', 'color:#aeb4c2;');
+      bar.appendChild(btn);
+      bar.appendChild(label);
+      (document.body || document.documentElement).appendChild(bar);
+      try { document.documentElement.style.scrollPaddingTop = '52px'; } catch (e) {}
+    } catch (e) {}
+  }
+  try { window.__bogahostShowBackStrip = showBackStrip; } catch (e) {}
+
   // Indirme BASARILI bilgisi (bkz. Rust `notify_download_saved`):
   // dosya adi + kaydedildigi klasor + tek tikla "Klasörde göster".
   try {
@@ -1921,6 +2047,11 @@ const INIT_SCRIPT: &str = r#"
   var DOWNLOAD_EXT = /\.(pdf|csv|xlsx?|docx?|pptx?|zip|rar|7z|gz|tgz|tar|txt|json|xml|ics|sql|log|bak)$/i;
   var DOWNLOAD_PATH = /(^|\/)(pdf|csv|excel|xls|xlsx|export|download|indir|rapor|fatura)(\/|$)/i;
   var DOWNLOAD_QUERY = /[?&](format|export|download|output|type)=(pdf|csv|xlsx?|excel)(&|$)/i;
+  // "İndir" niyeti tasiyan bayraklar (deger onemsiz). Uygulamadaki "İndir"
+  // dugmeleri `?indir=1` ekler; UZANTISIZ uclarda (Parasut fatura / e-fatura
+  // PDF'leri) TEK guvenilir sinyal budur. Bu olmadan link ana pencereyi belgeye
+  // goturur, WKWebView PDF'i gomulu acar ve kullanici panele DONEMEZ.
+  var DOWNLOAD_FLAG = /[?&](indir|download|dl|export)(=|&|$)/i;
 
   // Base64'e cevrilirken bellekte ~4/3 kat yer kaplar; buyuk dosyalarda
   // WebView'in KENDI indirme akisina (on_download) birakiriz.
@@ -1933,6 +2064,7 @@ const INIT_SCRIPT: &str = r#"
       if (DOWNLOAD_EXT.test(path)) { return true; }
       if (DOWNLOAD_PATH.test(path)) { return true; }
       if (DOWNLOAD_QUERY.test(String(u.search || ''))) { return true; }
+      if (DOWNLOAD_FLAG.test(String(u.search || ''))) { return true; }
     } catch (e) {}
     return false;
   }
@@ -1950,6 +2082,9 @@ const INIT_SCRIPT: &str = r#"
     try {
       if (DOWNLOAD_EXT.test(String(u.pathname || ''))) { return true; }
       if (DOWNLOAD_QUERY.test(String(u.search || ''))) { return true; }
+      // `?indir=1` gibi bayraklar: uzantisiz "İndir" uclarinin (Parasut PDF)
+      // TEK sinyali. Bu olmadan duz link ana pencereyi belgeye goturur.
+      if (DOWNLOAD_FLAG.test(String(u.search || ''))) { return true; }
     } catch (e) {}
     return false;
   }
@@ -2359,8 +2494,21 @@ const INIT_SCRIPT: &str = r#"
     } catch (e) {}
   }
 
+  // Ust duzey adres KENDISI bir belge ucu mu? (kopru atlandi ve sayfa belgeye
+  // gitti.) Oyleyse gorunur kacis seridini goster — kullanici kilitli kalmasin.
+  function looksLikeDocLocation() {
+    try {
+      var u = new URL(location.href);
+      if (DOWNLOAD_FLAG.test(String(u.search || ''))) { return true; }
+      if (DOWNLOAD_EXT.test(String(u.pathname || ''))) { return true; }
+      if (/\/e-fatura-pdf|\/e-arsiv-pdf|\/dekont(\/|$)/i.test(String(u.pathname || ''))) { return true; }
+    } catch (e) {}
+    return false;
+  }
+
   function scheduleBadge() {
     renderBadge();
+    if (looksLikeDocLocation()) { showBackStrip(); }
     // Giris formu sonradan cizilirse (SPA) yakalanir; ~7 sn sonra durur.
     var tries = 0;
     var timer = setInterval(function () {
