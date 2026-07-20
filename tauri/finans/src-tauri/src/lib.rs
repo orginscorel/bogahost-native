@@ -67,6 +67,16 @@ const WEBVIEW2_BROWSER_ARGS: &str =
 /// Ag islemleri icin ust sinir — acilista ASLA uzun sure beklenmez.
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(7);
 
+/// Kopru uzerinden indirme (Parasut e-belge gibi YAVAS/BUYUK, dis API arkasi)
+/// icin ust sinir. WKWebView `fetch`->blob yolu bu tur yanitlarda guvenilmez
+/// oldugu icin indirme Rust'ta yapilir; Parasut dis API yavas oldugundan
+/// timeout comert tutulur.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Otomatik guncelleme yeni surumun indirilecegi taban adres (manuel yedek yol).
+/// Dosya adi: `<app>-<surum>-macos.dmg` / `<app>-<surum>-windows-x86_64-setup.exe`.
+const DOWNLOAD_BASE_URL: &str = "https://native.bogahost.com/downloads";
+
 /// Acilis surum denetimi bu kadar gecikmeyle baslar (sayfa yuklenmesiyle yarismasin).
 const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(5);
 
@@ -184,6 +194,11 @@ static UPDATER_READY: AtomicBool = AtomicBool::new(false);
 
 /// Arka planda indirme/kurulum SU AN suruyor mu? (ust uste binmeyi onler)
 static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
+
+/// Otomatik kurulum KALICI olarak basarisiz mi? (imzasiz macOS: calisan uygulama
+/// kendi bundle'ini degistiremez.) True ise serit "Şimdi uygula" yerine "İndirme
+/// sayfasını aç" (manuel indirme) gosterir — tekrar denemek ise yaramaz.
+static UPDATE_MANUAL: AtomicBool = AtomicBool::new(false);
 
 /// Sayfa "mesgulum" dedi mi? (gorusme / ekran paylasimi / doldurulmus form)
 ///
@@ -306,7 +321,9 @@ pub fn run() {
             bogahost_reveal_download,
             bogahost_set_busy,
             bogahost_apply_update,
-            bogahost_update_state
+            bogahost_update_state,
+            bogahost_fetch_download,
+            bogahost_open_download
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -541,17 +558,37 @@ pub fn run() {
             // sonucu NATIVE bildirim olarak gosterir. Bkz. `start_notify_clock`.
             start_notify_clock(&handle);
 
-            // ----- Guncelleme denetimi: acilista + UYGULAMA ACIKKEN periyodik -----
+            // ----- ACILIS OTOMATIK GUNCELLEMESI (ASIL yol) -----
             //
-            // ILK denetim eskisi gibi acilistan `UPDATE_CHECK_DELAY` sonra yapilir
-            // (acilis/ilk sayfa yuklemesi yavaslamasin). SONRASINDA dongu
-            // `UPDATE_CHECK_INTERVAL` araliyla devam eder — boylece tepside
-            // gunlerce acik kalan uygulama da yeni surumu gorur.
+            // Eski (v1.7/1.8) davranis: uygulama YENI ACILIRKEN, kullanici henuz
+            // etkilesime girmeden, sessizce denetler; guncelleme varsa ONAY
+            // SORMADAN indirip kurar ve yeniden baslatir ("kapatip acinca
+            // guncellensin"). KOK NEDEN bunun ASIL yol olmasi: imzasiz macOS'ta
+            // CALISAN uygulama kendi bundle'ini degistiremez (calisirken "Şimdi
+            // uygula" install FAIL verir), ama ACILIS penceresinde bundle degisimi
+            // calisir (kullanici dogruladi). Calisirken serit (asagidaki dongu)
+            // yalnizca uzun acik kalanlar icin YEDEK yoldur.
+            //
+            // BLOKLAMAZ: `check` kisa timeout'ludur (NETWORK_TIMEOUT); guncelleme
+            // yoksa ya da ag yoksa uygulama normal acilir. Ayri bir gorevde calisir,
+            // pencere gosterimini bekletmez.
+            {
+                let h = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    startup_auto_update(h).await;
+                });
+            }
+
+            // ----- Guncelleme denetimi: UYGULAMA ACIKKEN periyodik (YEDEK) -----
+            //
+            // Acilis guncellemesinden SONRA dongu `UPDATE_CHECK_INTERVAL` araliyla
+            // devam eder — boylece tepside gunlerce acik kalan uygulama da yeni
+            // surumu gorur. Bu yol otomatik YENIDEN BASLATMAZ; hazir olunca sayfa
+            // icinde serit cikar (kullanici "Şimdi uygula" der). Imzasiz macOS'ta
+            // kurulum kalici basarisizsa serit "İndirme sayfasını aç"a doner.
             //
             // Denetim SESSIZDIR: guncelleme yoksa ya da hata olursa kullaniciya
-            // HICBIR sey gosterilmez, yalnizca stderr'e yazilir. Guncelleme varsa
-            // arka planda indirilir ve HAZIR olunca sayfa icinde serit cikar
-            // (bkz. `stage_update` / `show_update_banner`).
+            // HICBIR sey gosterilmez, yalnizca stderr'e yazilir.
             {
                 let h = handle.clone();
                 std::thread::spawn(move || {
@@ -1780,6 +1817,22 @@ const INIT_SCRIPT: &str = r#"
     return h === 'bogahost.com' || h.slice(-13) === '.bogahost.com';
   }
 
+  // Panel-ici "Uygulamalar" menusundeki KARDES uygulama adresleri (dcim/finans/
+  // chat/task alt alan adlari) — su anki uygulamanin KENDI adresi HARIC. Bu
+  // linkler target="_blank" tasidigi icin asagidaki "yeni sekme -> onizleme
+  // penceresi" mantigina duserse hedef panel kucuk bir onizleme penceresinde
+  // acilir ve gecis splash'i HIC gorunmez. Kardes panele YERINDE gecilmesi icin
+  // ayrica taninir (bkz. tiklama isleyicisi).
+  function isSiblingApp(u) {
+    try {
+      var h = String((u && u.hostname) || '').toLowerCase();
+      var cur = String(location.hostname || '').toLowerCase();
+      if (!h || h === cur) { return false; }
+      return h === 'dcim.bogahost.com' || h === 'finans.bogahost.com'
+          || h === 'chat.bogahost.com' || h === 'task.bogahost.com';
+    } catch (e) { return false; }
+  }
+
   function openExternal(href) {
     return invoke('bogahost_open_external', { url: href });
   }
@@ -2168,12 +2221,61 @@ const INIT_SCRIPT: &str = r#"
     } catch (e) { return false; }
   }
 
+  // YAVAS/BUYUK (dis API arkasi) indirme uclari: Parasut e-belge PDF gibi.
+  // Bunlar WKWebView `fetch`->blob ile GUVENILMEZ indirilir (yavas yanitta
+  // baglanti kopar, fetch reddeder). KESIN olarak Rust yolundan gecerler.
+  function isHeavyDoc(u) {
+    try {
+      var p = String(u.pathname || '').toLowerCase();
+      return p.indexOf('/parasut/') >= 0
+          || p.indexOf('/e-fatura-pdf') >= 0
+          || p.indexOf('/e-arsiv-pdf') >= 0
+          || p.indexOf('/e-belge') >= 0;
+    } catch (e) { return false; }
+  }
+
+  // Rust tarafi indirme (uzun timeout + diske streaming + webview oturum cerezi
+  // + ayni User-Agent). Basarisizlikta Rust Err(String) kodu -> anlasilir hata.
+  function downloadViaRust(u, fallbackName, openAfter, allowNavigate) {
+    return invoke('bogahost_fetch_download', {
+      url: u.href,
+      name: fallbackName || null,
+      ua: (function () { try { return navigator.userAgent || null; } catch (e) { return null; } })(),
+      cookie: (function () { try { return document.cookie || null; } catch (e) { return null; } })(),
+      openAfter: !!openAfter,
+      allowNavigate: !!allowNavigate
+    }).catch(function (code) {
+      var s = String(code == null ? 'network' : code);
+      var e = new Error(s);
+      if (s.indexOf('status:') === 0) { e.status = parseInt(s.slice(7), 10) || 0; }
+      else { e.code = s; }
+      throw e;
+    });
+  }
+
   // Indirme niyetli bir adres icin DOGRU davranisi secer:
+  //   * Yavas/buyuk uc (Parasut) -> Rust yolu (uzun timeout + streaming).
   //   * `download` niteligi varsa -> dogrudan diske yaz (turu sormaya gerek yok).
   //   * Yanit belge ise           -> diske yaz + sistem uygulamasinda ac; panel YERINDE KALIR.
   //   * Yanit HTML ise            -> yeni sekme istendiyse kapatilabilir onizleme
   //                                  penceresi, aksi halde normal gezinme.
   function handleMaybeDownload(u, dlAttr, newTab) {
+    if (isHeavyDoc(u)) {
+      var save = (dlAttr !== null && dlAttr !== undefined);
+      // save ise dosyayi yalnizca kaydet; degilse belgeyi indir + sistem
+      // uygulamasinda ac. HTML donerse (allowNavigate) gezin/onizle.
+      return downloadViaRust(u, save ? dlAttr : null, !save, true)
+        .then(function (res) {
+          if (res === '__NAVIGATE__') {
+            if (newTab) { return openPopup(u.href); }
+            try { location.href = u.href; } catch (e) {}
+          }
+          return null;
+        })
+        // Yavas/buyuk uclarda WebView'in kendi akisina DUSME (panel kaybolur);
+        // hatayi dogrudan bildir.
+        .catch(function (err) { reportDownloadError(err); return null; });
+    }
     if (dlAttr !== null && dlAttr !== undefined) {
       return downloadViaBridge(u, dlAttr, false);
     }
@@ -2203,13 +2305,18 @@ const INIT_SCRIPT: &str = r#"
   // Indirme hatasini kullaniciya ANLASILIR bicimde bildirir (sessiz 404 yerine).
   function reportDownloadError(err) {
     var status = err && err.status;
+    var code = err && err.code;
     var msg;
     if (status === 404) {
-      msg = 'Dosya bulunamadı (404). Rapor sunucuda oluşturulamamış olabilir.';
+      msg = 'Dosya bulunamadı (404). E-belge/rapor sunucuda henüz oluşturulmamış olabilir.';
     } else if (status === 403 || status === 401) {
       msg = 'Bu dosyayı indirme izniniz yok.';
     } else if (status) {
       msg = 'Dosya indirilemedi (sunucu hatası ' + status + ').';
+    } else if (code === 'timeout') {
+      msg = 'İndirme zaman aşımına uğradı, lütfen tekrar deneyin.';
+    } else if (code === 'empty') {
+      msg = 'Dosya boş geldi (sunucu içerik döndürmedi).';
     } else {
       msg = 'Dosya indirilemedi. Bağlantınızı denetleyip yeniden deneyin.';
     }
@@ -2250,6 +2357,20 @@ const INIT_SCRIPT: &str = r#"
       openExternal(abs.href).catch(function () {
         try { a.__bogahostSkip = true; a.click(); } catch (e3) {}
       });
+      return;
+    }
+
+    // ----- Kardes uygulama gecisi (panel-ici "Uygulamalar" menusu) -----
+    // Bu linkler target="_blank" tasir; ASAGIDAKI "yeni sekme -> onizleme
+    // penceresi" dalina duserse hedef panel kucuk bir ONIZLEME penceresinde
+    // acilir, ana pencere gezinmez ve gecis splash'i HIC gorunmez ("arada
+    // kalma"). Kardes panele HER ZAMAN ana pencerede, YERINDE gecilir: hedef
+    // sayfanin document-start yukleme katmani tam ekran gecis splash'ini
+    // deterministik olarak cizer (paylasilan .bogahost.com cerezi ile "onceki
+    // != su anki uygulama" tespiti; bkz. LOADING_OVERLAY_JS).
+    if (isHttp && isSiblingApp(abs)) {
+      ev.preventDefault();
+      try { location.href = abs.href; } catch (e6) {}
       return;
     }
 
@@ -3336,6 +3457,9 @@ const UPDATE_UI_JS: &str = r#"
   var BAR_ID = '__bogahost_update_bar__';
   var pendingVersion = '';
   var confirmArmed = false;
+  // Otomatik kurulum KALICI basarisiz (imzasiz macOS): serit "Şimdi uygula"
+  // yerine "İndirme sayfasını aç" gosterir. Rust `__bogahostUpdateManual` ile kurar.
+  var manualMode = false;
 
   function dismissKey(v) { return 'bogahost_update_dismissed_' + v; }
 
@@ -3386,7 +3510,9 @@ const UPDATE_UI_JS: &str = r#"
 
     var note = document.createElement('div');
     note.setAttribute('style', 'opacity:.75;margin-bottom:12px;');
-    if (confirmArmed) {
+    if (manualMode) {
+      note.textContent = 'Otomatik güncelleme bu kurulumda uygulanamıyor; yeni sürümü indirip kurun.';
+    } else if (confirmArmed) {
       note.textContent = 'Görüşme veya doldurulmuş form var. Uygulama yeniden başlatılacak — devam edilsin mi?';
     } else if (busy) {
       note.textContent = 'Şu an meşgulsünüz. Uygun olduğunuzda uygulayabilirsiniz.';
@@ -3408,23 +3534,34 @@ const UPDATE_UI_JS: &str = r#"
 
     var now = document.createElement('button');
     now.type = 'button';
-    now.textContent = confirmArmed ? 'Yine de uygula' : 'Şimdi uygula';
     now.setAttribute('style', 'cursor:pointer;padding:7px 12px;border-radius:8px;border:0;background:#5443D2;color:#fff;font:inherit;font-weight:600;');
-    now.onclick = function () {
-      // MESGULKEN tek tikla yeniden baslatilmaz: once ne olacagi soylenir.
-      if (isBusy() && !confirmArmed) {
-        confirmArmed = true;
-        render();
-        return;
-      }
-      now.disabled = true;
-      now.textContent = 'Uygulanıyor…';
-      invoke('bogahost_apply_update', {}).catch(function () {
-        now.disabled = false;
-        now.textContent = 'Şimdi uygula';
-        note.textContent = 'Güncelleme uygulanamadı. Daha sonra yeniden deneyin.';
-      });
-    };
+
+    if (manualMode) {
+      // KALICI kurulum hatasi: tekrar denemek ise yaramaz -> sistem tarayicisinda
+      // indirme sayfasini ac (Rust dogru <app>-<surum>-<platform> baglantisini kurar).
+      now.textContent = 'İndirme sayfasını aç';
+      now.onclick = function () {
+        invoke('bogahost_open_download', {}).catch(function () {});
+      };
+    } else {
+      now.textContent = confirmArmed ? 'Yine de uygula' : 'Şimdi uygula';
+      now.onclick = function () {
+        // MESGULKEN tek tikla yeniden baslatilmaz: once ne olacagi soylenir.
+        if (isBusy() && !confirmArmed) {
+          confirmArmed = true;
+          render();
+          return;
+        }
+        now.disabled = true;
+        now.textContent = 'Uygulanıyor…';
+        invoke('bogahost_apply_update', {}).catch(function () {
+          // Uygulanamadi (imzasiz macOS / installer hatasi): "Daha sonra yeniden
+          // deneyin" YANILTICIDIR (kalici). Manuel indirmeye gec.
+          manualMode = true;
+          render();
+        });
+      };
+    }
 
     row.appendChild(later);
     row.appendChild(now);
@@ -3439,11 +3576,24 @@ const UPDATE_UI_JS: &str = r#"
   window.__bogahostUpdateReady = function (version, force) {
     pendingVersion = String(version || '');
     if (!pendingVersion) { remove(); return; }
+    manualMode = false;
     if (force === true) {
       // Elle denetim: "Sonra" karari yok sayilir.
       try { window.sessionStorage.removeItem(dismissKey(pendingVersion)); } catch (e) {}
       confirmArmed = false;
     }
+    render();
+  };
+
+  // Rust tarafi cagirir: otomatik kurulum KALICI basarisiz (imzasiz macOS) —
+  // serit "İndirme sayfasını aç" (manuel indirme) moduna gecer.
+  window.__bogahostUpdateManual = function (version) {
+    pendingVersion = String(version || '');
+    if (!pendingVersion) { remove(); return; }
+    manualMode = true;
+    confirmArmed = false;
+    // "Sonra" demis olsa da manuel indirme onemlidir: karari sifirla.
+    try { window.sessionStorage.removeItem(dismissKey(pendingVersion)); } catch (e) {}
     render();
   };
 
@@ -3860,7 +4010,69 @@ const LOADING_OVERLAY_JS: &str = r#"
   window.__bogahostLoadingFull = showFull;
   window.__bogahostLoadingHide = hide;
 
-  barTimer = setTimeout(showBar, BAR_DELAY);
+  // Rust cagirir (acilis otomatik guncellemesi): katman gorunurken durum
+  // metnini sabitler ("Güncelleniyor…"). Katman zaten kapandiysa zararsizca
+  // yok sayilir (guncelleme yeniden baslatmayla bitecegi icin kisa surelidir).
+  window.__bogahostLoadingStatus = function (t) {
+    try {
+      if (done) { return; }
+      pinned = true;
+      statusText = String(t == null ? statusText : t);
+      showFull('boot');
+      if (statusEl) { statusEl.textContent = statusText; }
+    } catch (e) {}
+  };
+
+  // ---- Uygulama GECISI tespiti: DETERMINISTIK, eval yarisindan BAGIMSIZ -------
+  //
+  // KOK NEDEN (v1.9.x'e kadar splash'in gorunmemesi): tam ekran gecis katmani
+  // yalnizca Rust->JS `eval` (`wake_overlay`) ile uyandiriliyordu; bu eval
+  // navigasyondan sonra hedef belgeye YETISEMEYIP cogu zaman bosa dusuyordu ve
+  // panel-ici "Uygulamalar" menusu gecislerinde HIC cagrilmiyordu (o linkler
+  // ana pencerede degil onizleme penceresinde aciliyordu). Sonuc: gecislerde
+  // ekranda yalnizca ince cubuk ya da hicbir sey gorunuyordu.
+  //
+  // Cozum: hangi uygulamadan gelindigini SAYFANIN KENDISI belirler. Paylasilan
+  // `.bogahost.com` cerezi son ziyaret edilen kardes uygulamayi tutar; hedef
+  // sayfa document-start'ta onu okur. Onceki uygulama su ankinden FARKLIYSA (ya
+  // da cerez bossa = ilk acilis) bu bir GECIS/ACILISTIR -> tam ekran splash
+  // HEMEN cizilir. Ayni uygulama icindeki gezinmelerde yalnizca ince ust cubuk
+  // gorunur. Bu yol menu-cubugu VE panel-ici link gecislerinin IKISINDE de,
+  // hicbir zamanlama yarisi olmadan calisir. (`wake_overlay` artik yalnizca
+  // zararsiz bir pekistirmedir; `showFull` idempotenttir.)
+  var COOKIE = '__bgh_last_app';
+  function readCookie(name) {
+    try {
+      var m = String(document.cookie || '').match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch (e) { return ''; }
+  }
+  function writeCookie(name, val) {
+    try {
+      var host = String(location.hostname || '').toLowerCase();
+      // Kardes alt alan adlarinin PAYLASMASI icin kok alan adina yazilir.
+      var dom = host.indexOf('bogahost.com') >= 0 ? '; domain=.bogahost.com' : '';
+      document.cookie = name + '=' + encodeURIComponent(val) + '; path=/' + dom + '; max-age=1800; samesite=lax';
+    } catch (e) {}
+  }
+  var curHost = '';
+  try { curHost = String(location.hostname || '').toLowerCase(); } catch (e) {}
+  var isApp = !!(APPS && APPS[curHost]);
+  var autoMode = null;
+  if (isApp) {
+    var prevApp = readCookie(COOKIE);
+    if (prevApp !== curHost) { autoMode = prevApp ? 'switch' : 'boot'; }
+    // Bir sonraki sicrama icin "son uygulama"yi guncelle.
+    writeCookie(COOKIE, curHost);
+  }
+
+  if (autoMode) {
+    // Gecis/acilis: tam ekran splash HEMEN (ince cubuk atlanir).
+    showFull(autoMode);
+  } else {
+    // Ayni uygulama ici gezinme: yalnizca ince ust cubuk.
+    barTimer = setTimeout(showBar, BAR_DELAY);
+  }
   capTimer = setTimeout(hide, HARD_CAP);
 
   // Asama 2: govde gelmeye basladi -> "Yükleniyor…"
@@ -4076,6 +4288,216 @@ fn bogahost_reveal_download(app: AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// YAVAS/BUYUK ic indirme uclarini (Parasut e-belge PDF gibi, dis API arkasi)
+/// panel oturumuyla RUST tarafinda indirir.
+///
+/// KOK NEDEN: WKWebView'de `fetch()`->`blob()` yolu yavas/buyuk yanitlarda
+/// GUVENILMEZ — Parasut dis API yavas olunca baglanti kopuyor ve `fetch`
+/// REDDEDIYOR ("Dosya indirilemedi..."). Bu yol `reqwest` ile UZUN timeout
+/// kullanir ve yaniti DOGRUDAN diske streaming yazar (bellege blob toplamaz).
+///
+/// CLOUDFLARE UYUMU: `cf_clearance` cerezi UA + IP'ye baglidir. Istek ayni
+/// makineden (kullanicinin IP'si) gider; UA da webview'in KENDI
+/// `navigator.userAgent`'idir (JS'ten `ua` ile gelir) — boylece cerez gecerli
+/// kalir. Cerezler `Webview::cookies_for_url` ile alinir (httpOnly session +
+/// cf_clearance dahil; bkz. tauri 2.11 `cookies()` belgesi).
+///
+/// Donus:
+///  * `Ok(path)`            -> diske yazildi.
+///  * `Ok("__NAVIGATE__")`  -> yanit HTML sayfasi; cagiran taraf normal gezinsin
+///                             (yalnizca `allow_navigate = true` iken).
+///  * `Err(code)`           -> `"status:404"` | `"status:500"` | `"timeout"`
+///                             | `"network"` | `"empty"` | `"io"`
+///                             (JS anlasilir mesaja cevirir).
+#[tauri::command]
+async fn bogahost_fetch_download(
+    app: AppHandle,
+    window: tauri::WebviewWindow<Wry>,
+    url: String,
+    name: Option<String>,
+    ua: Option<String>,
+    cookie: Option<String>,
+    open_after: Option<bool>,
+    allow_navigate: Option<bool>,
+) -> Result<String, String> {
+    let parsed = Url::parse(&url).map_err(|_| "network".to_string())?;
+    // GUVENLIK: yalnizca kendi alan adimizdan indirilir (harici adres bu yoldan gecmez).
+    if !is_internal_url(&parsed) {
+        return Err("network".to_string());
+    }
+
+    // Webview oturum cerezleri (httpOnly session + cf_clearance dahil).
+    // Rust tarafi bos donerse (nadir), JS'ten gelen `document.cookie` yedegi.
+    let mut cookie_header = cookie_header_for(&window, &parsed);
+    if cookie_header.is_empty() {
+        if let Some(c) = cookie {
+            if !c.trim().is_empty() {
+                cookie_header = c;
+            }
+        }
+    }
+
+    let ua = ua.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
+        format!("BogahostNative/{} ({})", env!("CARGO_PKG_VERSION"), APP_KEY)
+    });
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(NETWORK_TIMEOUT)
+        .timeout(DOWNLOAD_TIMEOUT)
+        .user_agent(ua)
+        .build()
+        .map_err(|_| "network".to_string())?;
+
+    let mut req = client.get(parsed.clone());
+    if !cookie_header.is_empty() {
+        req = req.header(reqwest::header::COOKIE, cookie_header);
+    }
+
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(if e.is_timeout() { "timeout" } else { "network" }.to_string());
+        }
+    };
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("status:{}", status.as_u16()));
+    }
+
+    let ct = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let cd = resp
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    // HTML sayfasi (attachment DEGIL) ise indirme; cagiran taraf gezinsin.
+    let is_attachment = cd.to_ascii_lowercase().contains("attachment");
+    let is_html = (ct.contains("text/html") || ct.contains("xhtml")) && !is_attachment;
+    if is_html && allow_navigate.unwrap_or(false) {
+        return Ok("__NAVIGATE__".to_string());
+    }
+
+    // Dosya adi: once Content-Disposition, sonra JS'ten gelen ad, sonra URL.
+    let base_name = disposition_filename(&cd)
+        .or(name)
+        .unwrap_or_else(|| file_name_from_url(&parsed));
+    let file_name = ensure_extension(sanitize_file_name(&base_name), &ct);
+
+    let dir = downloads_dir(&app);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return Err("io".to_string());
+    }
+    let target = unique_path(&dir, &file_name);
+
+    // Streaming: yaniti parca parca diske yaz (bellege blob toplamadan).
+    let mut file = std::fs::File::create(&target).map_err(|_| "io".to_string())?;
+    let mut resp = resp;
+    let mut total: u64 = 0;
+    loop {
+        match resp.chunk().await {
+            Ok(Some(bytes)) => {
+                use std::io::Write;
+                if file.write_all(bytes.as_ref()).is_err() {
+                    drop(file);
+                    let _ = std::fs::remove_file(&target);
+                    return Err("io".to_string());
+                }
+                total += bytes.len() as u64;
+            }
+            Ok(None) => break,
+            Err(e) => {
+                drop(file);
+                let _ = std::fs::remove_file(&target);
+                return Err(if e.is_timeout() { "timeout" } else { "network" }.to_string());
+            }
+        }
+    }
+    drop(file);
+
+    if total == 0 {
+        let _ = std::fs::remove_file(&target);
+        return Err("empty".to_string());
+    }
+
+    remember_download(&app, &target);
+    notify_download_saved(&app, &target);
+    if open_after.unwrap_or(false) {
+        let _ = app.shell().open(target.to_string_lossy().to_string(), None);
+    }
+    Ok(target.to_string_lossy().to_string())
+}
+
+/// Webview cerez deposundan verilen URL icin `Cookie:` basligi olusturur
+/// (httpOnly session + cf_clearance dahil — bkz. `Webview::cookies_for_url`).
+fn cookie_header_for(window: &tauri::WebviewWindow<Wry>, url: &Url) -> String {
+    match window.cookies_for_url(url.clone()) {
+        Ok(cookies) => cookies
+            .iter()
+            .map(|c| format!("{}={}", c.name(), c.value()))
+            .collect::<Vec<_>>()
+            .join("; "),
+        Err(_) => String::new(),
+    }
+}
+
+/// `Content-Disposition` basligindaki dosya adini cozer (RFC5987 `filename*`
+/// oncelikli). Bulunamazsa `None`.
+fn disposition_filename(cd: &str) -> Option<String> {
+    let lower = cd.to_ascii_lowercase();
+    // filename*=UTF-8''ad%20.pdf
+    if let Some(idx) = lower.find("filename*=") {
+        let rest = &cd[idx + "filename*=".len()..];
+        let val = rest.split(';').next().unwrap_or("").trim().trim_matches('"');
+        let name = val.rsplit("''").next().unwrap_or(val);
+        let cleaned = sanitize_file_name(&percent_decode(name));
+        if !cleaned.is_empty() && cleaned != "indirilen-dosya" {
+            return Some(cleaned);
+        }
+    }
+    if let Some(idx) = lower.find("filename=") {
+        let rest = &cd[idx + "filename=".len()..];
+        let val = rest.split(';').next().unwrap_or("").trim().trim_matches('"');
+        let cleaned = sanitize_file_name(val);
+        if !cleaned.is_empty() && cleaned != "indirilen-dosya" {
+            return Some(cleaned);
+        }
+    }
+    None
+}
+
+/// Dosya adinda uzanti yoksa `Content-Type`'a gore ekler.
+fn ensure_extension(name: String, content_type: &str) -> String {
+    if name.contains('.') {
+        return name;
+    }
+    let ext = if content_type.contains("pdf") {
+        ".pdf"
+    } else if content_type.contains("csv") {
+        ".csv"
+    } else if content_type.contains("spreadsheet") || content_type.contains("excel") {
+        ".xlsx"
+    } else if content_type.contains("zip") {
+        ".zip"
+    } else if content_type.contains("json") {
+        ".json"
+    } else if content_type.contains("png") {
+        ".png"
+    } else if content_type.contains("jpeg") {
+        ".jpg"
+    } else {
+        ""
+    };
+    format!("{name}{ext}")
 }
 
 /// Kullanicinin Indirilenler klasoru (bulunamazsa ev dizini / gecici klasor).
@@ -5088,7 +5510,9 @@ async fn try_auto_update(app: &AppHandle, verbose: bool) -> UpdateOutcome {
         Ok(Some(update)) => {
             // KULLANICIYI BOLME: diyalog YOK. Indirme/kurulum sessizce arka
             // planda yapilir; hazir olunca sayfa icinde serit cikar.
-            stage_update(app.clone(), update).await;
+            // `auto_apply = false`: bu CALISIRKEN periyodik yoldur, kendiliginden
+            // YENIDEN BASLATMAZ (asil otomatik yol acilistadir).
+            stage_update(app.clone(), update, false).await;
             UpdateOutcome::Handled
         }
         Ok(None) => {
@@ -5108,20 +5532,56 @@ async fn try_auto_update(app: &AppHandle, verbose: bool) -> UpdateOutcome {
     }
 }
 
-/// Guncellemeyi ARKA PLANDA indirir (ve platform izin veriyorsa kurar), sonra
-/// kullaniciya sayfa icinde bir serit gosterir. KULLANICIYI BOLMEZ: diyalog
-/// acilmaz, yeniden baslatma KENDILIGINDEN yapilmaz.
+/// ACILIS OTOMATIK GUNCELLEMESI (ASIL yol) — kullanici etkilesime girmeden,
+/// sessizce denetler; guncelleme varsa ONAY SORMADAN indirir, kurar ve yeniden
+/// baslatir. `stage_update(..., auto_apply = true)` bu isi yapar.
 ///
-/// Platform farki kasitlidir ve `tauri-plugin-updater`in gercek davranisindan gelir:
+/// BLOKLAMAZ: `check` kisa timeout'ludur. Guncelleme yoksa / ag yoksa hicbir sey
+/// yapmaz ve uygulama normal calismaya devam eder.
+async fn startup_auto_update(app: AppHandle) {
+    if !UPDATER_READY.load(Ordering::SeqCst) {
+        return;
+    }
+    let updater = match app.updater_builder().timeout(NETWORK_TIMEOUT).build() {
+        Ok(u) => u,
+        Err(e) => {
+            log_update(&format!("acilis guncelleme: updater kurulamadi ({e})"));
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            log_update(&format!(
+                "acilis: {} bulundu — otomatik indirilip kurulacak",
+                update.version
+            ));
+            // Splash zaten aciliyorsa durumu bildir (zararsiz; katman yoksa no-op).
+            set_overlay_status(&app, "Güncelleniyor…");
+            stage_update(app, update, true).await;
+        }
+        // Guncelleme yok / ag hatasi: sessiz, normal acilis.
+        _ => {}
+    }
+}
+
+/// Guncellemeyi indirir ve kurar.
 ///
-///  * **Windows:** `Update::install` installer'i calistirip `std::process::exit(0)`
-///    ile SURECI OLDURUR. Bu yuzden burada YALNIZCA `download()` yapilir; kurulum
-///    kullanici "Şimdi uygula" dedigi an calistirilir. Indirilen paket bellekte
-///    (`PendingUpdate::installer`) tutulur.
-///  * **macOS/Linux:** kurulum (uygulama paketinin yerine yenisinin konmasi)
-///    surec CALISIRKEN tamamlanir ve fonksiyon normal doner. Yani paket diske
-///    kurulmus olur; geriye yalnizca yeniden baslatmak kalir.
-async fn stage_update(app: AppHandle, update: tauri_plugin_updater::Update) {
+/// `auto_apply = true` (ACILIS yolu): kurulum basariliysa KENDILIGINDEN yeniden
+/// baslatir (kullaniciya sormaz) — bu, "kapatip acinca guncellensin" davranisidir
+/// ve imzasiz macOS'ta yalnizca ACILIS penceresinde calisir.
+///
+/// `auto_apply = false` (CALISIRKEN periyodik yol): yeniden BASLATMAZ; hazir
+/// olunca serit cikar, kullanici "Şimdi uygula" der.
+///
+/// Platform farki kasitlidir (`tauri-plugin-updater`in gercek davranisi):
+///  * **Windows:** `Update::install` installer'i calistirip SURECI OLDURUR; bu
+///    yuzden calisirken YALNIZCA `download()` yapilir, kurulum kullanici onayinda
+///    (`apply_update`) calisir. Acilis otomatik yolu Windows'ta UAC/installer'i
+///    kullaniciya sormadan tetiklemez — orada da serit yolu kullanilir.
+///  * **macOS/Linux:** `install` uygulama paketini surec calisirken degistirir.
+///    Basarisizsa (imzasiz macOS: bundle degistirilemez) bu KALICI bir hatadir —
+///    serit "İndirme sayfasını aç" (manuel indirme) moduna gecer.
+async fn stage_update(app: AppHandle, update: tauri_plugin_updater::Update, auto_apply: bool) {
     // Es zamanli iki denetim ayni surumu iki kez indirmesin.
     if UPDATE_INSTALLING.swap(true, Ordering::SeqCst) {
         return;
@@ -5129,54 +5589,150 @@ async fn stage_update(app: AppHandle, update: tauri_plugin_updater::Update) {
     let version = update.version.clone();
     log_update(&format!("{version} arka planda indiriliyor"));
 
+    // 1) INDIR (her platformda ayni). Basarisizsa AG hatasidir -> sessiz,
+    //    bir sonraki periyodik denetimde tekrar denenir.
+    let bytes = match update.download(|_chunk, _total| {}, || {}).await {
+        Ok(b) => b,
+        Err(e) => {
+            UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+            log_update(&format!("indirme basarisiz (ag): {e}"));
+            return;
+        }
+    };
+
+    // 2) KUR / SUNU.
     #[cfg(target_os = "windows")]
-    let result = update
-        .download(|_chunk, _total| {}, || {})
-        .await
-        .map(|bytes| Some((update.clone(), bytes)));
+    {
+        // Windows: install SURECI OLDURUR; kurulum kullanici onayinda yapilir.
+        // (Acilis otomatik yolunda dahi Windows'ta installer'i kullaniciya
+        // sormadan calistirmayiz — paketi bellekte tutup serit gosteririz.)
+        let _ = auto_apply;
+        UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+        UPDATE_MANUAL.store(false, Ordering::SeqCst);
+        if let Ok(mut slot) = PENDING_UPDATE.lock() {
+            *slot = Some(PendingUpdate {
+                version: version.clone(),
+                installer: Some((update, bytes)),
+            });
+        }
+        log_update(&format!("{version} indirildi — kullanici onayi bekleniyor"));
+        show_update_banner(&app, &version, true);
+        notify(
+            &app,
+            "Güncelleme hazır",
+            &format!("Sürüm {version} indirildi. Uygun olduğunuzda \"Şimdi uygula\" deyin."),
+        );
+    }
 
     #[cfg(not(target_os = "windows"))]
-    let result = update
-        .download_and_install(|_chunk, _total| {}, || {})
-        .await
-        .map(|()| None);
-
-    UPDATE_INSTALLING.store(false, Ordering::SeqCst);
-
-    match result {
-        Ok(installer) => {
-            if let Ok(mut slot) = PENDING_UPDATE.lock() {
-                *slot = Some(PendingUpdate {
-                    version: version.clone(),
-                    installer,
-                });
-            }
-            log_update(&format!("{version} hazir — kullanici onayi bekleniyor"));
-            show_update_banner(&app, &version, true);
-            // Pencere gizliyken (tepside) serit gorunmez; TEK bir masaustu
-            // bildirimi gonderilir. Her denetimde DEGIL, yalnizca yeni bir
-            // surum hazir oldugunda — cunku buraya surum basina bir kez gelinir.
-            notify(
-                &app,
-                "Güncelleme hazır",
-                &format!("Sürüm {version} indirildi. Uygun olduğunuzda \"Şimdi uygula\" deyin."),
-            );
+    {
+        if auto_apply {
+            RESTART_IN_PROGRESS.store(true, Ordering::SeqCst);
         }
-        // SESSIZ KAL: basarisiz indirme kullaniciyi ilgilendirmez, bir sonraki
-        // periyodik denetimde tekrar denenir.
-        Err(e) => log_update(&format!("indirme/kurulum basarisiz: {e}")),
+        match update.install(&bytes) {
+            Ok(()) => {
+                log_update(&format!("{version} kuruldu"));
+                UPDATE_MANUAL.store(false, Ordering::SeqCst);
+                if auto_apply {
+                    // ACILIS yolu: kuruldu -> HEMEN yeniden baslat (DONMEZ).
+                    log_update(&format!("acilis: {version} kuruldu — yeniden baslatiliyor"));
+                    UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+                    app.restart();
+                }
+                // CALISIRKEN periyodik yol: paket kuruldu, yeniden baslatma
+                // kullanici onayinda (apply_update yalnizca restart eder).
+                UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+                if let Ok(mut slot) = PENDING_UPDATE.lock() {
+                    *slot = Some(PendingUpdate {
+                        version: version.clone(),
+                        installer: None,
+                    });
+                }
+                log_update(&format!("{version} hazir — kullanici onayi bekleniyor"));
+                show_update_banner(&app, &version, true);
+                notify(
+                    &app,
+                    "Güncelleme hazır",
+                    &format!(
+                        "Sürüm {version} kuruldu. Uygun olduğunuzda \"Şimdi uygula\" deyin."
+                    ),
+                );
+            }
+            Err(e) => {
+                // KALICI hata (imzasiz macOS: calisan uygulama kendi bundle'ini
+                // degistiremez). Tekrar denemek ise yaramaz -> MANUEL indirme.
+                if auto_apply {
+                    RESTART_IN_PROGRESS.store(false, Ordering::SeqCst);
+                }
+                UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+                UPDATE_MANUAL.store(true, Ordering::SeqCst);
+                log_update(&format!(
+                    "kurulum basarisiz (kalici): {e} — manuel indirme yoluna gecildi"
+                ));
+                // pending_version() Some kalsin ki serit yeniden cizilebilsin.
+                if let Ok(mut slot) = PENDING_UPDATE.lock() {
+                    *slot = Some(PendingUpdate {
+                        version: version.clone(),
+                        installer: None,
+                    });
+                }
+                show_update_banner(&app, &version, true);
+                notify(
+                    &app,
+                    "Güncelleme mevcut",
+                    &format!(
+                        "Sürüm {version} otomatik kurulamadı. Şeritten \"İndirme sayfasını aç\" ile indirin."
+                    ),
+                );
+            }
+        }
     }
 }
 
 /// Sayfa icindeki guncelleme seridini cizdirir (bkz. `UPDATE_UI_JS`).
-/// Serit KENDILIGINDEN hicbir sey yapmaz; yalnizca iki dugme sunar.
+/// Serit KENDILIGINDEN hicbir sey yapmaz; yalnizca dugme sunar.
 /// `force = true` ise kullanicinin "Sonra" karari YOK SAYILIR (elle denetim).
+///
+/// `UPDATE_MANUAL` set ise (imzasiz macOS: otomatik kurulum kalici basarisiz)
+/// serit "Şimdi uygula" yerine "İndirme sayfasını aç" (manuel indirme) gosterir.
 fn show_update_banner(app: &AppHandle, version: &str, force: bool) {
     if let Some(w) = app.get_webview_window("main") {
+        let js = if UPDATE_MANUAL.load(Ordering::SeqCst) {
+            format!(
+                "try {{ window.__bogahostUpdateManual && window.__bogahostUpdateManual({version:?}); }} catch (e) {{}}"
+            )
+        } else {
+            format!(
+                "try {{ window.__bogahostUpdateReady && window.__bogahostUpdateReady({version:?}, {force}); }} catch (e) {{}}"
+            )
+        };
+        let _ = w.eval(js);
+    }
+}
+
+/// Acilis/guncelleme sirasinda yukleme katmaninin durum metnini gunceller
+/// (katman gorunur degilse zararsizca yok sayilir).
+fn set_overlay_status(app: &AppHandle, text: &str) {
+    if let Some(w) = app.get_webview_window("main") {
         let _ = w.eval(format!(
-            "try {{ window.__bogahostUpdateReady && window.__bogahostUpdateReady({version:?}, {force}); }} catch (e) {{}}"
+            "try {{ window.__bogahostLoadingStatus && window.__bogahostLoadingStatus({text:?}); }} catch (e) {{}}"
         ));
     }
+}
+
+/// Otomatik guncelleme uygulanamadiginda (imzasiz macOS ya da Windows installer
+/// hatasi) YENI surumun kurulum dosyasini sistem tarayicisinda acar.
+/// Surum: bekleyen (yeni) surum; yoksa kurulu surum.
+#[tauri::command]
+fn bogahost_open_download(app: AppHandle) -> Result<(), String> {
+    let version = pending_version().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    let file = if cfg!(target_os = "windows") {
+        format!("{APP_KEY}-{version}-windows-x86_64-setup.exe")
+    } else {
+        format!("{APP_KEY}-{version}-macos.dmg")
+    };
+    let url = format!("{DOWNLOAD_BASE_URL}/{file}");
+    app.shell().open(url, None).map_err(|e| e.to_string())
 }
 
 /// Sayfanin bildirdigi "mesgulum" bayragi.
