@@ -11,9 +11,11 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    webview::{DownloadEvent, PageLoadEvent, WebviewWindowBuilder},
+    webview::{Color, DownloadEvent, PageLoadEvent, WebviewWindowBuilder},
     AppHandle, Manager, PhysicalPosition, PhysicalSize, Url, WebviewUrl, WindowEvent, Wry,
 };
+// `ManagerExt` adi `tauri::Manager` ile karismasin diye yeniden adlandirildi.
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartExt};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::{NotificationExt, PermissionState};
 use tauri_plugin_shell::ShellExt;
@@ -74,9 +76,39 @@ const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 /// Pencere konumu/boyutu bu dosyada saklanir (uygulama yapilandirma klasoru).
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
-/// Acilis yukleme ekrani (splash) penceresinin etiketi.
-/// Ana pencerenin durumu (konum/boyut) YALNIZCA "main" icin saklanir — bkz. `on_window_event`.
-const SPLASH_LABEL: &str = "splash";
+/// Acilis/gecis yukleme katmani icin uygulama kimlikleri.
+/// (hostname, kisa ad, vurgu rengi, gecis durum metni)
+///
+/// Vurgu renkleri `apps.config.json` icinde 4 uygulamada da AYNI (`#5443D2`)
+/// oldugu icin kimlik ayrimi burada yapilir: ortak marka moru + uygulamaya OZEL
+/// ikincil vurgu. Katman hedef sayfada cizildigi icin bu tablo 4 binary'de de
+/// aynidir (hangi uygulamadan hangisine gecildigi fark etmez).
+const OVERLAY_APPS: [(&str, &str, &str, &str); 4] = [
+    ("finans.bogahost.com", "Finans", "#22c55e", "Finans'a geçiliyor…"),
+    ("dcim.bogahost.com", "DCIM", "#6a58ea", "DCIM'e geçiliyor…"),
+    ("chat.bogahost.com", "Chat", "#06b6d4", "Chat'e geçiliyor…"),
+    ("task.bogahost.com", "Görevler", "#f59e0b", "Görevler'e geçiliyor…"),
+];
+
+/// Pencere arka plani — sayfa gelene kadar BEYAZ parlama (FOUC) olmasin.
+/// `apps.config.json > backgroundColor` (#0e1015) ile ayni.
+const WINDOW_BG: Color = Color(0x0e, 0x10, 0x15, 0xff);
+
+/// Otomatik baslatmada (oturum acilisi) uygulamaya gecilen argüman.
+/// Bu argümanla acildiysa ana pencere GOSTERILMEZ; uygulama yalnizca tepside durur.
+const HIDDEN_LAUNCH_FLAG: &str = "--hidden";
+
+/// Gecis/acilis katmanini hedef sayfada UYANDIRMA denemeleri.
+///
+/// NEDEN COKLU DENEME: `eval` ve `navigate` ayni olay dongusune SIRAYLA
+/// kuyruklanan "gonder-unut" mesajlaridir; `evaluate_script` her platformda
+/// ASENKRONDUR. Bu yuzden `navigate`den ONCE yapilan `eval` cogu zaman yeni
+/// belge olusurken YOK EDILIR (v1.5.1'de gecis gostergesinin hic gorunmemesinin
+/// KOK NEDENI budur). Katman artik `initialization_script` ile hedef sayfada
+/// document-start'ta kurulur; asagidaki denemeler yalnizca "bu bir uygulama
+/// gecisi" bilgisini iletir. Biri bile yeni belgeye dusse yeterlidir; hepsi
+/// dusmezse katman gene de "Yükleniyor…" olarak gorunur.
+const OVERLAY_WAKE_DELAYS_MS: [u64; 5] = [0, 60, 150, 320, 650];
 
 /// 4 uygulamanin PAYLASTIGI WebView veri klasoru (cerez/oturum deposu).
 ///
@@ -90,7 +122,7 @@ const SPLASH_LABEL: &str = "splash";
 ///
 /// DIKKAT: WebView2 (Windows) TEK bir surecteki TUM webview'lerin AYNI veri
 /// klasorunu kullanmasini zorunlu kilar — bu yuzden hem `main` hem `splash`
-/// penceresine ayni klasor verilir (bkz. `build_main_window` / `build_splash_window`).
+/// penceresine ayni klasor verilir (bkz. `build_main_window` / `build_popup_window`).
 const SHARED_WEBVIEW_DIR_NAME: &str = "BogahostNative";
 
 /// Es zamanli/cift surum denetimini engeller.
@@ -106,8 +138,8 @@ static UPDATE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 /// Pencere bir kez gosterildi mi? (beyaz ekran yerine "yuklenince goster")
 static WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
 
-/// Acilis yukleme ekrani kapatildi mi? (bir kereden fazla kapatilmasin)
-static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
+/// Otomatik baslatma (`--hidden`) ile mi acildi? Oyleyse pencere gosterilmez.
+static LAUNCHED_HIDDEN: AtomicBool = AtomicBool::new(false);
 
 /// "Uygulamalar" menusunden gecis yapildi mi? Yapildiysa ILK sayfa yuklemesinden
 /// sonra erisim denetimi (403/401) calistirilir — bkz. `ACCESS_CHECK_SCRIPT`.
@@ -141,6 +173,8 @@ struct AppState {
     last_download: Mutex<Option<PathBuf>>,
     /// "Bildirimler: acik/kapali" tepsi ogeleri (durum guncellenebilsin diye).
     notify_items: Mutex<Vec<MenuItem<Wry>>>,
+    /// "Bilgisayar acilinca baslat" isaretlenebilir tepsi ogeleri.
+    autostart_items: Mutex<Vec<CheckMenuItem<Wry>>>,
     /// En son gosterilen bildirimin hedef adresi.
     ///
     /// NEDEN: masaustunde `tauri-plugin-notification` bildirime TIKLAMA olayi
@@ -151,9 +185,21 @@ struct AppState {
 }
 
 pub fn run() {
+    // Oturum acilisinda otomatik baslatildiysa pencere GOSTERILMEZ (yalniz tepsi).
+    // Argüman `tauri_plugin_autostart::init(...)` ile kayit girdisine yazilir.
+    if std::env::args().any(|a| a == HIDDEN_LAUNCH_FLAG) {
+        LAUNCHED_HIDDEN.store(true, Ordering::SeqCst);
+    }
+
     tauri::Builder::default()
         // Harici linkleri sistem tarayicisinda acmak + genel shell erisimi.
         .plugin(tauri_plugin_shell::init())
+        // Oturum acilisinda otomatik baslatma ("arka planda calisir kal").
+        // macOS: LaunchAgent. Uygulama `--hidden` ile acilir -> sessizce tepsiye.
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_LAUNCH_FLAG]),
+        ))
         // Native masaustu bildirimleri.
         .plugin(tauri_plugin_notification::init())
         // Guncelleme onay diyalogu.
@@ -186,13 +232,10 @@ pub fn run() {
                 )),
             }
 
-            // ----- Acilis yukleme ekrani (splash) -----
-            // ANA PENCEREDEN ONCE olusturulur: uzak sayfa yuklenene kadar (birkac
-            // saniye) kullanici bos ekrana bakmasin. Yerel `dist/index.html`
-            // sayfasini gosterir; ilk sayfa yuklenince (ya da en gec
-            // `WINDOW_REVEAL_FALLBACK` sonunda) `reveal_window` tarafindan kapatilir.
-            // Basarisiz olursa YUTULUR — acilis asla engellenmez.
-            build_splash_window(&handle);
+            // ----- Acilis yukleme ekrani -----
+            // AYRI bir splash PENCERESI YOKTUR (v1.5.1'de o yaklasim calismadi).
+            // Katman ana pencerenin webview'inde, hedef sayfada document-start'ta
+            // cizilir — bkz. `LOADING_OVERLAY_JS` / `wake_overlay`.
 
             // ----- Ana pencere -----
             // Pencere tauri.conf.json'da DEGIL burada olusturuluyor; cunku
@@ -200,9 +243,24 @@ pub fn run() {
             // WebviewWindowBuilder uzerinden baglanabilir (indirme destegi bunlara bagli).
             let window = build_main_window(&handle)?;
 
+            // Acilis yukleme ekranini hedef sayfada uyandir ("Bogahost <ad>" +
+            // bogahost.com + asamali durum metni). Katman zaten document-start'ta
+            // cizilir; bu cagri onu tam ekran acilis kipine alir.
+            wake_overlay(&handle, "boot");
+
+            // ----- Otomatik baslatma (autostart) -----
+            // ILK KURULUMDA VARSAYILAN: ACIK. Kullanici tepsiden kapatabilir;
+            // karari isletim sistemi kaydinda tutulur, biz bir daha zorlamayiz.
+            if mark_once(&handle, "autostart-default") {
+                if let Err(e) = handle.autolaunch().enable() {
+                    eprintln!("[{}][autostart] acilamadi: {}", APP_KEY, e);
+                }
+            }
+
             // Menulerde kullanilan isaretlenebilir "Uygulamalar" ogelerinin tamami.
             let mut switch_items: Vec<(String, CheckMenuItem<Wry>)> = Vec::new();
             let mut notify_items: Vec<MenuItem<Wry>> = Vec::new();
+            let mut autostart_items: Vec<CheckMenuItem<Wry>> = Vec::new();
 
             // ----- Sistem tepsisi (tray) menusu -----
             // EN USTTE surum satiri: pasif (tiklanamaz) bilgi ogesi.
@@ -261,6 +319,15 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            // Oturum acilisinda baslat — kullanici istedigi an kapatabilir.
+            let autostart_i = CheckMenuItem::with_id(
+                app,
+                "autostart-toggle",
+                "Bilgisayar açılınca başlat",
+                true,
+                handle.autolaunch().is_enabled().unwrap_or(false),
+                None::<&str>,
+            )?;
             let quit_i = MenuItem::with_id(app, "quit", "Cikis / Quit", true, None::<&str>)?;
 
             let sep_v = PredefinedMenuItem::separator(app)?;
@@ -287,6 +354,7 @@ pub fn run() {
                 &dllast_i,
                 &notify_i,
                 &notiflast_i,
+                &autostart_i,
                 &sep_c,
                 &about_i,
                 &upd_i,
@@ -297,6 +365,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &tray_items)?;
             drop(tray_items);
             notify_items.push(notify_i);
+            autostart_items.push(autostart_i);
 
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(
@@ -343,6 +412,7 @@ pub fn run() {
                 zoom: Mutex::new(1.0),
                 last_download: Mutex::new(None),
                 notify_items: Mutex::new(notify_items),
+                autostart_items: Mutex::new(autostart_items),
                 last_notify_url: Mutex::new(None),
             });
 
@@ -371,6 +441,7 @@ pub fn run() {
                     std::thread::sleep(Duration::from_secs(2));
                     ensure_notification_permission(&h);
                     refresh_notification_menu(&h);
+                    refresh_autostart_menu(&h);
                 });
             }
 
@@ -413,6 +484,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Bogahost Tauri uygulamasi olusturulurken hata")
         .run(|app_handle, event| match event {
+            // Cmd+Q / tepsi "Cikis": cikis ENGELLENMEZ, yalnizca ILK SEFER
+            // kullaniciya kapaliyken bildirim gelmeyecegi hatirlatilir.
+            // `mark_once` false donunce bu dal bir daha calismaz.
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if mark_once(app_handle, "quit-notice") {
+                    api.prevent_exit();
+                    show_quit_notice(app_handle);
+                }
+            }
             // macOS: pencere kapatilinca uygulama Dock'ta calisir kalir (close-to-tray).
             // Dock ikonuna tiklaninca macOS "Reopen" olayi gonderir; BU ISLENMEZSE pencere
             // bir daha geri gelmez. Bildirilen "dock'ta duruyor ama acilmiyor" hatasi buydu.
@@ -449,6 +529,8 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .resizable(true)
         .center()
         .visible(false)
+        // Sayfa gelene kadar pencere KOYU olsun; beyaz parlama (FOUC) olmasin.
+        .background_color(WINDOW_BG)
         .theme(Some(tauri::Theme::Dark))
         .zoom_hotkeys_enabled(true)
         // ----- Surukle-birak ile dosya yukleme -----
@@ -469,7 +551,7 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         // `initialization_script` HER GEZINMEDE, sayfanin kendi script'lerinden
         // ONCE (document-start) calisir — dolayisiyla panel kodu calistiginda
         // `window.__BOGAHOST_NATIVE_VERSION__` HAZIRDIR.
-        .initialization_script(init_script().as_str())
+        .initialization_script(main_init_script().as_str())
         // WebView'in acamayacagi semalar (mailto:, tel:, ...) sistem uygulamasina
         // yollanir — tiklanip hicbir sey olmamasi ENGELLENIR.
         //
@@ -490,12 +572,21 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
             }
         })
         .on_page_load(|window, payload| {
+            // Belge OLUSTU: yukleme katmani (document-start) cizilmis durumda.
+            // Pencereyi burada acmak "hicbir sey yok" hissini onler; katman
+            // boyanmasi icin kisa bir pay birakilir.
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                let h = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(180));
+                    reveal_window(&h);
+                });
+            }
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 reveal_window(window.app_handle());
-                // Gecis splash'i: reveal_window tek seferlik oldugu icin ayrica kapat.
-                close_splash(window.app_handle());
-                // Uygulama gecisinde gosterilen "Yükleniyor" katmanini kaldir.
-                let _ = window.eval(HIDE_LOADING_SCRIPT);
+                // Yukleme katmanini kaldir (katman kendi kendine de kalkar;
+                // bu, sayfa `load` olayini hic vermezse ikinci guvencedir).
+                let _ = window.eval(HIDE_OVERLAY_SCRIPT);
                 // EMNIYET AGI: surum degiskenleri asil olarak
                 // `initialization_script` ile (document-start) kurulur; sayfa
                 // bunlari herhangi bir sebeple kaybederse burada tazelenir.
@@ -779,79 +870,49 @@ fn trigger_print(window: &tauri::WebviewWindow<Wry>) {
     );
 }
 
-/// Acilis yukleme ekranini (splash) olusturur.
+/// Acilis/gecis yukleme katmanini hedef sayfada UYANDIRIR.
 ///
-/// Yerel `dist/index.html` sayfasini gosterir (`WebviewUrl::App`) — uzak sayfaya
-/// ihtiyac duymaz, bu yuzden ag olmasa bile ANINDA gorunur.
-///
-/// Hatalar YUTULUR: splash acilamasa bile uygulama normal calismaya devam eder
-/// (ana pencere en gec `WINDOW_REVEAL_FALLBACK` sonunda gosterilir).
-fn build_splash_window(app: &AppHandle) {
-    let init = version_script();
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        SPLASH_LABEL,
-        WebviewUrl::App(PathBuf::from("index.html")),
-    )
-    .title(APP_TITLE)
-    .inner_size(420.0, 300.0)
-    .resizable(false)
-    .decorations(false)
-    .center()
-    .visible(true)
-    .focused(true)
-    .always_on_top(true)
-    .theme(Some(tauri::Theme::Dark))
-    .initialization_script(init.as_str());
+/// Katmanin KENDISI `initialization_script` ile (document-start) kurulur; bu
+/// fonksiyon yalnizca "bu bir uygulama gecisi mi, acilis mi" bilgisini iletir.
+/// Cagri, katman henuz kurulmadiysa ya da sayfa çoktan yuklendiyse SESSIZCE
+/// bosa duser — bu yuzden birkac kez denenmesi zararsizdir.
+fn wake_overlay(app: &AppHandle, mode: &'static str) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        for delay in OVERLAY_WAKE_DELAYS_MS.iter() {
+            if *delay > 0 {
+                std::thread::sleep(Duration::from_millis(*delay));
+            }
+            let Some(w) = handle.get_webview_window("main") else {
+                return;
+            };
+            let _ = w.eval(format!(
+                "try {{ window.__bogahostLoadingFull && window.__bogahostLoadingFull({:?}); }} catch (e) {{}}",
+                mode
+            ));
+        }
+    });
+}
 
-    // WebView2 (Windows) tek surecteki TUM webview'lerin AYNI veri klasorunu
-    // kullanmasini sart kosar. Ana pencere paylasimli klasoru kullaniyorsa splash
-    // da AYNISINI kullanmalidir; aksi halde ikinci webview olusturulamaz.
-    if let Some(dir) = shared_webview_dir(app) {
-        builder = builder.data_directory(dir);
-    }
-
-    // Ayni veri klasoru -> AYNI tarayici argumanlari (bkz. WEBVIEW2_BROWSER_ARGS).
-    #[cfg(target_os = "windows")]
-    {
-        builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
-    }
-
-    let result = builder.build();
-
-    if let Err(e) = result {
-        eprintln!("[{}][splash] yukleme ekrani acilamadi: {}", APP_KEY, e);
+/// Yukleme katmanini kaldirir (sayfa yuklendi ya da emniyet suresi doldu).
+fn hide_overlay(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(HIDE_OVERLAY_SCRIPT);
     }
 }
 
-/// Acilis yukleme ekranini (bir kez) kapatir.
-/// `destroy()` kullanilir: `CloseRequested` isleyicisini tetiklemez.
-/// Uygulama gecisinde NATIVE splash'i yeniden gosterir.
-/// KOK NEDEN: gecis katmani DOM'a ekleniyordu (SHOW_LOADING_SCRIPT); hemen ardindan
-/// navigate() cagrilinca sayfa YIKILIYOR ve katman da onunla siliniyordu — kullanici
-/// hicbir yukleme gostergesi goremiyordu. Native pencere navigasyondan etkilenmez.
-fn show_switch_splash(app: &AppHandle) {
-    SPLASH_CLOSED.store(false, Ordering::SeqCst);
-    if let Some(w) = app.get_webview_window(SPLASH_LABEL) {
-        let _ = w.show();
-        let _ = w.set_focus();
-    } else {
-        build_splash_window(app);
-    }
-}
-
-fn close_splash(app: &AppHandle) {
-    if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
+/// Pencereyi (bir kez) gorunur yapar.
+///
+/// AYRI bir splash PENCERESI ARTIK YOKTUR: yukleme ekrani ana pencerenin KENDI
+/// webview'inde, hedef sayfaya document-start'ta cizilir. Pencere arka plani
+/// koyu (`WINDOW_BG`) oldugu icin katman boyanana kadar da beyaz parlama olmaz.
+///
+/// Otomatik baslatmada (`--hidden`) pencere GOSTERILMEZ; uygulama tepside
+/// sessizce calisir ve bildirim koprusu isler.
+fn reveal_window(app: &AppHandle) {
+    if LAUNCHED_HIDDEN.load(Ordering::SeqCst) {
         return;
     }
-    if let Some(w) = app.get_webview_window(SPLASH_LABEL) {
-        let _ = w.destroy();
-    }
-}
-
-/// Pencereyi (bir kez) gorunur yapar ve acilis yukleme ekranini kapatir.
-/// Once ana pencere gosterilir, sonra splash kapatilir — arada bos ekran olmasin.
-fn reveal_window(app: &AppHandle) {
     if WINDOW_REVEALED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -859,7 +920,6 @@ fn reveal_window(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
-    close_splash(app);
 }
 
 /// Pencereyi her cagrilista gosterir + one getirir.
@@ -1145,6 +1205,16 @@ fn init_script() -> String {
     // Medya izinleri, panel bildirim beslemesi, pano, ses kilidi ve tam ekran.
     // AYRI bir IIFE'dir; INIT_SCRIPT bozulsa bile bagimsiz calisir.
     script.push_str(EXTRA_SCRIPT);
+    script
+}
+
+/// ANA pencereye enjekte edilen betik: kopru + acilis/gecis yukleme katmani.
+///
+/// Katman YALNIZCA ana pencereye eklenir; onizleme (popup) pencerelerinde
+/// yukleme ekrani istenmez.
+fn main_init_script() -> String {
+    let mut script = init_script();
+    script.push_str(&loading_overlay_script());
     script
 }
 
@@ -2345,28 +2415,467 @@ const EXTRA_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Uygulama gecisinde gosterilen basit "Yükleniyor" katmani.
-const SHOW_LOADING_SCRIPT: &str = r#"
+/// Yukleme katmanini kaldiran betik (Rust tarafindan cagrilir).
+const HIDE_OVERLAY_SCRIPT: &str = r#"
+try { window.__bogahostLoadingHide && window.__bogahostLoadingHide(); } catch (e) {}
+"#;
+
+/// Acilis + uygulama gecisi yukleme katmani.
+///
+/// KOK NEDEN / TASARIM: onceki iki yaklasim da calismadi —
+///  1) Eski sayfaya `eval` ile DOM katmani eklemek: `navigate` belgeyi yikinca
+///     katman da yok oluyordu (ve `evaluate_script` asenkron oldugu icin cogu
+///     zaman hic calismiyordu bile).
+///  2) Ayri `splash` PENCERESI: her gecisde sifirdan webview kuruluyor, ana
+///     pencerenin `PageLoadEvent::Finished` olayi cogu zaman pencere BOYANMADAN
+///     once gelip pencereyi yok ediyordu.
+///
+/// Bu betik `initialization_script` ile enjekte edilir: HER ust duzey
+/// gezinmede, HEDEF sayfada, sayfanin kendi icerigi/betikleri calismadan ONCE
+/// (document-start) calisir. Katman eski sayfaya degil YENI sayfaya cizildigi
+/// icin navigasyondan etkilenmez.
+///
+/// `__BOGAHOST_APPS_JSON__` yer tutucusu `loading_overlay_script()` icinde
+/// doldurulur.
+const LOADING_OVERLAY_JS: &str = r#"
 (function () {
+  // `initialization_script` Windows'ta (WebView2) ALT CERCEVELERE de enjekte
+  // edilir. Katman YALNIZCA en ust cercevede cizilmelidir.
   try {
-    if (document.getElementById('bogahost-native-loading')) { return; }
-    var d = document.createElement('div');
-    d.id = 'bogahost-native-loading';
-    d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0e1015;color:#e6e8ee;font:15px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
-    d.textContent = 'Yükleniyor…';
-    (document.body || document.documentElement).appendChild(d);
-  } catch (e) {}
+    if (window.top !== window.self) { return; }
+  } catch (eTop) { return; }
+
+  if (window.__BOGAHOST_LOADING__) { return; }
+  window.__BOGAHOST_LOADING__ = true;
+
+  // { hostname: { t: tam ad, s: kisa ad, a: vurgu rengi, g: gecis metni } }
+  var APPS = __BOGAHOST_APPS_JSON__;
+
+  var BAR_ID = '__bogahost_loading_bar__';
+  var FULL_ID = '__bogahost_loading_full__';
+
+  var BRAND = '#5443D2';
+  var DARK_BG = '#0e1015';
+  var DARK_FG = '#eef0f6';
+  var DARK_MUTED = '#8b93a4';
+  var LIGHT_BG = '#f6f7fb';
+  var LIGHT_FG = '#171a22';
+  var LIGHT_MUTED = '#6b7280';
+
+  // Hiz once: giris 180ms, cikis 150ms.
+  var BAR_DELAY = 140;
+  var FADE_IN = 180;
+  var FADE_OUT = 150;
+  var HARD_CAP = 15000;
+  var EASE_IN = 'cubic-bezier(.22,.61,.36,1)';
+  var EASE_OUT = 'cubic-bezier(.4,0,.2,1)';
+
+  function media(q) {
+    try { return !!(window.matchMedia && window.matchMedia(q).matches); } catch (e) { return false; }
+  }
+
+  var reduce = media('(prefers-reduced-motion: reduce)');
+  var light = media('(prefers-color-scheme: light)');
+
+  var BG = light ? LIGHT_BG : DARK_BG;
+  var FG = light ? LIGHT_FG : DARK_FG;
+  var MUTED = light ? LIGHT_MUTED : DARK_MUTED;
+
+  var barEl = null;
+  var fullEl = null;
+  var statusEl = null;
+  var statusText = 'Bağlanılıyor…';
+  var pinned = false;
+  var barTimer = null;
+  var capTimer = null;
+  var bodyTimer = null;
+  var tries = 0;
+  var done = false;
+  var anims = [];
+
+  function info() {
+    var h = '';
+    try { h = String(location.hostname || '').toLowerCase(); } catch (e) {}
+    return APPS[h] || null;
+  }
+
+  function accent() {
+    var i = info();
+    return (i && i.a) ? i.a : BRAND;
+  }
+
+  function shortName() {
+    var i = info();
+    if (i && i.s) { return i.s; }
+    if (window.__BOGAHOST_APP_TITLE__) {
+      return String(window.__BOGAHOST_APP_TITLE__).replace('Bogahost ', '');
+    }
+    return 'Bogahost';
+  }
+
+  function root() {
+    return document.documentElement || document.body || null;
+  }
+
+  function play(el, frames, opts) {
+    if (reduce) { return null; }
+    try {
+      if (el && typeof el.animate === 'function') {
+        var a = el.animate(frames, opts);
+        anims.push(a);
+        return a;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function stopAnims() {
+    for (var i = 0; i < anims.length; i++) {
+      try { anims[i].cancel(); } catch (e) {}
+    }
+    anims = [];
+  }
+
+  function drop(el) {
+    try {
+      if (el && el.parentNode) { el.parentNode.removeChild(el); }
+    } catch (e) {}
+  }
+
+  function join(parts) {
+    return parts.join(';') + ';';
+  }
+
+  // ---- Durum metni: GERCEK asamalara bagli ----------------------------------
+
+  function setStatus(text) {
+    if (pinned) { return; }
+    statusText = text;
+    try {
+      if (statusEl) { statusEl.textContent = text; }
+    } catch (e) {}
+  }
+
+  // ---- Ince ust cubuk: siradan sayfa gezinmeleri ----------------------------
+
+  function buildBar() {
+    var wrap = document.createElement('div');
+    wrap.id = BAR_ID;
+    wrap.style.cssText = join([
+      'position:fixed', 'top:0', 'left:0', 'right:0', 'height:3px',
+      'width:100%', 'margin:0', 'padding:0',
+      'z-index:2147483646', 'pointer-events:none', 'overflow:hidden',
+      'background:rgba(84,67,210,.16)',
+      'opacity:0',
+      reduce ? 'transition:none' : ('transition:opacity ' + FADE_IN + 'ms ' + EASE_IN)
+    ]);
+
+    var fill = document.createElement('div');
+    if (reduce) {
+      fill.style.cssText = join([
+        'position:absolute', 'top:0', 'left:0', 'height:100%', 'width:100%',
+        'opacity:.6', 'background:' + accent()
+      ]);
+    } else {
+      fill.style.cssText = join([
+        'position:absolute', 'top:0', 'left:0', 'height:100%', 'width:35%',
+        'will-change:transform',
+        'background:linear-gradient(90deg,rgba(84,67,210,0),' + BRAND + ',' + accent() + ',rgba(84,67,210,0))'
+      ]);
+      play(fill, [
+        { transform: 'translateX(-100%)' },
+        { transform: 'translateX(300%)' }
+      ], { duration: 1050, iterations: Infinity, easing: 'linear' });
+    }
+    wrap.appendChild(fill);
+    return wrap;
+  }
+
+  function showBar() {
+    if (done || barEl || fullEl) { return; }
+    var r = root();
+    if (!r) {
+      tries = tries + 1;
+      if (tries < 60) { setTimeout(showBar, 16); }
+      return;
+    }
+    var el = buildBar();
+    try { r.appendChild(el); } catch (e) { return; }
+    barEl = el;
+    raise(el);
+  }
+
+  function raise(el) {
+    if (reduce) {
+      try { el.style.opacity = '1'; } catch (e) {}
+      return;
+    }
+    setTimeout(function () {
+      try { el.style.opacity = '1'; } catch (e) {}
+    }, 16);
+  }
+
+  // ---- Tam ekran acilis / gecis katmani -------------------------------------
+
+  function buildFull() {
+    var acc = accent();
+
+    var wrap = document.createElement('div');
+    wrap.id = FULL_ID;
+    wrap.style.cssText = join([
+      'position:fixed', 'top:0', 'left:0', 'right:0', 'bottom:0',
+      'width:100%', 'height:100%', 'margin:0', 'padding:0',
+      'z-index:2147483647',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'background:' + BG,
+      'color:' + FG,
+      'font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif',
+      '-webkit-user-select:none', 'user-select:none',
+      'opacity:0',
+      reduce ? 'transition:none' : ('transition:opacity ' + FADE_IN + 'ms ' + EASE_IN)
+    ]);
+
+    // Yumusak marka parlamasi (arka plan) — transform/opacity disi bir sey animasyon YOK.
+    var glow = document.createElement('div');
+    glow.style.cssText = join([
+      'position:absolute', 'top:50%', 'left:50%',
+      'width:620px', 'height:620px', 'margin:-310px 0 0 -310px',
+      'border-radius:50%', 'pointer-events:none',
+      'opacity:' + (light ? '.10' : '.16'),
+      'background:radial-gradient(circle,' + acc + ' 0%,rgba(0,0,0,0) 62%)'
+    ]);
+    wrap.appendChild(glow);
+
+    var box = document.createElement('div');
+    box.style.cssText = join([
+      'position:relative', 'text-align:center',
+      'padding:32px 40px', 'max-width:90%'
+    ]);
+
+    // 1) Belirgin uygulama isareti
+    var mark = document.createElement('div');
+    mark.style.cssText = join([
+      'width:82px', 'height:82px', 'margin:0 auto 22px',
+      'border-radius:22px',
+      'background:linear-gradient(145deg,' + BRAND + ',' + acc + ')',
+      'box-shadow:0 0 0 1px rgba(255,255,255,.07) inset,0 18px 44px rgba(84,67,210,.34)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'will-change:transform,opacity'
+    ]);
+    var letter = document.createElement('span');
+    letter.style.cssText = join([
+      'font-size:38px', 'font-weight:700', 'color:#fff', 'line-height:1',
+      'letter-spacing:-.5px'
+    ]);
+    letter.textContent = 'B';
+    mark.appendChild(letter);
+
+    // 2) Uygulama adi
+    var name = document.createElement('div');
+    name.style.cssText = join([
+      'font-size:26px', 'font-weight:650', 'letter-spacing:-.3px', 'line-height:1.2'
+    ]);
+    name.textContent = shortName();
+
+    // 3) Marka imzasi
+    var brand = document.createElement('div');
+    brand.style.cssText = join([
+      'margin-top:6px', 'font-size:13px', 'letter-spacing:.9px',
+      'text-transform:lowercase', 'color:' + MUTED
+    ]);
+    brand.textContent = 'bogahost.com';
+
+    // 4) Durum metni
+    var status = document.createElement('div');
+    status.style.cssText = join([
+      'margin-top:24px', 'font-size:13px', 'color:' + MUTED, 'min-height:18px'
+    ]);
+    status.textContent = statusText;
+    statusEl = status;
+
+    // 5) Ince ilerleme cubugu
+    var track = document.createElement('div');
+    track.style.cssText = join([
+      'position:relative', 'width:210px', 'height:3px', 'margin:14px auto 0',
+      'border-radius:99px', 'overflow:hidden',
+      'background:' + (light ? 'rgba(23,26,34,.10)' : 'rgba(238,240,246,.12)')
+    ]);
+    var fill = document.createElement('div');
+    if (reduce) {
+      fill.style.cssText = join([
+        'position:absolute', 'top:0', 'left:0', 'height:100%', 'width:100%',
+        'border-radius:99px', 'opacity:.55', 'background:' + acc
+      ]);
+    } else {
+      fill.style.cssText = join([
+        'position:absolute', 'top:0', 'left:0', 'height:100%', 'width:42%',
+        'border-radius:99px', 'will-change:transform',
+        'background:linear-gradient(90deg,rgba(84,67,210,0),' + BRAND + ',' + acc + ',rgba(84,67,210,0))'
+      ]);
+    }
+    track.appendChild(fill);
+
+    // 6) Surum etiketi
+    var ver = document.createElement('div');
+    ver.style.cssText = join([
+      'position:absolute', 'left:0', 'right:0', 'bottom:18px',
+      'text-align:center', 'pointer-events:none',
+      'font-size:11px', 'letter-spacing:.4px',
+      'color:' + (light ? 'rgba(23,26,34,.38)' : 'rgba(238,240,246,.32)')
+    ]);
+    var v = '';
+    try { v = window.__BOGAHOST_NATIVE_VERSION__ ? String(window.__BOGAHOST_NATIVE_VERSION__) : ''; } catch (e) {}
+    ver.textContent = v ? ('v' + v) : '';
+
+    box.appendChild(mark);
+    box.appendChild(name);
+    box.appendChild(brand);
+    box.appendChild(status);
+    box.appendChild(track);
+    wrap.appendChild(box);
+    wrap.appendChild(ver);
+
+    if (!reduce) {
+      play(fill, [
+        { transform: 'translateX(-100%)' },
+        { transform: 'translateX(240%)' }
+      ], { duration: 1100, iterations: Infinity, easing: 'linear' });
+
+      play(mark, [
+        { transform: 'scale(.86)', opacity: 0 },
+        { transform: 'scale(1)', opacity: 1 }
+      ], { duration: 260, easing: EASE_IN, fill: 'both' });
+
+      play(box, [
+        { transform: 'translateY(8px)', opacity: 0 },
+        { transform: 'translateY(0)', opacity: 1 }
+      ], { duration: 240, delay: 40, easing: EASE_IN, fill: 'both' });
+    }
+
+    return wrap;
+  }
+
+  // mode: 'boot' | 'switch'
+  function showFull(mode) {
+    if (done) { return; }
+    if (mode === 'switch') {
+      var i = info();
+      if (i && i.g) {
+        statusText = i.g;
+        pinned = true;
+        try { if (statusEl) { statusEl.textContent = statusText; } } catch (e) {}
+      }
+    }
+    if (fullEl) { return; }
+    var r = root();
+    if (!r) {
+      tries = tries + 1;
+      if (tries < 60) { setTimeout(function () { showFull(mode); }, 16); }
+      return;
+    }
+    var el = buildFull();
+    try { r.appendChild(el); } catch (e) { return; }
+    fullEl = el;
+    try { clearTimeout(barTimer); } catch (e) {}
+    if (barEl) { drop(barEl); barEl = null; }
+    raise(el);
+  }
+
+  // ---- Kaldirma: sayfa hazir olur olmaz, capraz gecisle --------------------
+
+  function fadeOut(el) {
+    if (!el) { return; }
+    if (reduce) { drop(el); return; }
+    try {
+      el.style.transition = 'opacity ' + FADE_OUT + 'ms ' + EASE_OUT;
+      el.style.opacity = '0';
+    } catch (e) {
+      drop(el);
+      return;
+    }
+    setTimeout(function () { drop(el); }, FADE_OUT + 60);
+  }
+
+  function hide() {
+    if (done) { return; }
+    done = true;
+    try { clearTimeout(barTimer); } catch (e) {}
+    try { clearTimeout(capTimer); } catch (e) {}
+    try { clearTimeout(bodyTimer); } catch (e) {}
+    stopAnims();
+    var b = barEl;
+    var f = fullEl;
+    barEl = null;
+    fullEl = null;
+    statusEl = null;
+    fadeOut(b);
+    fadeOut(f);
+  }
+
+  window.__bogahostLoadingFull = showFull;
+  window.__bogahostLoadingHide = hide;
+
+  barTimer = setTimeout(showBar, BAR_DELAY);
+  capTimer = setTimeout(hide, HARD_CAP);
+
+  // Asama 2: govde gelmeye basladi -> "Yükleniyor…"
+  function watchBody() {
+    if (done) { return; }
+    if (document.body) { setStatus('Yükleniyor…'); return; }
+    bodyTimer = setTimeout(watchBody, 32);
+  }
+  watchBody();
+
+  // Asama 3: DOM hazir -> "Hazırlanıyor…"
+  function onReady() {
+    setStatus('Hazırlanıyor…');
+    setTimeout(hide, 350);
+  }
+
+  function onLoad() { setTimeout(hide, 40); }
+
+  try {
+    if (document.readyState === 'complete') {
+      onLoad();
+    } else {
+      window.addEventListener('load', onLoad);
+      if (document.readyState === 'interactive') {
+        onReady();
+      } else {
+        document.addEventListener('DOMContentLoaded', onReady);
+      }
+    }
+  } catch (e) {
+    setTimeout(hide, 3000);
+  }
 })();
 "#;
 
-const HIDE_LOADING_SCRIPT: &str = r#"
-(function () {
-  try {
-    var d = document.getElementById('bogahost-native-loading');
-    if (d && d.parentNode) { d.parentNode.removeChild(d); }
-  } catch (e) {}
-})();
-"#;
+/// `OVERLAY_APPS` tablosunu katmanin bekledigi JS nesnesine cevirir.
+fn overlay_apps_json() -> String {
+    let mut out = String::from("{");
+    for (i, (host, short, accent, going)) in OVERLAY_APPS.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        // `{:?}` tirnaklari/kacislari kendisi ekler — gecerli JS dize sabiti uretir.
+        out.push_str(&format!(
+            "{:?}:{{t:{:?},s:{:?},a:{:?},g:{:?}}}",
+            host,
+            format!("Bogahost {short}"),
+            short,
+            accent,
+            going
+        ));
+    }
+    out.push('}');
+    out
+}
+
+/// Katman betigini uygulama tablosuyla birlikte uretir.
+fn loading_overlay_script() -> String {
+    LOADING_OVERLAY_JS.replace("__BOGAHOST_APPS_JSON__", &overlay_apps_json())
+}
 
 /// Onizleme (popup) penceresine EK olarak enjekte edilir.
 ///
@@ -2870,6 +3379,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 let _ = w.hide();
             }
         }
+        "autostart-toggle" => toggle_autostart(app),
         "quit" => {
             save_window_state_from_handle(app, true);
             app.exit(0)
@@ -3074,19 +3584,22 @@ fn switch_app(app: &AppHandle, key: &str) {
         return;
     };
 
-    // Once "Yükleniyor" katmani — gecis sirasinda donma hissi olmasin.
-    let _ = window.eval(SHOW_LOADING_SCRIPT);
-    show_switch_splash(app);   // navigasyonda kaybolmayan native gosterge
+    // KATMANI BURADA CIZMEYE CALISMA. `eval` + `navigate` ayni olay dongusune
+    // kuyruklanir ve `evaluate_script` asenkrondur; navigasyon belgeyi katman
+    // boyanmadan yikar (v1.5.1'in KOK NEDENI). Katman hedef sayfada
+    // document-start'ta kurulur; asagida yalnizca "gecis" bilgisi iletilir.
 
     // Gecis sonrasi ILK sayfa yuklemesinde erisim engeli (403/401) denetlensin.
     PENDING_ACCESS_CHECK.store(true, Ordering::SeqCst);
 
     if window.navigate(url).is_err() {
         PENDING_ACCESS_CHECK.store(false, Ordering::SeqCst);
-        let _ = window.eval(HIDE_LOADING_SCRIPT);
-        close_splash(app);
+        hide_overlay(app);
         return;
     }
+
+    // Hedef sayfadaki katmani "uygulama gecisi" kipine al ("Finans'a geçiliyor…").
+    wake_overlay(app, "switch");
 
     let _ = window.set_title(&format!("Bogahost {}", label));
     let _ = window.show();
@@ -3101,9 +3614,7 @@ fn switch_app(app: &AppHandle, key: &str) {
         let h = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(SWITCH_LOADING_TIMEOUT);
-            if let Some(w) = h.get_webview_window("main") {
-                let _ = w.eval(HIDE_LOADING_SCRIPT);
-            }
+            hide_overlay(&h);
         });
     }
 
@@ -3234,7 +3745,31 @@ fn ensure_notification_permission(app: &AppHandle) {
     let notification = app.notification();
 
     let mut granted = matches!(notification.permission_state(), Ok(PermissionState::Granted));
+
+    // ILK ACILIS: sistem izin penceresini habersiz onune koymak yerine once
+    // NEDEN gerektigini anlat. YALNIZCA BIR KEZ sorulur — kullanici "Hayır"
+    // derse bir daha ustelenmez; tepsideki "Bildirimler: kapalı (ayarları aç)"
+    // ogesi kalici ama rahatsiz etmeyen yol olarak durur.
+    //
+    // `blocking_show` ARKA PLAN is parcaciginda cagrilir (bkz. `setup`);
+    // ana thread'de cagrilsaydi kilitlenirdi.
     if !granted {
+        if mark_once(app, "notify-ask") {
+            let wants = app
+                .dialog()
+                .message(concat!(
+                    "Bildirimleri açmak ister misiniz?\n\n",
+                    "Yeni görev, mesaj ve uyarılar siz panelde değilken de ",
+                    "anında masaüstünde gösterilir."
+                ))
+                .title(APP_TITLE)
+                .kind(MessageDialogKind::Info)
+                .buttons(MessageDialogButtons::YesNo)
+                .blocking_show();
+            if !wants {
+                return;
+            }
+        }
         granted = matches!(notification.request_permission(), Ok(PermissionState::Granted));
     }
 
@@ -3249,7 +3784,9 @@ fn ensure_notification_permission(app: &AppHandle) {
 
     // Izin REDDEDILDIYSE sessiz kalma: sayfada aciklama + "Bildirim Ayarlarını
     // Aç" dugmesi goster.
-    if !granted {
+    // Yalnizca ILK reddedilmede aciklama kutusu gosterilir; her acilista
+    // tekrarlamak "usteleme" olurdu.
+    if !granted && mark_once(app, "notify-denied-box") {
         show_notification_denied_box(app);
     }
 }
@@ -3327,6 +3864,72 @@ fn mark_once(app: &AppHandle, flag: &str) -> bool {
     }
     let _ = std::fs::write(&marker, b"1");
     true
+}
+
+// ---------------------------------------------------------------------------
+// Otomatik baslatma (oturum acilisi) — "arka planda calisir kal"
+// ---------------------------------------------------------------------------
+
+/// Tepsideki "Bilgisayar açılınca başlat" ogesini isletim sistemindeki GERCEK
+/// duruma gore isaretler (varsayimda bulunmaz).
+fn refresh_autostart_menu(app: &AppHandle) {
+    let enabled = app.autolaunch().is_enabled().unwrap_or(false);
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(items) = state.autostart_items.lock() {
+            for item in items.iter() {
+                let _ = item.set_checked(enabled);
+            }
+        }
+    }
+}
+
+/// Otomatik baslatmayi acar/kapatir.
+///
+/// Hata durumunda menu GERCEK duruma geri alinir — kullanici yanlis bir
+/// isaret gormesin.
+fn toggle_autostart(app: &AppHandle) {
+    let manager = app.autolaunch();
+    let enabled = manager.is_enabled().unwrap_or(false);
+    let result = if enabled {
+        manager.disable()
+    } else {
+        manager.enable()
+    };
+    if let Err(e) = result {
+        eprintln!("[{}][autostart] degistirilemedi: {}", APP_KEY, e);
+    }
+    refresh_autostart_menu(app);
+}
+
+/// Cikista (Cmd+Q / tepsi "Cikis") YALNIZCA BIR KEZ bilgilendirir:
+/// uygulama kapaliyken bildirim gelmez, tepside birakilirsa gelmeye devam eder.
+///
+/// Cikis ENGELLENMEZ; yalnizca ilk seferde diyalog kapanana kadar beklenir.
+/// Diyalog acilamazsa ya da kullanici yanit vermezse emniyet suresi sonunda
+/// uygulama yine de kapanir — "kapanmayan uygulama" DURUMU OLUSMAZ.
+fn show_quit_notice(app: &AppHandle) {
+    let handle = app.clone();
+    app.dialog()
+        .message(
+            concat!(
+                "Uygulama tamamen kapanıyor. Kapalıyken yeni bildirim ALINMAZ.\n\n",
+                "Bildirim almaya devam etmek için pencereyi kapatıp uygulamayı ",
+                "tepside açık bırakabilirsiniz."
+            ),
+        )
+        .title(APP_TITLE)
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::Ok)
+        .show(move |_| {
+            handle.exit(0);
+        });
+
+    // EMNIYET: diyalog hic yanitlanmazsa da kapan.
+    let h = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(20));
+        h.exit(0);
+    });
 }
 
 // ---------------------------------------------------------------------------

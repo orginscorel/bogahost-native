@@ -1,4 +1,15 @@
 <!doctype html>
+<!--
+  YER TUTUCU — bu sayfa ARTIK acilis ekrani DEGILDIR.
+
+  v1.6.0'a kadar ayri bir `splash` PENCERESI bu dosyayi gosteriyordu; o yaklasim
+  calismadi (bkz. lib.rs > LOADING_OVERLAY_JS). Yukleme/gecis ekrani artik ana
+  pencerenin webview'inde, hedef sayfada `initialization_script` ile cizilir.
+
+  Dosya YINE DE gereklidir: `tauri.conf.json > build.frontendDist` bu klasoru
+  isaret eder ve klasor bossa Tauri "Unable to find your web assets" ile derlemeyi
+  durdurur. Normal kullanimda kullaniciya GORUNMEZ.
+-->
 <html lang="tr" data-bhx-theme="dark">
 <head>
   <meta charset="utf-8" />

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Yerel pencere, tepsi, shell (harici link), native bildirim, guncelleme diyalogu ve otomatik guncelleme izinleri. 'popup-*' = indirme/onizleme pencereleri (kapatilabilir, yazdirilabilir). set-fullscreen: macOS'ta HTML tam ekran calismadigi icin PENCERE tam ekran yedegi.",
+  "description": "Yerel pencere, tepsi, shell (harici link), native bildirim, guncelleme diyalogu ve otomatik guncelleme izinleri. 'popup-*' = indirme/onizleme pencereleri (kapatilabilir, yazdirilabilir). set-fullscreen: macOS'ta HTML tam ekran calismadigi icin PENCERE tam ekran yedegi. NOT: otomatik baslatma (autostart) YALNIZCA Rust tarafindan cagrilir; ACL yalnizca sayfadan (IPC) cagrilan komutlari denetledigi icin burada 'autostart:*' izni GEREKMEZ. Sayfadan cagrilacak olursa allow-enable/allow-disable/allow-is-enabled eklenmelidir.",
   "windows": [
     "main",
     "splash",

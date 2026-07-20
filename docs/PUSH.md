@@ -126,6 +126,54 @@ yapmaz**, ayrı bir iş kalemidir.
 - Uzaktan tetikleme için uygulama açıkken WebView'deki mevcut SSE/web-push zaten çalışır; kapalıyken
   push istenirse ayrı bir native köprü/agent gerekir.
 
+## Masaüstü (Tauri) — "kapalıyken de bildirim" (v1.6.0 sonrası)
+
+Kullanıcı beklentisi: *"uygulamalar arka planda kapalı bile olsa çalışır halde olmalı,
+bildirimler düşmeli."*
+
+**Fiziksel sınır (dürüst hâli):** Süreç TAMAMEN sonlandıysa masaüstü kabuğa bildirim
+**gelemez** — bunun için işletim sistemi düzeyinde bir push servisi (APNs/WNS) ve
+**imzalı/notarize edilmiş** bir uygulama gerekir. Bu depo imzasız kabuk üretir.
+
+**Pratikte istenen sonucu veren çözüm** (üç parça birlikte):
+
+| Parça | Ne yapar |
+|---|---|
+| **Otomatik başlatma (autostart)** | `tauri-plugin-autostart` — bilgisayar açılınca uygulama `--hidden` argümanıyla sessizce başlar, pencere açılmaz, yalnızca tepside durur |
+| **Close-to-tray** (zaten vardı) | Pencere kapatılınca uygulama çıkmaz, tepside çalışmaya devam eder |
+| **Notification köprüsü** (zaten vardı) | Tepside çalışırken WebView canlıdır; panelin SSE/fetch beslemesi kesintisiz işler ve her bildirim native masaüstü bildirimi olur |
+
+Sonuç: uygulama **fiilen sürekli çalışır**, kullanıcı açısından "kapalıyken de bildirim
+geliyor" beklentisi karşılanır.
+
+### Tepsi öğesi
+
+**Bilgisayar açılınca başlat** — açma/kapama, işaretli durum işletim sistemindeki gerçek
+kayıttan okunur (`autolaunch().is_enabled()`), varsayılmaz.
+
+- **İlk kurulumda varsayılan: AÇIK** (`mark_once("autostart-default")` ile yalnızca bir kez
+  uygulanır — kullanıcı kapatırsa bir daha zorlanmaz).
+- macOS: LaunchAgent · Windows: `Run` kayıt anahtarı.
+
+### Cmd+Q / Çıkış
+
+Tam çıkış **engellenmez**. Yalnızca **ilk seferde** bilgilendirme diyaloğu çıkar
+("kapalıyken bildirim alınmaz, tepside bırakabilirsiniz"), sonra bir daha gösterilmez
+(`mark_once("quit-notice")`). Diyalog yanıtlanmasa bile 20 sn sonra uygulama kapanır —
+"kapanmayan uygulama" durumu oluşmaz.
+
+### İlk açılışta bildirim izni
+
+- İzin yoksa **bir kez** anlaşılır bir soru sorulur ("Bildirimleri açmak ister misiniz?
+  Yeni görev, mesaj ve uyarılar anında iletilir"), ardından sistem izin penceresi açılır.
+- Kullanıcı reddederse **üstelenmez**. Kalıcı ama rahatsız etmeyen yol: tepsideki
+  **"Bildirimler: kapalı (ayarları aç)"** öğesi — tıklayınca doğrudan sistem ayarına gider
+  (macOS `x-apple.systempreferences:…notifications`, Windows `ms-settings:notifications`).
+- İzin verilirse tek seferlik doğrulama bildirimi gösterilir.
+
+> Windows'ta `tauri-plugin-notification` izin durumunu güvenilir raporlamaz (her zaman
+> `Granted` döner); bu yüzden Windows'ta durum **iddia edilmez**, ayara yönlendirilir.
+
 ## Özet
 
 - **Bugün çalışan:** Web Push, PWA + masaüstü tarayıcı (iOS'ta yalnızca kurulu PWA).

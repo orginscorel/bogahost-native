@@ -18,6 +18,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
+# Oturum acilisinda otomatik baslatma (macOS LaunchAgent / Windows Run anahtari).
+# "Uygulama kapaliyken de bildirim gelsin" beklentisi pratikte BUNUNLA + tepside
+# calisir kalmakla karsilanir; imzasiz uygulamada gercek APNs push YOKTUR.
+tauri-plugin-autostart = "2"
 # Tam otomatik guncelleme (indir + kur + yeniden baslat) — bkz. docs/UPDATE.md
 tauri-plugin-updater = "2"
 # Guncelleme onay diyalogu ("Simdi kur" / "Daha sonra").
