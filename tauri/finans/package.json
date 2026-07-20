@@ -1,7 +1,7 @@
 {
   "name": "bogahost-tauri-finans",
   "productName": "Bogahost Finans",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "description": "Bogahost Finans — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://finans.bogahost.com/admin) WebView ile yukler.",
   "scripts": {

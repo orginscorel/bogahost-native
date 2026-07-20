@@ -1,3 +1,11 @@
+## 1.5.1
+
+### Düzeltildi
+- **Uygulamalar arası geçişte yükleme göstergesi görünmüyordu.** Gösterge sayfanın
+  DOM'una ekleniyordu; hemen ardından gelen `navigate()` sayfayı yıktığı için gösterge
+  de onunla siliniyor, kullanıcı geçişin başladığını anlamıyordu. Artık navigasyondan
+  etkilenmeyen **native pencere** (splash) gösteriliyor ve hedef sayfa yüklenince kapanıyor.
+
 ## 1.5.0
 
 Kullanıcı geri bildirimi üzerine **masaüstü (Tauri) kabuklarına** odaklanan sürüm.

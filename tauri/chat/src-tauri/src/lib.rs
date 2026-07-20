@@ -426,6 +426,8 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         .on_page_load(|window, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 reveal_window(window.app_handle());
+                // Gecis splash'i: reveal_window tek seferlik oldugu icin ayrica kapat.
+                close_splash(window.app_handle());
                 // Uygulama gecisinde gosterilen "Yükleniyor" katmanini kaldir.
                 let _ = window.eval(HIDE_LOADING_SCRIPT);
                 // "Uygulamalar" menusunden gecildiyse: hedef uygulama 403/401
@@ -716,6 +718,20 @@ fn build_splash_window(app: &AppHandle) {
 
 /// Acilis yukleme ekranini (bir kez) kapatir.
 /// `destroy()` kullanilir: `CloseRequested` isleyicisini tetiklemez.
+/// Uygulama gecisinde NATIVE splash'i yeniden gosterir.
+/// KOK NEDEN: gecis katmani DOM'a ekleniyordu (SHOW_LOADING_SCRIPT); hemen ardindan
+/// navigate() cagrilinca sayfa YIKILIYOR ve katman da onunla siliniyordu — kullanici
+/// hicbir yukleme gostergesi goremiyordu. Native pencere navigasyondan etkilenmez.
+fn show_switch_splash(app: &AppHandle) {
+    SPLASH_CLOSED.store(false, Ordering::SeqCst);
+    if let Some(w) = app.get_webview_window(SPLASH_LABEL) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    } else {
+        build_splash_window(app);
+    }
+}
+
 fn close_splash(app: &AppHandle) {
     if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
         return;
@@ -2145,6 +2161,7 @@ fn switch_app(app: &AppHandle, key: &str) {
 
     // Once "Yükleniyor" katmani — gecis sirasinda donma hissi olmasin.
     let _ = window.eval(SHOW_LOADING_SCRIPT);
+    show_switch_splash(app);   // navigasyonda kaybolmayan native gosterge
 
     // Gecis sonrasi ILK sayfa yuklemesinde erisim engeli (403/401) denetlensin.
     PENDING_ACCESS_CHECK.store(true, Ordering::SeqCst);
@@ -2152,6 +2169,7 @@ fn switch_app(app: &AppHandle, key: &str) {
     if window.navigate(url).is_err() {
         PENDING_ACCESS_CHECK.store(false, Ordering::SeqCst);
         let _ = window.eval(HIDE_LOADING_SCRIPT);
+        close_splash(app);
         return;
     }
 
