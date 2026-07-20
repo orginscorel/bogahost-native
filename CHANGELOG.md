@@ -4,6 +4,72 @@ Bu depo Bogahost'un 4 sisteminin (Finans / DCIM / Chat / Görevler) native
 kabuklarını içerir: Capacitor 7 (Android/iOS) + Tauri 2 (Windows/macOS).
 Sürüm numarası 4 uygulamada ve tüm platformlarda ortaktır.
 
+## [1.2.0] — 2026-07-20
+
+Kullanıcı geri bildirimi üzerine masaüstü (Tauri) kabuklarına odaklanan sürüm:
+**indirmeler çalışmıyordu, uygulama donuyordu ve "uygulama gibi" davranmıyordu.**
+Dört uygulamada da (Finans / DCIM / Chat / Görevler) `lib.rs` birebir aynıdır.
+
+### Eklendi — İndirme desteği (en kritik)
+- **Panelden üretilen PDF/CSV dosyaları artık gerçekten iniyor.** Ana pencere
+  `WebviewWindowBuilder` ile kuruluyor ve `on_download` olayına bağlanıyor:
+  dosya **İndirilenler** klasörüne yazılır, ad çakışmasında `-1`, `-2` … eklenir.
+  (Rapor PDF/CSV, teklif PDF, hediye listesi CSV, Paraşüt fatura PDF vb.)
+- **İndirme bitince native bildirim:** "İndirildi: `<dosya>`". Tepsi menüsüne
+  **"İndirilenler klasörünü aç"** ve **"Son indirilen dosyayı göster"** eklendi
+  (dosyanın bulunduğu klasör Finder/Gezgin'de açılır).
+- **`blob:` / `data:` indirmeleri** (tarayıcıda üretilen dosyalar) için sayfaya
+  enjekte edilen köprü: dosya `bogahost_save_file` komutuyla diske yazılır.
+  Köprü çalışmazsa WebView'in kendi indirme akışına düşülür.
+- **WebView'de gösterilemeyen türler** (ör. `window.open` ile açılan PDF)
+  kaydedilip **sistem uygulamasında** açılır.
+- **`target="_blank"` linkleri artık sessizce yutulmuyor:** aynı pencerede açılır;
+  adres kendi alan adımız (`*.bogahost.com`) dışındaysa **sistem tarayıcısına**
+  yönlendirilir (`on_navigation`).
+
+### Düzeltildi — Donma / takılma
+- **Açılışta hiçbir ağ çağrısı `setup()`'ı bloklamıyor.** Sürüm denetimi 5 sn
+  gecikmeyle, bildirim izni 2 sn gecikmeyle arka planda çalışır.
+- **Ağ işlemlerine 7 sn zaman aşımı** (updater + yedek manifest); başarısızsa sessizce geçilir.
+- **Bildirimler ana thread'e kuyruklanıyor** (`run_on_main_thread`) — macOS
+  bildirim API'sinin arka thread'den çağrılması kaynaklı takılmalar giderildi.
+- **Beyaz/donuk açılış karesi yok:** pencere gizli başlar, sayfa yüklenince
+  gösterilir; sayfa hiç yüklenmezse en geç 8 sn sonra yine gösterilir.
+- Menü/tepsi işleyicilerinde uzun süren iş yapılmaz.
+
+### Eklendi — "Uygulama gibi" davranış
+- **Standart macOS menüleri artık açıkça kuruluyor** (kaybolma riski yok):
+  Uygulama (Hakkında, Hizmetler, Gizle **Cmd+H**, Çıkış **Cmd+Q**),
+  **Düzen** (Geri Al/Yinele, Kes **Cmd+X**, Kopyala **Cmd+C**, Yapıştır **Cmd+V**,
+  Tümünü Seç **Cmd+A**), **Pencere** (Küçült **Cmd+M**, Kapat **Cmd+W**).
+- **Yeni "Görünüm" menüsü:** Yenile **Cmd+R**, Geri **Cmd+[**, İleri **Cmd+]**,
+  Yakınlaştır **Cmd+=**, Uzaklaştır **Cmd+-**, Gerçek Boyut **Cmd+0**, Tam Ekran.
+  Aynı öğeler Windows için tepsi menüsüne de eklendi.
+- **Pencere boyutu/konumu hatırlanıyor** (uygulama yapılandırma klasöründe
+  `window-state.json`).
+- Klavye ile yakınlaştırma (`zoom_hotkeys_enabled`) açık.
+
+### Eklendi — Bildirim izni
+- Tepsi menüsünde **"Bildirimler: açık / kapalı"** göstergesi; kapalıyken
+  tıklandığında **sistem bildirim ayarları** açılır (macOS/Windows).
+- İlk açılıştaki tek seferlik tanıtım bildirimi (izin penceresini tetikler) korundu,
+  artık arka planda ve bloklamadan çalışır.
+
+### Değişti
+- Ana pencere tanımı `tauri.conf.json > app.windows` yerine **Rust tarafında**
+  (`build_main_window`) oluşturuluyor — `on_download` / `on_navigation` /
+  `on_page_load` yalnızca bu yolla bağlanabiliyor.
+- Uygulamalar arası geçişte **"Yükleniyor…" katmanı** gösteriliyor; geçiş sonrası
+  pencere başlığı ve menü işaretleri güncelleniyor (mevcut davranış korundu).
+- Tüm sürüm alanları **1.2.0**.
+
+### Korundu
+- Tepsi ikonu ve kapatınca tepsiye gizlenme, otomatik güncelleme akışı
+  (imzasızken çökmeme dahil), `remote.json` ile yalnızca bildirim izni,
+  eski manifest yolu (`https://bogahost.com/native/latest.json`), CI yapısı.
+
+---
+
 ## [Yayınlanmamış]
 
 ### Eklendi — Tam otomatik güncelleme (masaüstü)

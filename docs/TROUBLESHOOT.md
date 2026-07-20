@@ -69,6 +69,31 @@
 **Bildirim gelmiyor**
 - WebView içindeki web-push arka planda güvenilmez. Bkz. [PUSH.md](PUSH.md) — PWA kurulumu veya
   native FCM/APNs.
+- Masaüstünde tepsi menüsündeki **"Bildirimler: açık/kapalı"** satırına bakın; kapalıysa
+  tıklayınca sistem bildirim ayarları açılır (v1.2.0+).
+
+**PDF/CSV indirmiyor (masaüstü, v1.2.0 öncesi davranış)**
+- v1.2.0'dan itibaren indirmeler `on_download` ile yakalanır ve **İndirilenler** klasörüne
+  yazılır; bitince bildirim gösterilir. Dosyayı bulmak için tepsi menüsü →
+  **"Son indirilen dosyayı göster"**.
+- Dosya sunucudan değil de tarayıcı içinde üretiliyorsa (`blob:`/`data:` URL), sayfaya enjekte
+  edilen köprü `bogahost_save_file` komutunu çağırır. Köprü çalışmazsa WebView'in kendi indirme
+  akışına düşülür. Kod: `tauri/<app>/src-tauri/src/lib.rs` → `INIT_SCRIPT`, `bogahost_save_file`.
+
+**Link tıklanıyor ama hiçbir şey olmuyor (`target="_blank"`)**
+- v1.2.0+ bu linkleri aynı pencerede açar. Adres `*.bogahost.com` dışındaysa sayfa köprüsü
+  `bogahost_open_external` komutunu çağırır ve link **sistem tarayıcısında** açılır.
+- `on_navigation` http/https gezinmelerini **engellemez** — bu geri çağırma iframe ve
+  yönlendirmeler için de çalıştığından (reCAPTCHA, gömülü video, oturum yönlendirmesi) körlemesine
+  engelleme sayfaları bozardı. Yalnızca `mailto:` / `tel:` gibi WebView'in açamadığı şemalar
+  sistem uygulamasına yollanır.
+- Uygulama içinde kalması gereken yeni bir alan adı varsa `INTERNAL_DOMAIN` sabitine
+  (ve `INIT_SCRIPT` içindeki `isInternal`) bakın.
+
+**macOS'ta Cmd+C / Cmd+V çalışmıyor**
+- v1.2.0'da menü çubuğu (Uygulama / Düzen / Görünüm / Uygulamalar / Pencere) `build_menu_bar`
+  içinde **açıkça** kuruluyor. Menüye yeni öğe eklerken bu fonksiyondaki Düzen menüsünü
+  silmeyin — kopyala/yapıştır kısayolları oradan gelir.
 
 ## CI
 
