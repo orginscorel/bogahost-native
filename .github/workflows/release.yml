@@ -48,7 +48,7 @@ jobs:
           find dist -type f \
             \( -name '*.apk' -o -name '*.aab' -o -name '*.ipa' \
                -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \
-               -o -name '*.zip' -o -name '*.app.tar.gz' \) \
+               -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.sig' \) \
             -exec cp {} release/ \; 2>/dev/null || true
           ls -la release || true
 

@@ -22,6 +22,12 @@ on:
         required: false
       KEY_PASSWORD:
         required: false
+      DEPLOY_FTP_HOST:
+        required: false
+      DEPLOY_FTP_USER:
+        required: false
+      DEPLOY_FTP_PASS:
+        required: false
 
 permissions:
   contents: read
@@ -125,3 +131,87 @@ jobs:
           path: artifacts/*
           if-no-files-found: warn
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Yayınlama — APK → native.bogahost.com/downloads/ (yalnızca indirme linki)
+  # Android'de OTOMATİK GÜNCELLEME YOKTUR; kullanıcı APK'yı elle kurar.
+  # DEPLOY_FTP_* secret'ları yoksa ATLANIR (uyarı verir, iş başarısız OLMAZ).
+  # ---------------------------------------------------------------------------
+  publish-android:
+    name: Yayınla · Android
+    needs: build-android
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy secret denetimi
+        id: det
+        env:
+          H: ${{ secrets.DEPLOY_FTP_HOST }}
+          U: ${{ secrets.DEPLOY_FTP_USER }}
+          P: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          if [ -n "$H" ] && [ -n "$U" ] && [ -n "$P" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Yayin atlandi::DEPLOY_FTP_HOST/USER/PASS eksik — APK yuklenmedi (docs/UPDATE.md)."
+          fi
+
+      - name: Artifact'ları indir
+        if: steps.det.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: android-*
+
+      - name: Sürümü belirle
+        if: steps.det.outputs.ok == 'true'
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="$(node -p "require('./package.json').version")"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: downloads ağacını üret
+        if: steps.det.outputs.ok == 'true'
+        run: |
+          node scripts/ci/publish-updates.mjs \
+            --artifacts dist \
+            --out out \
+            --platform android \
+            --version "${{ steps.ver.outputs.version }}"
+          find out -type f | sort
+
+      - name: lftp kur
+        if: steps.det.outputs.ok == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: FTPS ile yükle
+        if: steps.det.outputs.ok == 'true'
+        env:
+          FTP_HOST: ${{ secrets.DEPLOY_FTP_HOST }}
+          FTP_USER: ${{ secrets.DEPLOY_FTP_USER }}
+          FTP_PASS: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          lftp -c "
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            set ssl:verify-certificate no;
+            set net:max-retries 3;
+            set net:timeout 20;
+            open -u '$FTP_USER','$FTP_PASS' '$FTP_HOST';
+            mirror -R --verbose --parallel=2 out/ ./;
+            bye
+          "
+          echo "Yuklendi → https://native.bogahost.com/"

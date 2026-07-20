@@ -3,6 +3,8 @@ name: Windows (MSI + EXE)
 # Tauri 2 Windows kabuklarını derler.
 # Her uygulama için .msi (WiX) + .exe (NSIS) üretir.
 # Authenticode secret'ları VARSA imzalanır; yoksa unsigned artifact üretilir.
+# TAURI_SIGNING_* secret'ları VARSA updater artifact'ları (.sig) üretilir ve
+# DEPLOY_FTP_* secret'ları VARSA native.bogahost.com'a yayınlanır (publish job).
 
 on:
   workflow_dispatch:
@@ -16,6 +18,18 @@ on:
       WINDOWS_CERTIFICATE:
         required: false
       WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      TAURI_SIGNING_PUBLIC_KEY:
+        required: false
+      DEPLOY_FTP_HOST:
+        required: false
+      DEPLOY_FTP_USER:
+        required: false
+      DEPLOY_FTP_PASS:
         required: false
 
 permissions:
@@ -58,9 +72,41 @@ jobs:
         working-directory: tauri/${{ matrix.app }}
         run: npx tauri icon ../../assets/icons/icon-source-${{ matrix.app }}.png
 
+      # Updater public key'i tauri.conf.json'a yazar ve createUpdaterArtifacts'i açar.
+      # Secret yoksa DOKUNMAZ → build bugünkü (yeşil) davranışıyla birebir aynı kalır.
+      - name: Updater yapılandırması (secret varsa)
+        shell: bash
+        env:
+          PUBKEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          PRIVKEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$PRIVKEY" ]; then
+            echo "::warning title=Updater kapali::TAURI_SIGNING_PRIVATE_KEY yok — imzali updater artifact URETILMEYECEK (docs/UPDATE.md)."
+            exit 0
+          fi
+          node scripts/ci/apply-updater-config.mjs --app "${{ matrix.app }}" --pubkey "$PUBKEY"
+
+      # ÖNEMLİ — BOŞ ENV TUZAĞI:
+      # TAURI_SIGNING_PRIVATE_KEY "tanımlı ama boş" olursa Tauri onu geçersiz anahtar
+      # sanıp build'i düşürür (macOS'taki "failed to import keychain certificate" ile
+      # aynı sınıf hata). Bu yüzden env doğrudan verilmez; alt çizgili değişkenden
+      # YALNIZCA DOLUYSA export edilir. Secret yoksa hiçbir şey export edilmez.
       - name: Tauri build (Windows · MSI + NSIS)
+        shell: bash
         working-directory: tauri/${{ matrix.app }}
-        run: npm run tauri:build:win
+        env:
+          _TAURI_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          _TAURI_KEY_PW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$_TAURI_KEY" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$_TAURI_KEY"
+            # Parolasız anahtarda bu değişken boş string olarak beklenir.
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$_TAURI_KEY_PW"
+            echo "Updater imzalama: ACIK"
+          else
+            echo "Updater imzalama: KAPALI (imzasiz build)"
+          fi
+          npm run tauri:build:win
 
       - name: Detect signing secret
         id: sign
@@ -91,13 +137,36 @@ jobs:
             & $signtool.FullName sign /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $f.FullName
           }
 
+      # KRİTİK: Authenticode imzası installer BAYT'LARINI değiştirir; Tauri'nin build
+      # sırasında ürettiği .sig artık tutmaz ve updater "signature mismatch" ile
+      # kurulumu reddeder. Bu yüzden Authenticode uygulandıysa .sig YENİDEN üretilir.
+      - name: Updater imzasını yenile (Authenticode sonrası)
+        if: steps.sign.outputs.signed == 'true'
+        shell: bash
+        working-directory: tauri/${{ matrix.app }}
+        env:
+          _TAURI_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          _TAURI_KEY_PW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$_TAURI_KEY" ]; then
+            echo "Updater anahtari yok — .sig yenilemesi gerekmiyor."
+            exit 0
+          fi
+          BUNDLE="src-tauri/target/release/bundle"
+          for f in $(find "$BUNDLE/nsis" -name '*.exe' 2>/dev/null) $(find "$BUNDLE/msi" -name '*.msi' 2>/dev/null); do
+            echo "Yeniden imzalaniyor: $f"
+            npx tauri signer sign --private-key "$_TAURI_KEY" --password "$_TAURI_KEY_PW" "$f"
+          done
+
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p artifacts
           BUNDLE="tauri/${{ matrix.app }}/src-tauri/target/release/bundle"
           find "$BUNDLE/msi" -name '*.msi' -exec cp {} artifacts/ \; 2>/dev/null || true
+          find "$BUNDLE/msi" -name '*.msi.sig' -exec cp {} artifacts/ \; 2>/dev/null || true
           find "$BUNDLE/nsis" -name '*.exe' -exec cp {} artifacts/ \; 2>/dev/null || true
+          find "$BUNDLE/nsis" -name '*.exe.sig' -exec cp {} artifacts/ \; 2>/dev/null || true
           ls -la artifacts || true
 
       - name: Upload MSI + EXE
@@ -107,3 +176,89 @@ jobs:
           path: artifacts/*
           if-no-files-found: warn
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Yayınlama — installer + .sig + latest.json → native.bogahost.com (FTPS)
+  # DEPLOY_FTP_* secret'ları yoksa ATLANIR (uyarı verir, iş başarısız OLMAZ).
+  # ---------------------------------------------------------------------------
+  publish-windows:
+    name: Yayınla · Windows
+    needs: build-windows
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy secret denetimi
+        id: det
+        env:
+          H: ${{ secrets.DEPLOY_FTP_HOST }}
+          U: ${{ secrets.DEPLOY_FTP_USER }}
+          P: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          if [ -n "$H" ] && [ -n "$U" ] && [ -n "$P" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Yayin atlandi::DEPLOY_FTP_HOST/USER/PASS eksik — native.bogahost.com'a yukleme YAPILMADI (docs/UPDATE.md)."
+          fi
+
+      - name: Artifact'ları indir
+        if: steps.det.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: windows-*
+
+      - name: Sürümü belirle
+        if: steps.det.outputs.ok == 'true'
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="$(node -p "require('./package.json').version")"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Yayinlanacak surum: $V"
+
+      - name: latest.json + downloads ağacını üret
+        if: steps.det.outputs.ok == 'true'
+        run: |
+          node scripts/ci/publish-updates.mjs \
+            --artifacts dist \
+            --out out \
+            --platform windows \
+            --version "${{ steps.ver.outputs.version }}"
+          find out -type f | sort
+
+      - name: lftp kur
+        if: steps.det.outputs.ok == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # FTPS (açık TLS / AUTH TLS). Hedef dizin FTP kullanıcısının kökü = public_html/native.
+      # --delete KULLANILMAZ: eski sürüm dosyaları ve diğer platformun kayıtları silinmez.
+      - name: FTPS ile yükle
+        if: steps.det.outputs.ok == 'true'
+        env:
+          FTP_HOST: ${{ secrets.DEPLOY_FTP_HOST }}
+          FTP_USER: ${{ secrets.DEPLOY_FTP_USER }}
+          FTP_PASS: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          lftp -c "
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            set ssl:verify-certificate no;
+            set net:max-retries 3;
+            set net:timeout 20;
+            open -u '$FTP_USER','$FTP_PASS' '$FTP_HOST';
+            mirror -R --verbose --parallel=2 out/ ./;
+            bye
+          "
+          echo "Yuklendi → https://native.bogahost.com/"

@@ -11,8 +11,10 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, Url, WindowEvent, Wry,
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::{NotificationExt, PermissionState};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const APP_KEY: &str = "dcim";
 const APP_TITLE: &str = "Bogahost DCIM";
@@ -26,9 +28,11 @@ const APPS: [(&str, &str, &str); 4] = [
     ("task", "Görevler", "https://task.bogahost.com/admin"),
 ];
 
-/// Surum bilgisi JSON'u. Depo PRIVATE oldugu icin GitHub release asset'leri
-/// anonim indirilemez; bu yuzden "otomatik indirip kuran" updater yerine
-/// "yeni surum var mi" denetimi yapilir. Ayrinti: docs/UPDATE.md
+/// GERIYE DONUK manifest. Birincil yol `tauri-plugin-updater`dir (indir + kur +
+/// yeniden baslat). Updater kullanilamazsa (imzasiz build / pubkey PLACEHOLDER /
+/// ag hatasi) bu adres okunur ve yalnizca BILDIRIM gosterilir.
+/// v1.1.0 istemcileri de bu adresi okudugu icin adres DEGISTIRILMEMELIDIR.
+/// Ayrinti: docs/UPDATE.md
 const VERSION_MANIFEST_URL: &str = "https://bogahost.com/native/latest.json";
 
 /// Manifest `url` alani vermezse acilacak varsayilan indirme sayfasi.
@@ -39,6 +43,13 @@ const APP_MENU_PREFIX: &str = "app:";
 
 /// Es zamanli/cift surum denetimini engeller.
 static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// `tauri-plugin-updater` calisma aninda basariyla yuklendi mi?
+/// Yuklenmediyse `app.updater()` cagrilmaz (yonetilmeyen state -> panic olurdu).
+static UPDATER_READY: AtomicBool = AtomicBool::new(false);
+
+/// Ayni anda birden fazla "Simdi kurulsun mu?" diyalogu acilmasini engeller.
+static UPDATE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
 /// Tepsi + macOS menu cubugundaki "Uygulamalar" ogeleri ve aktif uygulama.
 struct SwitchState {
@@ -53,8 +64,21 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // Native masaustu bildirimleri.
         .plugin(tauri_plugin_notification::init())
+        // Guncelleme onay diyalogu.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // ----- Otomatik guncelleme eklentisi -----
+            // Builder zincirinde DEGIL, burada kayit ediliyor: pubkey PLACEHOLDER
+            // veya bozuksa eklenti yuklenmez, hata YUTULUR ve uygulama normal
+            // calismaya devam eder (asla kilitlenmez/cokmez).
+            match handle.plugin(tauri_plugin_updater::Builder::new().build()) {
+                Ok(()) => UPDATER_READY.store(true, Ordering::SeqCst),
+                Err(e) => log_update(&format!(
+                    "eklenti yuklenemedi ({e}) — eski manifest denetimine dusulecek"
+                )),
+            }
 
             // Menulerde kullanilan "Uygulamalar" ogelerinin tamami (tepsi + menu cubugu).
             let mut switch_items: Vec<(String, CheckMenuItem<Wry>)> = Vec::new();
@@ -156,11 +180,13 @@ pub fn run() {
                 });
             }
 
-            // ----- Acilista sessiz surum denetimi -----
+            // ----- Acilista sessiz guncelleme denetimi -----
+            // Guncelleme varsa onay diyalogu cikar; kullanici "Daha sonra" derse
+            // kalici bir "atla" kaydi TUTULMAZ — bir sonraki acilista tekrar sorulur.
             {
                 let h = handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    check_update(h, false).await;
+                    run_update_flow(h, false).await;
                 });
             }
 
@@ -236,7 +262,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
             let h = app.clone();
             tauri::async_runtime::spawn(async move {
-                check_update(h, true).await;
+                run_update_flow(h, true).await;
                 UPDATE_CHECK_RUNNING.store(false, Ordering::SeqCst);
             });
         }
@@ -349,7 +375,145 @@ fn mark_once(app: &AppHandle, flag: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Surum denetimi ("yeni surum var mi")
+// Guncelleme — birincil yol: tam otomatik (indir + kur + yeniden baslat)
+// ---------------------------------------------------------------------------
+
+/// Guncelleme hatalari kullaniciyi RAHATSIZ ETMEZ; yalnizca stderr'e yazilir.
+fn log_update(message: &str) {
+    eprintln!("[{}][updater] {}", APP_KEY, message);
+}
+
+/// `try_auto_update` sonucu.
+enum UpdateOutcome {
+    /// Updater akisi calisti (guncelleme yok / diyalog acildi).
+    Handled,
+    /// Updater kullanilamadi — eski manifest denetimine dusulmeli.
+    Unavailable(String),
+}
+
+/// Guncelleme akisinin girisi.
+/// Once `tauri-plugin-updater` denenir; kullanilamazsa eski manifest denetimi yapilir.
+/// `verbose = true` (tepsiden elle denetim) ise sonuc ne olursa olsun bildirim gosterilir.
+async fn run_update_flow(app: AppHandle, verbose: bool) {
+    match try_auto_update(&app, verbose).await {
+        UpdateOutcome::Handled => {}
+        UpdateOutcome::Unavailable(reason) => {
+            log_update(&format!(
+                "otomatik guncelleme kullanilamadi ({reason}) — manifest denetimine dusuluyor"
+            ));
+            check_update_legacy(app, verbose).await;
+        }
+    }
+}
+
+/// `tauri-plugin-updater` ile sunucudaki imzali manifesti denetler.
+async fn try_auto_update(app: &AppHandle, verbose: bool) -> UpdateOutcome {
+    if !UPDATER_READY.load(Ordering::SeqCst) {
+        return UpdateOutcome::Unavailable("eklenti yuklu degil".to_string());
+    }
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => return UpdateOutcome::Unavailable(e.to_string()),
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            prompt_and_install(app.clone(), update);
+            UpdateOutcome::Handled
+        }
+        Ok(None) => {
+            if verbose {
+                notify(
+                    app,
+                    "Sürüm denetimi",
+                    &format!(
+                        "En güncel sürümü kullanıyorsunuz ({}).",
+                        env!("CARGO_PKG_VERSION")
+                    ),
+                );
+            }
+            UpdateOutcome::Handled
+        }
+        Err(e) => UpdateOutcome::Unavailable(e.to_string()),
+    }
+}
+
+/// Onay diyalogunu gosterir; kullanici kabul ederse indirme+kurulumu baslatir.
+/// Diyalog BLOKLAMAZ (callback'li `show`) — arayuz donmaz.
+fn prompt_and_install(app: AppHandle, update: tauri_plugin_updater::Update) {
+    // Acilis denetimi ile tepsiden elle denetim ust uste binerse tek diyalog.
+    if UPDATE_PROMPT_OPEN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let mut message = format!(
+        "Yeni sürüm {} hazır (yüklü: {}). Şimdi kurulsun mu?",
+        update.version,
+        env!("CARGO_PKG_VERSION")
+    );
+    if let Some(notes) = update.body.as_ref() {
+        if !notes.trim().is_empty() {
+            message.push_str("\n\n");
+            message.push_str(notes.trim());
+        }
+    }
+
+    let handle = app.clone();
+    app.dialog()
+        .message(message)
+        .title("Güncelleme mevcut")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Şimdi kur".to_string(),
+            "Daha sonra".to_string(),
+        ))
+        .show(move |accepted| {
+            UPDATE_PROMPT_OPEN.store(false, Ordering::SeqCst);
+            if !accepted {
+                // Reddedildi: kalici kayit TUTULMAZ, bir sonraki acilista tekrar sorulur.
+                log_update("kullanici guncellemeyi erteledi");
+                return;
+            }
+            tauri::async_runtime::spawn(async move {
+                install_update(handle, update).await;
+            });
+        });
+}
+
+/// Indirir, kurar ve uygulamayi yeniden baslatir. Hata olursa yalnizca bildirir.
+async fn install_update(app: AppHandle, update: tauri_plugin_updater::Update) {
+    let version = update.version.clone();
+    notify(
+        &app,
+        "Güncelleme indiriliyor",
+        &format!("Sürüm {version} indiriliyor. Bittiğinde uygulama yeniden başlatılacak."),
+    );
+
+    match update.download_and_install(|_chunk, _total| {}, || {}).await {
+        Ok(()) => {
+            notify(
+                &app,
+                "Güncelleme kuruldu",
+                &format!("Sürüm {version} kuruldu. Uygulama yeniden başlatılıyor."),
+            );
+            // Windows'ta installer sureci uygulamayi zaten sonlandirir;
+            // macOS'ta yeniden baslatma burada yapilir.
+            app.restart();
+        }
+        Err(e) => {
+            log_update(&format!("kurulum basarisiz: {e}"));
+            notify(
+                &app,
+                "Güncelleme başarısız",
+                "Güncelleme kurulamadı. Tepsi menüsünden \"İndirme sayfasını aç\" ile elle kurabilirsiniz.",
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guncelleme — yedek yol: eski manifest denetimi ("yeni surum var mi")
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]
@@ -361,9 +525,11 @@ struct VersionManifest {
     url: Option<String>,
 }
 
-/// `VERSION_MANIFEST_URL` adresindeki JSON'u okur ve yerel surumle karsilastirir.
+/// YEDEK YOL. `VERSION_MANIFEST_URL` adresindeki JSON'u okur ve yerel surumle
+/// karsilastirir; yalnizca BILDIRIM gosterir (indirme/kurulum yapmaz).
+/// Yalnizca `tauri-plugin-updater` kullanilamadiginda cagrilir.
 /// `verbose = true` ise sonuc ne olursa olsun bildirim gosterir (menuden manuel denetim).
-async fn check_update(app: AppHandle, verbose: bool) {
+async fn check_update_legacy(app: AppHandle, verbose: bool) {
     let current = env!("CARGO_PKG_VERSION");
 
     let client = match reqwest::Client::builder()

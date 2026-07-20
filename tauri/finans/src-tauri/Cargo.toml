@@ -18,6 +18,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
+# Tam otomatik guncelleme (indir + kur + yeniden baslat) — bkz. docs/UPDATE.md
+tauri-plugin-updater = "2"
+# Guncelleme onay diyalogu ("Simdi kur" / "Daha sonra").
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Surum denetimi (docs/UPDATE.md) icin HTTP istemcisi. Varsayilan TLS

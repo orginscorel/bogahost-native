@@ -68,7 +68,7 @@ Windows+Rust gerektirir. İmzalama ve mağaza dağıtımı için:
 - [`docs/PUBLISH.md`](docs/PUBLISH.md) — Play / App Store / Microsoft Store / macOS
 - [`docs/PWA.md`](docs/PWA.md) — mağazasız PWA kurulumu
 - [`docs/PUSH.md`](docs/PUSH.md) — bildirimler (web-push vs. native FCM/APNs)
-- [`docs/UPDATE.md`](docs/UPDATE.md) — masaüstü sürüm denetimi + yeni sürüm yayınlama
+- [`docs/UPDATE.md`](docs/UPDATE.md) — masaüstü **tam otomatik güncelleme** (imzalama, yayın, Cloudflare)
 - [`docs/TROUBLESHOOT.md`](docs/TROUBLESHOOT.md) — yaygın hatalar
 
 Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).

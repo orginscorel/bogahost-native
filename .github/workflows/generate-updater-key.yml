@@ -1,0 +1,91 @@
+name: Updater imzalama anahtarı üret
+
+# TEK SEFERLİK, ELLE ÇALIŞTIRILIR (workflow_dispatch).
+#
+# Tauri updater, indirilen her installer'ı bir minisign anahtar çiftiyle doğrular.
+# Bu workflow anahtar çiftini ÜRETİR:
+#
+#   - PUBLIC key  → iş özetine (job summary) YAZILIR. Gizli değildir.
+#   - PRIVATE key → YALNIZCA artifact olarak yüklenir; log'a ASLA yazılmaz.
+#
+# Private key bu depoya COMMIT EDİLMEZ. Üretimden sonra artifact'ı indirin,
+# içeriğini GitHub secret'ı olarak ekleyin ve artifact'ı SİLİN.
+#
+# UYARI: Anahtarı kaybederseniz yayınlanmış uygulamalar bir daha güncelleme
+# ALAMAZ (yeni anahtarla imzalanan paketleri doğrulayamazlar) — kullanıcıların
+# yeni sürümü elle kurması gerekir. Anahtarı güvenli bir yerde saklayın.
+
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: 'Private key parolası (boş bırakılabilir; bırakırsanız TAURI_SIGNING_PRIVATE_KEY_PASSWORD secret''ını da boş ekleyin)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Anahtar çifti üret
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # -w: anahtarın yazılacağı yol. -f: varsa üzerine yaz.
+      # --password: parolasız anahtar için boş string verilir (aksi hâlde CLI
+      # etkileşimli olarak sorar ve CI'da takılır).
+      - name: Anahtar çiftini üret
+        env:
+          KEY_PASSWORD: ${{ inputs.password }}
+        run: |
+          mkdir -p /tmp/keys
+          npx --yes @tauri-apps/cli@^2 signer generate \
+            -w /tmp/keys/bogahost-updater.key \
+            -f \
+            --password "$KEY_PASSWORD" \
+            > /dev/null
+          # Log'a HİÇBİR anahtar içeriği basılmaz.
+          test -s /tmp/keys/bogahost-updater.key
+          test -s /tmp/keys/bogahost-updater.key.pub
+          echo "Anahtar cifti uretildi."
+
+      # PUBLIC key gizli değildir — özete yazılır ki tauri.conf.json'a kopyalanabilsin.
+      - name: Public key'i özete yaz
+        run: |
+          PUB="$(cat /tmp/keys/bogahost-updater.key.pub)"
+          {
+            echo "## Updater anahtar çifti üretildi"
+            echo
+            echo "### 1) PUBLIC key (gizli değildir)"
+            echo
+            echo '```'
+            echo "$PUB"
+            echo '```'
+            echo
+            echo "### 2) Şimdi ne yapmalısınız"
+            echo
+            echo "| Adım | İşlem |"
+            echo "| --- | --- |"
+            echo "| 1 | Bu çalıştırmanın **artifact**'ını (\`updater-private-key\`) indirin. |"
+            echo "| 2 | İçindeki \`bogahost-updater.key\` dosyasının **tüm içeriğini**, depo ayarlarında \`TAURI_SIGNING_PRIVATE_KEY\` secret'ı olarak ekleyin. |"
+            echo "| 3 | Kullandığınız parolayı \`TAURI_SIGNING_PRIVATE_KEY_PASSWORD\` secret'ı olarak ekleyin (parolasızsa **boş** değerle ekleyin). |"
+            echo "| 4 | Yukarıdaki PUBLIC key'i \`TAURI_SIGNING_PUBLIC_KEY\` secret'ı olarak ekleyin **veya** 4 uygulamanın \`tauri.conf.json > plugins.updater.pubkey\` alanındaki \`__TAURI_UPDATER_PUBKEY__\` yerine yazıp commit'leyin. |"
+            echo "| 5 | Artifact'ı bu sayfadan **silin**. Private key'i güvenli bir kasada (ör. Bilgi Kasası) saklayın. |"
+            echo
+            echo "> **UYARI:** Private key kaybolursa yayınlanmış uygulamalar bir daha otomatik güncelleme alamaz."
+            echo "> Ayrıntı: \`docs/UPDATE.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Private key SADECE burada, artifact olarak dışarı çıkar.
+      - name: Private key'i artifact olarak yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-private-key
+          path: /tmp/keys/bogahost-updater.key
+          retention-days: 1
+          if-no-files-found: error

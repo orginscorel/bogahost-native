@@ -68,5 +68,16 @@
       "minimumSystemVersion": "10.15"
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "__TAURI_UPDATER_PUBKEY__",
+      "endpoints": [
+        "https://native.bogahost.com/updates/task/{{target}}/{{arch}}/latest.json",
+        "https://native.bogahost.com/updates/task/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

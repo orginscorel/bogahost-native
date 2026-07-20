@@ -72,6 +72,12 @@ credentials.json
 google-services.json
 GoogleService-Info.plist
 AuthKey_*.p8
+# Tauri updater imzalama anahtari — ASLA commit edilmez.
+# (Uretimi .github/workflows/generate-updater-key.yml ile yapilir; private key
+#  yalnizca GitHub artifact'i olarak disari cikar ve secret'a konur.)
+*updater*.key
+*.key.pub
+minisign*
 
 # --- Veritabanı yedekleri / dökümler ---
 *.sql

@@ -1,0 +1,6 @@
+{
+  "_comment": "ESKI manifest — v1.1.0 istemcileri https://bogahost.com/native/latest.json adresinden bunu okur ve YALNIZCA bildirim gosterir. CI her yayinda otomatik gunceller. KALDIRILMAMALIDIR (docs/UPDATE.md).",
+  "version": "1.2.0",
+  "notes": "Tam otomatik guncelleme eklendi.",
+  "url": "https://native.bogahost.com/"
+}

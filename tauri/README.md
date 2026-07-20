@@ -23,9 +23,10 @@ tamamen sunucudan gelir.
   makul bir politika tanımlıdır.
 - **Çevrimdışı fallback:** `dist/index.html` küçük bir "Bağlanılıyor…" splash
   sayfasıdır (bundler + manuel çevrimdışı kullanım için). Normalde görünmez.
-- **Güncelleme:** Tam otomatik (indir-kur) `tauri-plugin-updater` **dahil edilmedi**;
-  yerine açılışta çalışan bir **sürüm denetimi** vardır (yeni sürüm varsa bildirim +
-  indirme sayfası). Gerekçe ve yayın akışı: [`../docs/UPDATE.md`](../docs/UPDATE.md).
+- **Güncelleme:** **Tam otomatik** — `tauri-plugin-updater` ile yeni sürüm indirilir,
+  imzası doğrulanır, kurulur ve uygulama yeniden başlatılır (öncesinde onay diyaloğu).
+  Updater kullanılamazsa eski bildirim yoluna düşülür. Mimari, `latest.json` şeması,
+  anahtar üretimi ve yayın akışı: [`../docs/UPDATE.md`](../docs/UPDATE.md).
 
 ## Native davranış (`src-tauri/src/lib.rs`)
 
@@ -58,12 +59,21 @@ Finans / DCIM / Chat / Görevler arasında geçilir:
   "Uygulamalar" alt menüsü sonuna eklenir. Windows'ta pencere içi menü çubuğu
   eklenmez — geçiş tepsiden yapılır.
 
-## Sürüm denetimi
+## Otomatik güncelleme
 
 Açılışta sessiz, tepsi menüsünden ("Güncellemeleri denetle") manuel çalışır.
-`https://bogahost.com/native/latest.json` okunur; yeni sürüm varsa bildirim
-gösterilir ve "İndirme sayfasını aç" ilgili adrese götürür. **İndirme/kurulum
-otomatik değildir.** Ayrıntı ve `latest.json` biçimi:
+
+1. `tauri-plugin-updater`, `https://native.bogahost.com/updates/<app>/{{target}}/{{arch}}/latest.json`
+   adresini okur.
+2. Yeni sürüm varsa **onay diyaloğu** çıkar ("Yeni sürüm X hazır. Şimdi kurulsun mu?").
+3. Onaylanırsa paket indirilir, **minisign imzası doğrulanır**, kurulur ve uygulama
+   yeniden başlatılır. "Daha sonra" denirse kayıt tutulmaz — bir sonraki açılışta
+   tekrar sorulur.
+4. Updater kullanılamazsa (pubkey PLACEHOLDER / eklenti yüklenemedi / ağ hatası)
+   **yedek yol** devreye girer: `https://bogahost.com/native/latest.json` okunur ve
+   yalnızca bildirim gösterilir. Uygulama hiçbir hâlde kilitlenmez/çökmez.
+
+Ayrıntı, `latest.json` şeması ve anahtar üretimi:
 [`../docs/UPDATE.md`](../docs/UPDATE.md).
 
 ## Bildirimler (native vs web-push)

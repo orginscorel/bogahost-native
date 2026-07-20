@@ -4,6 +4,8 @@ name: macOS (DMG + App)
 # Her uygulama için .dmg + .app (tar.gz) üretir.
 # Developer ID sertifikası + notarization secret'ları VARSA imzalanır/notarize edilir;
 # yoksa unsigned artifact üretilir (Gatekeeper "doğrulanamadı" uyarısı verir).
+# TAURI_SIGNING_* secret'ları VARSA updater artifact'ları (.app.tar.gz + .sig) üretilir ve
+# DEPLOY_FTP_* secret'ları VARSA native.bogahost.com'a yayınlanır (publish job).
 
 on:
   workflow_dispatch:
@@ -25,6 +27,18 @@ on:
       APPLE_PASSWORD:
         required: false
       APPLE_TEAM_ID:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      TAURI_SIGNING_PUBLIC_KEY:
+        required: false
+      DEPLOY_FTP_HOST:
+        required: false
+      DEPLOY_FTP_USER:
+        required: false
+      DEPLOY_FTP_PASS:
         required: false
 
 permissions:
@@ -68,6 +82,19 @@ jobs:
         working-directory: tauri/${{ matrix.app }}
         run: npx tauri icon ../../assets/icons/icon-source-${{ matrix.app }}.png
 
+      # Updater public key'i tauri.conf.json'a yazar ve createUpdaterArtifacts'i açar.
+      # Secret yoksa DOKUNMAZ → build bugünkü (yeşil) davranışıyla birebir aynı kalır.
+      - name: Updater yapılandırması (secret varsa)
+        env:
+          PUBKEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          PRIVKEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$PRIVKEY" ]; then
+            echo "::warning title=Updater kapali::TAURI_SIGNING_PRIVATE_KEY yok — imzali updater artifact URETILMEYECEK (docs/UPDATE.md)."
+            exit 0
+          fi
+          node scripts/ci/apply-updater-config.mjs --app "${{ matrix.app }}" --pubkey "$PUBKEY"
+
       - name: Detect signing secrets
         id: sign
         env:
@@ -84,10 +111,23 @@ jobs:
       # ÖNEMLİ: APPLE_* env değişkenleri BOŞ da olsa TANIMLIYSA Tauri codesign dener ve
       # "failed to import keychain certificate" ile patlar. Bu yüzden imzasız yolda bu
       # değişkenler HİÇ tanımlanmaz — iki ayrı adım.
+      # Aynı tuzak TAURI_SIGNING_PRIVATE_KEY için de geçerlidir; o yüzden alt çizgili
+      # değişkenden YALNIZCA DOLUYSA export edilir.
       - name: Tauri build (imzasız)
         if: steps.sign.outputs.signed == 'false'
         working-directory: tauri/${{ matrix.app }}
-        run: npm run tauri:build:mac
+        env:
+          _TAURI_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          _TAURI_KEY_PW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$_TAURI_KEY" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$_TAURI_KEY"
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$_TAURI_KEY_PW"
+            echo "Updater imzalama: ACIK"
+          else
+            echo "Updater imzalama: KAPALI"
+          fi
+          npm run tauri:build:mac
 
       - name: Tauri build (imzalı + notarize)
         if: steps.sign.outputs.signed == 'true'
@@ -99,21 +139,52 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run tauri:build:mac
+          _TAURI_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          _TAURI_KEY_PW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$_TAURI_KEY" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$_TAURI_KEY"
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$_TAURI_KEY_PW"
+            echo "Updater imzalama: ACIK"
+          else
+            echo "Updater imzalama: KAPALI"
+          fi
+          npm run tauri:build:mac
 
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
           BUNDLE="tauri/${{ matrix.app }}/src-tauri/target/release/bundle"
           find "$BUNDLE/dmg" -name '*.dmg' -exec cp {} artifacts/ \; 2>/dev/null || true
-          # .app bir klasördür → tar.gz'le
-          if [ -d "$BUNDLE/macos" ]; then
+
+          # Tauri, createUpdaterArtifacts açıkken .app.tar.gz + .sig üretir.
+          # VARSA onu kullan (imzalı); YOKSA eski davranış: .app'i elle tarla (imzasız).
+          if ls "$BUNDLE/macos"/*.app.tar.gz >/dev/null 2>&1; then
+            cp "$BUNDLE/macos"/*.app.tar.gz artifacts/ || true
+            cp "$BUNDLE/macos"/*.app.tar.gz.sig artifacts/ 2>/dev/null || true
+            echo "Tauri updater paketi bulundu (imzali)."
+          elif [ -d "$BUNDLE/macos" ]; then
             for appdir in "$BUNDLE/macos"/*.app; do
               [ -e "$appdir" ] || continue
               base="$(basename "$appdir" .app)"
               tar -czf "artifacts/${base}-${{ matrix.app }}.app.tar.gz" -C "$BUNDLE/macos" "$(basename "$appdir")"
             done
+            echo "::warning title=Updater paketi yok::${{ matrix.app }} — .app elle tarlandi (.sig YOK, otomatik guncelleme yayinlanmaz)."
           fi
+
+          # Üretilen binary'nin mimarisi (universal ise iki değer).
+          # publish job bu dosyaya bakarak latest.json'daki platform anahtarlarını seçer.
+          APPDIR="$(find "$BUNDLE/macos" -maxdepth 1 -name '*.app' 2>/dev/null | head -1)"
+          ARCHS="aarch64"
+          if [ -n "$APPDIR" ]; then
+            EXE="$(find "$APPDIR/Contents/MacOS" -type f 2>/dev/null | head -1)"
+            if [ -n "$EXE" ]; then
+              DETECTED="$(lipo -archs "$EXE" 2>/dev/null | tr ' ' '\n' | sed 's/^arm64$/aarch64/' | tr '\n' ' ' | xargs || true)"
+              [ -n "$DETECTED" ] && ARCHS="$DETECTED"
+            fi
+          fi
+          echo "$ARCHS" > artifacts/updater-archs.txt
+          echo "Mimari: $ARCHS"
           ls -la artifacts || true
 
       - name: Upload DMG + App
@@ -123,3 +194,89 @@ jobs:
           path: artifacts/*
           if-no-files-found: warn
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Yayınlama — .app.tar.gz + .sig + dmg + latest.json → native.bogahost.com (FTPS)
+  # DEPLOY_FTP_* secret'ları yoksa ATLANIR (uyarı verir, iş başarısız OLMAZ).
+  # ---------------------------------------------------------------------------
+  publish-macos:
+    name: Yayınla · macOS
+    needs: build-macos
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy secret denetimi
+        id: det
+        env:
+          H: ${{ secrets.DEPLOY_FTP_HOST }}
+          U: ${{ secrets.DEPLOY_FTP_USER }}
+          P: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          if [ -n "$H" ] && [ -n "$U" ] && [ -n "$P" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Yayin atlandi::DEPLOY_FTP_HOST/USER/PASS eksik — native.bogahost.com'a yukleme YAPILMADI (docs/UPDATE.md)."
+          fi
+
+      - name: Artifact'ları indir
+        if: steps.det.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: macos-*
+
+      - name: Sürümü belirle
+        if: steps.det.outputs.ok == 'true'
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="$(node -p "require('./package.json').version")"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Yayinlanacak surum: $V"
+
+      - name: latest.json + downloads ağacını üret
+        if: steps.det.outputs.ok == 'true'
+        run: |
+          node scripts/ci/publish-updates.mjs \
+            --artifacts dist \
+            --out out \
+            --platform macos \
+            --version "${{ steps.ver.outputs.version }}"
+          find out -type f | sort
+
+      - name: lftp kur
+        if: steps.det.outputs.ok == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # FTPS (açık TLS / AUTH TLS). Hedef dizin FTP kullanıcısının kökü = public_html/native.
+      # --delete KULLANILMAZ: eski sürüm dosyaları ve diğer platformun kayıtları silinmez.
+      - name: FTPS ile yükle
+        if: steps.det.outputs.ok == 'true'
+        env:
+          FTP_HOST: ${{ secrets.DEPLOY_FTP_HOST }}
+          FTP_USER: ${{ secrets.DEPLOY_FTP_USER }}
+          FTP_PASS: ${{ secrets.DEPLOY_FTP_PASS }}
+        run: |
+          lftp -c "
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            set ssl:verify-certificate no;
+            set net:max-retries 3;
+            set net:timeout 20;
+            open -u '$FTP_USER','$FTP_PASS' '$FTP_HOST';
+            mirror -R --verbose --parallel=2 out/ ./;
+            bye
+          "
+          echo "Yuklendi → https://native.bogahost.com/"

@@ -1,6 +1,16 @@
 {
-  "_comment": "ORNEK. Bu dosyayi https://bogahost.com/native/latest.json adresine ELLE yukleyin. Masaustu uygulamalari acilista bu adresi okur (bkz. docs/UPDATE.md).",
-  "version": "1.1.0",
-  "notes": "Uygulamalar arasi gecis menusu, bildirim izni ve surum denetimi eklendi.",
-  "url": "https://github.com/orginscorel/bogahost-native/releases/latest"
+  "_comment": "ORNEK — Tauri updater manifesti. CI (scripts/ci/publish-updates.mjs) bunu OTOMATIK uretir ve native.bogahost.com'a yukler; ELLE olusturmaniz GEREKMEZ. Hedef: https://native.bogahost.com/updates/<app>/<target>/<arch>/latest.json  (yedek: .../updates/<app>/latest.json). Ayrinti: docs/UPDATE.md",
+  "version": "1.2.0",
+  "notes": "Tam otomatik guncelleme eklendi.",
+  "pub_date": "2026-07-21T09:12:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "<downloads/finans-1.2.0-windows-x86_64-setup.exe.sig DOSYASININ ICERIGI>",
+      "url": "https://native.bogahost.com/downloads/finans-1.2.0-windows-x86_64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "<downloads/finans-1.2.0-darwin-aarch64.app.tar.gz.sig DOSYASININ ICERIGI>",
+      "url": "https://native.bogahost.com/downloads/finans-1.2.0-darwin-aarch64.app.tar.gz"
+    }
+  }
 }
