@@ -122,6 +122,14 @@ const RESUME_MAX_AGE_SECS: u64 = 6 * 60 * 60;
 /// Sayfa yuklenmese bile pencere en gec bu sure sonunda gosterilir.
 const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 
+/// Acilis splash penceresi EN AZ bu kadar gorunur kalir.
+///
+/// KOK NEDEN: hizli agda uzak panel neredeyse ANINDA yukleniyor; onceki
+/// yaklasimlarda splash daha BOYANMADAN kapanip ana pencere geliyordu — kullanici
+/// "hic loading ekrani yok" diyordu. Panel hazir OLSA bile bu sure dolana kadar
+/// ana pencere gosterilmez, boylece yukleme ekrani HER ACILISTA gorunur.
+const MIN_SPLASH_TIME: Duration = Duration::from_millis(700);
+
 /// Pencere konumu/boyutu bu dosyada saklanir (uygulama yapilandirma klasoru).
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
@@ -256,6 +264,10 @@ struct PendingUpdate {
 /// Pencere bir kez gosterildi mi? (beyaz ekran yerine "yuklenince goster")
 static WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
 
+/// Acilis splash penceresi ne zaman olusturuldu? (`MIN_SPLASH_TIME` hesabi icin.)
+/// `None` ise splash yok (or. `--hidden` acilis) — bekleme yapilmaz.
+static SPLASH_AT: Mutex<Option<Instant>> = Mutex::new(None);
+
 /// Otomatik baslatma (`--hidden`) ile mi acildi? Oyleyse pencere gosterilmez.
 static LAUNCHED_HIDDEN: AtomicBool = AtomicBool::new(false);
 
@@ -357,10 +369,15 @@ pub fn run() {
                 )),
             }
 
-            // ----- Acilis yukleme ekrani -----
-            // AYRI bir splash PENCERESI YOKTUR (v1.5.1'de o yaklasim calismadi).
-            // Katman ana pencerenin webview'inde, hedef sayfada document-start'ta
-            // cizilir — bkz. `LOADING_OVERLAY_JS` / `wake_overlay`.
+            // ----- Acilis splash penceresi (YEREL, aninda boyanir) -----
+            // Ana pencere `visible(false)` baslar. Uzak panel yuklenene kadar
+            // (ag beklenirken) kullanici bos/gizli pencere yerine bu YEREL splash'i
+            // (`dist/index.html`, tauri://localhost — WKWebView'de guvenilir boyanir)
+            // gorur. Panel `PageLoadEvent::Finished` olunca ya da emniyet suresi
+            // dolunca `reveal_window` splash'i kapatip ana pencereyi gosterir.
+            // Ayrica hedef sayfada `initialization_script` gecis katmani da cizilir
+            // (uygulamalar arasi GECIS icin — bkz. `LOADING_OVERLAY_JS`/`wake_overlay`).
+            build_splash_window(&handle);
 
             // ----- Ana pencere -----
             // Pencere tauri.conf.json'da DEGIL burada olusturuluyor; cunku
@@ -567,6 +584,11 @@ pub fn run() {
                     ensure_notification_permission(&h);
                     refresh_notification_menu(&h);
                     refresh_autostart_menu(&h);
+                    // Otomatik guncelleme yeniden baslattiktan SONRA, yeni surumun
+                    // ILK acilisinda "guncellendi" bildirimi goster (bkz. fn).
+                    // Izin yukarida ayarlandiktan sonra cagrilir; donen kullanicida
+                    // izin zaten verili oldugu icin bildirim aninda gorunur.
+                    announce_update_if_updated(&h);
                 });
             }
 
@@ -774,11 +796,12 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
                 // TAKILI kalir ve guncelleme indirmesi sonsuza dek ertelenirdi.
                 PAGE_BUSY.store(false, Ordering::SeqCst);
                 remember_page_url(payload.url());
-                let h = window.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(180));
-                    reveal_window(&h);
-                });
+                // NOT: ILK acilista pencere burada GOSTERILMEZ; splash penceresi
+                // ag beklemesini ortuyor ve ana pencere yalnizca panel `Finished`
+                // olunca (ya da emniyet suresi dolunca) gosterilir — boylece
+                // "yarim yuklenmis panel" degil, once splash sonra hazir panel gorunur.
+                // (Sonraki gezinmelerde pencere zaten gorunur; `reveal_window` tek
+                // seferliktir, tekrar cagrilar zararsizdir.)
             }
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 remember_page_url(payload.url());
@@ -1283,11 +1306,65 @@ fn hide_overlay(app: &AppHandle) {
     }
 }
 
-/// Pencereyi (bir kez) gorunur yapar.
+/// Yerel acilis splash penceresini olusturur (`dist/index.html`).
 ///
-/// AYRI bir splash PENCERESI ARTIK YOKTUR: yukleme ekrani ana pencerenin KENDI
-/// webview'inde, hedef sayfaya document-start'ta cizilir. Pencere arka plani
-/// koyu (`WINDOW_BG`) oldugu icin katman boyanana kadar da beyaz parlama olmaz.
+/// Neden AYRI pencere: uzak panel yuklenene kadar ana pencere gizli kalir; bu
+/// bekleme suresini ortmek icin ANINDA boyanan bir YEREL sayfa gerekir.
+/// `WebviewUrl::App` (tauri://localhost) WKWebView dahil her platformda guvenilir
+/// boyanir (data: URL macOS WKWebView'de ust-duzey gezinmede engellenebilir —
+/// bu yuzden yerel asset kullanilir). Splash `default` capability'de zaten
+/// tanimlidir ("splash" penceresi). Hicbir IPC komutu cagirmaz.
+///
+/// Ayni surecteki tum webview'ler (main/popup/splash) WebView2'de AYNI veri
+/// klasoru + AYNI tarayici argumanlarini kullanmak ZORUNDADIR (tauri#11144) —
+/// bu yuzden burada da ayni degerler verilir.
+fn build_splash_window(app: &AppHandle) {
+    // Otomatik baslatmada (`--hidden`) hicbir pencere gosterilmez.
+    if LAUNCHED_HIDDEN.load(Ordering::SeqCst) {
+        return;
+    }
+    let mut builder =
+        WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("index.html".into()))
+            .title(APP_TITLE)
+            .inner_size(440.0, 300.0)
+            .resizable(false)
+            .decorations(false)
+            .center()
+            .visible(true)
+            .focused(true)
+            .background_color(WINDOW_BG)
+            .theme(Some(tauri::Theme::Dark));
+
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
+    }
+    if let Some(dir) = shared_webview_dir(app) {
+        builder = builder.data_directory(dir);
+    }
+
+    if builder.build().is_ok() {
+        if let Ok(mut slot) = SPLASH_AT.lock() {
+            *slot = Some(Instant::now());
+        }
+    }
+}
+
+/// Acilis splash penceresini (varsa) kapatir. `destroy` KESIN kapatir (olay
+/// dongusune takilmaz); splash zaten kapatilabilir bir pencere degildir.
+fn close_splash(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("splash") {
+        let _ = w.destroy();
+    }
+}
+
+/// Ana pencereyi (bir kez) gorunur yapar ve acilis splash'ini kapatir.
+///
+/// Yukleme ekrani ayri bir YEREL splash penceresidir (bkz. `build_splash_window`);
+/// pencere arka plani koyu (`WINDOW_BG`) oldugu icin gecis aninda beyaz parlama
+/// da olmaz. Splash EN AZ `MIN_SPLASH_TIME` gorunur kalsin diye (hizli agda
+/// panel aninda gelirse bile) kalan sure BEKLENIR — "hic loading ekrani yok"
+/// sikayetinin kesin cozumu budur.
 ///
 /// Otomatik baslatmada (`--hidden`) pencere GOSTERILMEZ; uygulama tepside
 /// sessizce calisir ve bildirim koprusu isler.
@@ -1298,10 +1375,27 @@ fn reveal_window(app: &AppHandle) {
     if WINDOW_REVEALED.swap(true, Ordering::SeqCst) {
         return;
     }
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
+    // Splash'in gorunur kalmasi gereken KALAN sure.
+    let wait = SPLASH_AT
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .map(|t| MIN_SPLASH_TIME.saturating_sub(t.elapsed()))
+        .unwrap_or_default();
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
+        // Once ana pencereyi goster, SONRA splash'i kapat — arada masaustu
+        // gorunup titremesin.
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        close_splash(&app);
+    });
 }
 
 /// Pencereyi her cagrilista gosterir + one getirir.
@@ -1820,14 +1914,30 @@ const INIT_SCRIPT: &str = r#"
     return Promise.reject(new Error('ipc-yok'));
   }
 
+  // Binary-safe base64 (SAF ARITMETIK): `btoa` VE `String.fromCharCode.apply`
+  // KULLANILMAZ. Eski yol ikisini de kullaniyordu ve WKWebView'de ikili veride
+  // (PDF gibi 0x80-0xFF baytlar) guvenilmezdi: `fromCharCode.apply(null, buyukTypedArray)`
+  // arguman siniri/dizi yayilimi, `btoa` ise Latin1 disi karakterde patlayabiliyordu.
+  // Bu surum baytlari DOGRUDAN 6-bitlik gruplara cevirir; metin de ikili de bozulmaz.
   function toBase64(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var chunk = 0x8000;
-    var parts = [];
-    for (var i = 0; i < bytes.length; i += chunk) {
-      parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)));
+    var b = new Uint8Array(buffer);
+    var A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    var out = [];
+    var n = b.length;
+    var i = 0;
+    for (; i + 2 < n; i += 3) {
+      var x = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2];
+      out.push(A.charAt((x >> 18) & 63) + A.charAt((x >> 12) & 63) + A.charAt((x >> 6) & 63) + A.charAt(x & 63));
     }
-    return btoa(parts.join(''));
+    var rem = n - i;
+    if (rem === 1) {
+      var y = b[i] << 16;
+      out.push(A.charAt((y >> 18) & 63) + A.charAt((y >> 12) & 63) + '==');
+    } else if (rem === 2) {
+      var z = (b[i] << 16) | (b[i + 1] << 8);
+      out.push(A.charAt((z >> 18) & 63) + A.charAt((z >> 12) & 63) + A.charAt((z >> 6) & 63) + '=');
+    }
+    return out.join('');
   }
 
   function isInternal(host) {
@@ -1846,26 +1956,45 @@ const INIT_SCRIPT: &str = r#"
     return invoke('bogahost_open_popup', { url: href });
   }
 
-  // Panelin yazdirma dugmeleri icin: sayfanin GERCEK print fonksiyonu saklanir
-  // (menudeki "Yazdır…" bunu cagirir; bkz. Rust `trigger_print`).
-  try { window.__bogahostNativePrint = window.print; } catch (e) {}
-
   // `window.print()` KOPRUSU.
   // macOS (WKWebView) JS `window.print()` cagrisini SESSIZCE YOK SAYAR —
   // panellerdeki "Yazdır" dugmeleri orada HICBIR SEY yapmiyordu. Cagriyi
   // native yazdirma akisina yolluyoruz: `trigger_print` macOS'ta
   // `WebviewWindow::print()` (native diyalog), diger platformlarda ise
-  // asagida sakladigimiz ORIJINAL fonksiyonu kullanir — yani cift diyalog
-  // acilmaz, sonsuz dongu olusmaz.
-  try {
-    window.print = function () {
-      // `invoke` HICBIR ZAMAN throw etmez; kopru yoksa REDDEDEN promise doner.
-      // Bu yuzden yedek yol `catch` zincirindedir.
-      invoke('bogahost_print', {}).catch(function () {
-        try { window.__bogahostNativePrint.call(window); } catch (e) {}
-      });
-    };
-  } catch (e) {}
+  // sakladigimiz ORIJINAL fonksiyonu kullanir — yani cift diyalog acilmaz,
+  // sonsuz dongu olusmaz.
+  //
+  // NEDEN YENIDEN KURULUYOR: kopru `initialization_script` ile document-start'ta
+  // kurulur; ama bazi panel cerceveleri/print kutuphaneleri sayfa yuklenirken
+  // `window.print`'i KENDI surumleriyle EZIYOR ve koprumuz kayboluyordu ("Yazdır"
+  // tepki vermez). Bu yuzden kopruyu DOMContentLoaded/load'da da yeniden kurariz;
+  // `__bogahostBridge` isareti sayesinde ustuste binmez, orijinali kaybetmez.
+  function installPrintBridge() {
+    try {
+      if (window.print && window.print.__bogahostBridge) { return; }
+      // O anki (henuz ezilmemis ya da cerceve tarafindan ezilmis) print'i sakla;
+      // koprumuz degilse GERCEK yerlidir.
+      if (typeof window.print === 'function' && !window.print.__bogahostBridge) {
+        window.__bogahostNativePrint = window.print;
+      }
+      var bridged = function () {
+        // `invoke` HICBIR ZAMAN throw etmez; kopru yoksa REDDEDEN promise doner.
+        // Bu yuzden yedek yol `catch` zincirindedir.
+        invoke('bogahost_print', {}).catch(function () {
+          try {
+            if (typeof window.__bogahostNativePrint === 'function') {
+              window.__bogahostNativePrint.call(window);
+            }
+          } catch (e) {}
+        });
+      };
+      bridged.__bogahostBridge = true;
+      window.print = bridged;
+    } catch (e) {}
+  }
+  installPrintBridge();
+  try { document.addEventListener('DOMContentLoaded', installPrintBridge); } catch (e) {}
+  try { window.addEventListener('load', installPrintBridge); } catch (e) {}
 
   function guessName(u, fallback) {
     try {
@@ -1876,28 +2005,33 @@ const INIT_SCRIPT: &str = r#"
     return fallback || 'indirilen-dosya';
   }
 
+  // Yerel (blob:/data:) uretilen dosyalar. BINARY-SAFE: `Blob.arrayBuffer()` ara
+  // adimi KULLANILMAZ — dogrudan yanit govdesini `arrayBuffer()` ile aliriz
+  // (WKWebView'de `Blob.prototype.arrayBuffer` her surumde guvenilir degildir).
   function saveLocal(href, name, openAfter) {
+    var ctype = '';
     return fetch(href)
-      .then(function (r) { return r.blob(); })
-      .then(function (blob) {
+      .then(function (r) {
+        try { ctype = String(r.headers.get('content-type') || '').toLowerCase(); } catch (e) {}
+        return r.arrayBuffer();
+      })
+      .then(function (buf) {
         var finalName = name;
         if (!finalName || finalName.indexOf('.') < 0) {
           var ext = '';
-          if (blob.type === 'application/pdf') { ext = '.pdf'; }
-          else if (blob.type.indexOf('csv') >= 0) { ext = '.csv'; }
-          else if (blob.type.indexOf('zip') >= 0) { ext = '.zip'; }
-          else if (blob.type.indexOf('excel') >= 0 || blob.type.indexOf('sheet') >= 0) { ext = '.xlsx'; }
-          else if (blob.type.indexOf('json') >= 0) { ext = '.json'; }
-          else if (blob.type.indexOf('png') >= 0) { ext = '.png'; }
-          else if (blob.type.indexOf('jpeg') >= 0) { ext = '.jpg'; }
+          if (ctype.indexOf('pdf') >= 0) { ext = '.pdf'; }
+          else if (ctype.indexOf('csv') >= 0) { ext = '.csv'; }
+          else if (ctype.indexOf('zip') >= 0) { ext = '.zip'; }
+          else if (ctype.indexOf('excel') >= 0 || ctype.indexOf('sheet') >= 0) { ext = '.xlsx'; }
+          else if (ctype.indexOf('json') >= 0) { ext = '.json'; }
+          else if (ctype.indexOf('png') >= 0) { ext = '.png'; }
+          else if (ctype.indexOf('jpeg') >= 0) { ext = '.jpg'; }
           finalName = (finalName || 'indirilen-dosya') + ext;
         }
-        return blob.arrayBuffer().then(function (buf) {
-          return invoke('bogahost_save_file', {
-            name: finalName,
-            b64: toBase64(buf),
-            openAfter: !!openAfter
-          });
+        return invoke('bogahost_save_file', {
+          name: finalName,
+          b64: toBase64(buf),
+          openAfter: !!openAfter
         });
       });
   }
@@ -2176,30 +2310,34 @@ const INIT_SCRIPT: &str = r#"
     return fallback || guessName(u, null);
   }
 
+  // Sunucu yanitini (PDF/CSV/XLSX/ZIP ...) diske yazar. BINARY-SAFE: yanit govdesi
+  // DOGRUDAN `res.arrayBuffer()` ile alinir. Eskiden `res.blob()` -> `blob.arrayBuffer()`
+  // yapiliyordu; `Blob.prototype.arrayBuffer` WKWebView'in bazi surumlerinde YOK/
+  // guvenilmezdi, bu yuzden metin (CSV) inip ikili (PDF) inmiyordu — KOK NEDEN buydu.
   function saveResponse(res, u, fallback, openAfter) {
     var len = 0;
     try { len = parseInt(res.headers.get('content-length') || '0', 10) || 0; } catch (e) {}
     if (len > MAX_BRIDGE_BYTES) { return Promise.reject(new Error('cok-buyuk')); }
+    var ct = '';
+    try { ct = String(res.headers.get('content-type') || '').toLowerCase(); } catch (e) {}
 
-    return res.blob().then(function (blob) {
-      if (blob.size > MAX_BRIDGE_BYTES) { throw new Error('cok-buyuk'); }
+    return res.arrayBuffer().then(function (buf) {
+      if (buf.byteLength > MAX_BRIDGE_BYTES) { throw new Error('cok-buyuk'); }
+      if (buf.byteLength === 0) { var ee = new Error('empty'); ee.code = 'empty'; throw ee; }
       var name = nameFromResponse(res, u, fallback);
       if (!name || name.indexOf('.') < 0) {
         var ext = '';
-        var t = blob.type || '';
-        if (t.indexOf('pdf') >= 0) { ext = '.pdf'; }
-        else if (t.indexOf('csv') >= 0) { ext = '.csv'; }
-        else if (t.indexOf('zip') >= 0) { ext = '.zip'; }
-        else if (t.indexOf('excel') >= 0 || t.indexOf('sheet') >= 0) { ext = '.xlsx'; }
-        else if (t.indexOf('json') >= 0) { ext = '.json'; }
+        if (ct.indexOf('pdf') >= 0) { ext = '.pdf'; }
+        else if (ct.indexOf('csv') >= 0) { ext = '.csv'; }
+        else if (ct.indexOf('zip') >= 0) { ext = '.zip'; }
+        else if (ct.indexOf('excel') >= 0 || ct.indexOf('sheet') >= 0) { ext = '.xlsx'; }
+        else if (ct.indexOf('json') >= 0) { ext = '.json'; }
         name = (name || 'indirilen-dosya') + ext;
       }
-      return blob.arrayBuffer().then(function (buf) {
-        return invoke('bogahost_save_file', {
-          name: name,
-          b64: toBase64(buf),
-          openAfter: !!openAfter
-        });
+      return invoke('bogahost_save_file', {
+        name: name,
+        b64: toBase64(buf),
+        openAfter: !!openAfter
       });
     });
   }
@@ -5298,6 +5436,55 @@ fn open_notification_settings(app: &AppHandle) {
     let url = "https://bogahost.com/";
 
     let _ = app.shell().open(url.to_string(), None);
+}
+
+/// Son BILINEN surumun saklandigi dosya (uygulama yapilandirma klasoru).
+fn last_version_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("last-version.txt"))
+}
+
+/// Otomatik guncelleme yeniden baslatmasindan SONRA, yeni surumun ILK acilisinda
+/// "guncellendi" native bildirimi gosterir.
+///
+/// KOK NEDEN: `startup_auto_update` indir+kur+`app.restart()` yapiyordu ama
+/// kullaniciya HICBIR sey soylemiyordu — "kendi kapanip acildi ama guncellendi
+/// diye bildirim yok". Kalici depoda son bilinen surumu tutariz; acilista kayitli
+/// surum kurulu surumden ESKIYSE bir kez bildirir ve kaydi tazeler.
+///
+/// ILK calistirmada (kayit henuz yokken) BILDIRIM YOKTUR: taze kurulumda yanlislikla
+/// "guncellendi" cikmasin — yalnizca surum kaydedilir.
+fn announce_update_if_updated(app: &AppHandle) {
+    let current = env!("CARGO_PKG_VERSION");
+    let Some(path) = last_version_path(app) else {
+        return;
+    };
+
+    let stored = std::fs::read_to_string(&path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if let Some(prev) = stored.as_deref() {
+        if is_newer(current, prev) {
+            notify(
+                app,
+                &format!("{APP_TITLE} güncellendi"),
+                &format!("Uygulama v{current} sürümüne güncellendi."),
+            );
+            log_update(&format!("acilis: {prev} -> {current} guncelleme bildirimi gosterildi"));
+        }
+    }
+
+    // Kurulu surumu kaydet (varsa yeni; ilk calistirmada baslangic kaydi).
+    if stored.as_deref() != Some(current) {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, current);
+    }
 }
 
 /// Verilen bayrak daha once isaretlenmediyse isaretler ve `true` doner.
