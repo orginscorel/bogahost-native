@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-chat"
-version = "1.9.2"
+version = "1.9.3"
 description = "Bogahost Chat — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
