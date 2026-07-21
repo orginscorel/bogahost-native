@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "remote-notify",
-  "description": "Canli dcim.bogahost.com paneline (ve onizleme pencerelerine) yalnizca native bildirim izni (web-push yerine).",
+  "description": "Canli dcim.bogahost.com paneline (ve onizleme pencerelerine) native bildirim izni + INIT_SCRIPT'in (lib.rs) kendi enjekte ettigi 19 ozel bogahost_* komutu (indirme/kaydet/yazdir/popup/dis-baglanti/ayarlar/guncelleme koprusu). Bu komutlar UZAK sayfa kaynagindan (https://) cagrildigi icin (icerigi biz kontrol etsek de calisan JS'in origin'i webview'in yukledigi https:// adresidir) ayrica burada listelenmeleri GEREKIR — core:default bunlari KAPSAMAZ (yalnizca cekirdek/plugin komutlarini kapsar, uygulamaya ozel #[tauri::command] fonksiyonlarini degil). Her komut icin Tauri build sirasinda otomatik uretilen izin kimligi 'allow-<komut-adi-tire-ile>' bicimindedir (alt cizgiler tire'ye cevrilir) ve uygulamaya ait (plugin olmayan) komutlarda on-ek GEREKMEZ (bkz. https://v2.tauri.app/reference/acl/capability/ - 'For commands directly implemented in the application itself only ${permission-name} is required').",
   "windows": [
     "main",
     "popup-*"
@@ -16,6 +16,25 @@
     "notification:default",
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
-    "notification:allow-request-permission"
+    "notification:allow-request-permission",
+    "allow-bogahost-save-file",
+    "allow-bogahost-open-external",
+    "allow-bogahost-notify",
+    "allow-bogahost-notify-feed",
+    "allow-bogahost-notify-state",
+    "allow-bogahost-notify-request",
+    "allow-bogahost-notify-diag",
+    "allow-bogahost-open-popup",
+    "allow-bogahost-close-window",
+    "allow-bogahost-print",
+    "allow-bogahost-open-settings",
+    "allow-bogahost-focus-window",
+    "allow-bogahost-set-fullscreen",
+    "allow-bogahost-reveal-download",
+    "allow-bogahost-set-busy",
+    "allow-bogahost-apply-update",
+    "allow-bogahost-update-state",
+    "allow-bogahost-fetch-download",
+    "allow-bogahost-open-download"
   ]
 }
