@@ -1,0 +1,31 @@
+# Bogahost native kopru komutlari icin ACL izni.
+#
+# NEDEN GEREKLI: Tauri 2, UYGULAMANIN KENDI komutlari icin otomatik permission
+# URETMEZ (yalniz plugin'ler icin uretir). Uzak panel sayfasi (remote capability)
+# bu komutlari cagirdiginda ACL reddediyordu -> "Command ... not allowed by ACL".
+# Bu dosya izni tanimlar; capabilities/remote.json onu "allow-bogahost-bridge"
+# adiyla referans alir (uygulama komutlarinda plugin oneki KULLANILMAZ).
+
+[[permission]]
+identifier = "allow-bogahost-bridge"
+description = "Bogahost uygulama koprusu: bildirim, indirme, yazdirma, pencere ve guncelleme komutlari."
+commands.allow = [
+  "bogahost_apply_update",
+  "bogahost_close_window",
+  "bogahost_fetch_download",
+  "bogahost_focus_window",
+  "bogahost_notify",
+  "bogahost_notify_diag",
+  "bogahost_notify_feed",
+  "bogahost_notify_request",
+  "bogahost_notify_state",
+  "bogahost_open_download",
+  "bogahost_open_external",
+  "bogahost_open_popup",
+  "bogahost_open_settings",
+  "bogahost_print",
+  "bogahost_reveal_download",
+  "bogahost_save_file",
+  "bogahost_set_busy",
+  "bogahost_set_fullscreen"
+]

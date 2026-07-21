@@ -17,24 +17,6 @@
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
-    "allow-bogahost-save-file",
-    "allow-bogahost-open-external",
-    "allow-bogahost-notify",
-    "allow-bogahost-notify-feed",
-    "allow-bogahost-notify-state",
-    "allow-bogahost-notify-request",
-    "allow-bogahost-notify-diag",
-    "allow-bogahost-open-popup",
-    "allow-bogahost-close-window",
-    "allow-bogahost-print",
-    "allow-bogahost-open-settings",
-    "allow-bogahost-focus-window",
-    "allow-bogahost-set-fullscreen",
-    "allow-bogahost-reveal-download",
-    "allow-bogahost-set-busy",
-    "allow-bogahost-apply-update",
-    "allow-bogahost-update-state",
-    "allow-bogahost-fetch-download",
-    "allow-bogahost-open-download"
+    "allow-bogahost-bridge"
   ]
 }

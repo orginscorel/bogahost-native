@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-dcim"
-version = "1.9.9"
+version = "1.9.10"
 description = "Bogahost DCIM — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
