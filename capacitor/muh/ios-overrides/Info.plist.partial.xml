@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Bogahost Muhasebe — iOS Info.plist parçası.
+  Bogahost Muhasebe Arşivi — iOS Info.plist parçası.
 
   CI, `npx cap add ios` sonrası bu anahtarları üretilen
   ios/App/App/Info.plist içindeki kök <dict> öğesine BİRLEŞTİRİR
   (PlistBuddy ile). Tam bir plist değildir; yalnızca eklenecek çiftlerdir.
 
-  KAMERA/MİKROFON NEDEN BURADA? Kabuğun allowNavigation listesi 4 Bogahost
+  KAMERA/MİKROFON NEDEN BURADA? Kabuğun allowNavigation listesi 5 Bogahost
   sistemini de kapsar (capacitor.config.ts) — kullanıcı bu kabuktan
   chat.bogahost.com'a geçip görüntülü/sesli aramayı başlatabilir. iOS,
   getUserMedia çağrıldığında kullanım açıklaması YOKSA süreci ANINDA SONLANDIRIR
-  (çökme). Bu yüzden dört uygulamada da tanımlıdır.
+  (çökme). Bu yüzden beş uygulamada da tanımlıdır.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

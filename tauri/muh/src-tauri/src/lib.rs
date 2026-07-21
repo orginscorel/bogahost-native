@@ -1,4 +1,4 @@
-// Bogahost Muhasebe — Tauri v2 masaustu kabugu.
+// Bogahost Muhasebe Arşivi — Tauri v2 masaustu kabugu.
 //
 // Bu dosya 5 uygulamada (finans/dcim/chat/task/muh) AYNIDIR; yalnizca asagidaki
 // APP_KEY / APP_TITLE sabitleri farklidir. Degistirirken hepsini birlikte guncelleyin.
@@ -22,7 +22,7 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 
 const APP_KEY: &str = "muh";
-const APP_TITLE: &str = "Bogahost Muhasebe";
+const APP_TITLE: &str = "Bogahost Muhasebe Arşivi";
 
 /// Uygulamalar arasi gecis tablosu — `apps.config.json` ile BIREBIR ayni olmali.
 /// (key, menu etiketi, canli URL)

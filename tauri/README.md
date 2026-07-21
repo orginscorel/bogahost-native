@@ -8,7 +8,7 @@ Bu klasör, beş Bogahost sistemi için **Tauri v2** masaüstü uygulama kaynakl
 | Bogahost DCIM     | `tauri/dcim/`   | https://dcim.bogahost.com/admin |
 | Bogahost Chat     | `tauri/chat/`   | https://chat.bogahost.com/admin |
 | Bogahost Görevler | `tauri/task/`   | https://task.bogahost.com/admin |
-| Bogahost Muhasebe | `tauri/muh/`    | https://muh.bogahost.com/admin |
+| Bogahost Muhasebe Arşivi | `tauri/muh/`    | https://muh.bogahost.com/admin |
 
 ## Mimari
 

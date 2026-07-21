@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Bogahost Muhasebe — macOS entitlements.
+  Bogahost Muhasebe Arşivi — macOS entitlements.
 
   NEDEN ZORUNLU: Tauri'de bundle.macOS.hardenedRuntime VARSAYILAN OLARAK true'dur.
   Hardened Runtime acikken kamera/mikrofon/ekran erisimi, ilgili entitlement

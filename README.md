@@ -8,7 +8,7 @@ Bogahost'un 5 iç yönetim sisteminin **native kabukları**:
 | `dcim` | Bogahost DCIM | https://dcim.bogahost.com/admin | `com.bogahost.dcim` |
 | `chat` | Bogahost Chat | https://chat.bogahost.com/admin | `com.bogahost.chat` |
 | `task` | Bogahost Görevler | https://task.bogahost.com/admin | `com.bogahost.task` |
-| `muh` | Bogahost Muhasebe | https://muh.bogahost.com/admin | `com.bogahost.muh` |
+| `muh` | Bogahost Muhasebe Arşivi | https://muh.bogahost.com/admin | `com.bogahost.muh` |
 
 ## Mimari
 

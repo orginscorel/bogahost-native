@@ -1,7 +1,7 @@
 [package]
 name = "bogahost-muh"
 version = "1.9.12"
-description = "Bogahost Muhasebe — Tauri v2 masaustu kabugu (canli URL WebView)"
+description = "Bogahost Muhasebe Arşivi — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
 rust-version = "1.77.2"

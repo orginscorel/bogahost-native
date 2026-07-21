@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 /**
- * Bogahost Muhasebe — Capacitor 7 kabuk yapılandırması.
+ * Bogahost Muhasebe Arşivi — Capacitor 7 kabuk yapılandırması.
  *
  * Mimari: Bu bir WebView kabuğudur. `server.url` CANLI PWA'yı yükler; uygulamanın
  * kendi HTML/JS'i (www/) yalnızca uzak sunucu yüklenene kadar gösterilen bir
@@ -9,7 +9,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  */
 const config: CapacitorConfig = {
   appId: 'com.bogahost.muh',
-  appName: 'Bogahost Muhasebe',
+  appName: 'Bogahost Muhasebe Arşivi',
   webDir: 'www',
   backgroundColor: '#0e1015',
   server: {

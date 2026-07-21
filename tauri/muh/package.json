@@ -1,9 +1,9 @@
 {
   "name": "bogahost-tauri-muh",
-  "productName": "Bogahost Muhasebe",
+  "productName": "Bogahost Muhasebe Arşivi",
   "version": "1.6.0",
   "private": true,
-  "description": "Bogahost Muhasebe — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://muh.bogahost.com/admin) WebView ile yukler.",
+  "description": "Bogahost Muhasebe Arşivi — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://muh.bogahost.com/admin) WebView ile yukler.",
   "scripts": {
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

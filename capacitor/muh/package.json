@@ -2,7 +2,7 @@
   "name": "@bogahost/native-muh",
   "version": "1.6.0",
   "private": true,
-  "description": "Bogahost Muhasebe — Capacitor WebView kabuğu (canlı https://muh.bogahost.com/admin yükler).",
+  "description": "Bogahost Muhasebe Arşivi — Capacitor WebView kabuğu (canlı https://muh.bogahost.com/admin yükler).",
   "scripts": {
     "sync": "cap sync",
     "sync:android": "cap sync android",

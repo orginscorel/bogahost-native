@@ -1,4 +1,4 @@
-# iOS overrides — Bogahost Muhasebe
+# iOS overrides — Bogahost Muhasebe Arşivi
 
 `npx cap add ios` sonrası CI bu dosyaları uygular:
 

@@ -1,4 +1,4 @@
-# Android overrides — Bogahost Muhasebe
+# Android overrides — Bogahost Muhasebe Arşivi
 
 `npx cap add android` SONRASI CI bu dosyaları üretilen `android/` ağacına kopyalar:
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Bogahost Muhasebe",
+  "productName": "Bogahost Muhasebe Arşivi",
   "version": "1.9.12",
   "identifier": "com.bogahost.muh",
   "build": {
@@ -30,8 +30,8 @@
     ],
     "copyright": "(c) 2026 Bogahost",
     "category": "Business",
-    "shortDescription": "Bogahost Muhasebe masaustu uygulamasi",
-    "longDescription": "Bogahost Muhasebe yonetim panelinin masaustu kabugu (canli URL WebView).",
+    "shortDescription": "Bogahost Muhasebe Arşivi masaustu uygulamasi",
+    "longDescription": "Muhasebe arsiv deposu: aylik fatura, dekont ve banka ekstresi arsivlenir; belgeler donem donem toplanip muhasebeciye ZIP olarak gonderilir. Masaustu kabuk (canli URL WebView).",
     "windows": {
       "wix": {
         "language": [

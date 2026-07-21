@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Bogahost Muhasebe — macOS Info.plist EKI.
+  Bogahost Muhasebe Arşivi — macOS Info.plist EKI.
 
   tauri-bundler bu dosyayi (src-tauri/Info.plist) OTOMATIK bulur ve urettigi
   varsayilan Info.plist ile BIRLESTIRIR. tauri.conf.json'da ayrica

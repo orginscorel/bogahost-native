@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Bogahost Muhasebe — AndroidManifest override.
+  Bogahost Muhasebe Arşivi — AndroidManifest override.
   CI, üretilen android/app/src/main/AndroidManifest.xml ÜZERİNE kopyalar.
   Eklenenler: INTERNET / POST_NOTIFICATIONS / ACCESS_NETWORK_STATE izinleri,
   networkSecurityConfig, https://muh.bogahost.com autoVerify App Link.
