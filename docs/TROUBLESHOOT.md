@@ -52,6 +52,27 @@
   Application** imzası şart. `xcrun notarytool log` ile ret nedenini okuyun (hardened runtime,
   imzasız binary vb.).
 
+**Masaüstü bildirimi hiç gelmiyor (panel zili doluyor ama Bildirim Merkezi boş)**
+- Önce **tepsi ▸ "Test bildirimi gönder"**. Bildirim **görünürse** işletim sistemi tarafı
+  sağlamdır; sorun yoklama zincirindedir → **tepsi ▸ "Bildirim durumu…"** hangi halkanın
+  durduğunu gösterir (yoklama turu / sayfa durumu / köprü çağrısı / gösterim sayısı).
+- Bildirim **görünmüyorsa** izin kapalıdır: **Sistem Ayarları ▸ Bildirimler** listesinden
+  uygulamayı bulup açın (test sonrası sayfada çıkan kutudaki düğme oraya götürür).
+  Uygulama izin durumunu **okuyamaz** — `tauri-plugin-notification` masaüstünde her zaman
+  `granted` döndürür (bkz. [PUSH.md](PUSH.md#izin-durumu--dürüst-durum-önemli)).
+- Ayrıntılı akış `stderr`de: `[<app>][notify] …` satırları.
+
+**"Klasörde göster" / "İndirilenler klasörünü aç" / "Bildirim ayarlarını aç" hiçbir şey yapmıyor**
+- v1.9.7 ve öncesinde **gerçek bir hatadır**: bu hedefler `tauri-plugin-shell`in
+  `open` çağrısından geçiyordu ve eklentinin **varsayılan süzgeci**
+  `^((mailto:\w+)|(tel:\w+)|(https?://\w+)).+` yalnızca http/https/mailto/tel kabul eder.
+  Dosya yolları ve `x-apple.systempreferences:` / `ms-settings:` adresleri **reddediliyor**,
+  sonuç da her çağrı yerinde `let _ =` ile yutuluyordu → "basınca gram tepki yok".
+- Düzeltildi: bu hedefler artık işletim sisteminin kendi açıcısına doğrudan verilir
+  (macOS `/usr/bin/open`, Windows `explorer`, Linux `xdg-open`), **çıkış kodu denetlenir**,
+  başarısızlıkta sayfa mesajı + masaüstü bildirimi çıkar ve `stderr`e `[<app>][ac] …` yazılır.
+- Dosya taşınmış/silinmişse en azından **İndirilenler klasörü** açılır ve nedeni söylenir.
+
 ## Ortak / WebView
 
 **Sayfa açılmıyor, beyaz ekran**

@@ -106,13 +106,43 @@ Chat kayıtları (`msg:` / `conv:` / `int:`) kabuk tarafında başlık/gövde/ad
 | Ek sunucu yükü | **Pencere açıkken sıfır**: panel zaten yokluyor, `window.fetch` sarmalanıp yanıt gövdesi klonlanarak okunur. Kendi isteğimiz yalnızca **60 sn'dir panel yanıtı görülmediyse** atılır (yani pratikte pencere gizliyken). |
 | Tekilleştirme | **Kalıcı**, `app_config_dir/notify-state.json` içinde son **300** bildirim anahtarı (halka tampon). Uygulama yeniden başlayınca eski bildirimler **tekrar patlamaz**. |
 | 4 uygulama ayrımı | Paket kimlikleri farklı → `app_config_dir` farklı → **her uygulama kendi listesini** tutar. |
-| İlk çalıştırma | Kalıcı liste henüz yoksa yalnızca **120 sn'den genç** kayıtlar duyurulur; gerisi sessizce "görüldü" işaretlenir. |
+| İlk çalıştırma | Kalıcı liste **dosyası henüz yoksa** yalnızca **15 dk'dan genç** kayıtlar duyurulur; gerisi sessizce "görüldü" işaretlenir. (v1.9.7'ye kadar 120 sn idi ve uç son 12 kaydı döndürdüğü için ilk tur pratikte **her şeyi yutuyordu**. Dosya **okunamadığında** da "ilk çalıştırma" sayılıyordu — yani bozuk/erişilemez dosya bildirimleri **kalıcı olarak** susturabiliyordu; artık okuma hatasında **susturulmaz**.) |
 | Patlama koruması | Tek turda en fazla **4** bildirim; fazlası tek "**N yeni bildirim var**" özetine düşer. |
 | Okunmuşlar | Panelde `read` işaretli kayıt masaüstünde **duyurulmaz**. |
 | Rozet | `unread` (Chat'te `waiting`) → `set_badge_count` (macOS/Linux Dock). **Windows'ta desteklenmez**, hata sessizce yutulur. |
-| Sessizlik | Ağ hatası / 5xx → **üstel geri çekilme** (90 sn → 15 dk tavan). 401/403 → yoklama **tamamen durur** (sayfa yenilenince sıfırlanır). Hiçbirinde **kullanıcıya bildirim çıkmaz**, yalnızca konsola yazılır. |
-| Giriş ekranı | `/admin` dışındaysa veya sayfada parola alanı varsa yoklama **yapılmaz** (401 döngüsü olmasın). |
+| Sessizlik | Ağ hatası / 5xx → **üstel geri çekilme** (90 sn → 15 dk tavan). 401/403 → yoklama **5 dk** durur (v1.9.7'ye kadar **kalıcı** dururdu: tek bir 401 bildirimleri sayfa yenilenene kadar tamamen öldürüyordu). Hiçbirinde **kullanıcıya bildirim çıkmaz** — ama artık hepsi **"Bildirim durumu…"** ekranına ve `stderr`e yazılır. |
+| Giriş ekranı | `/admin` dışındaysa **ya da** adres `/admin/login`, `/admin/logout`, `/admin/2fa/…`, `/admin/erisim-engeli` ise yoklama **yapılmaz** (401 döngüsü olmasın). (v1.9.7'ye kadar "sayfada `input[type=password]` var mı" bakılıyordu; panelin profil/şifre veya kasa ekranı **o sayfada** yoklamayı tamamen susturuyordu.) |
 | Adres güvenliği | Bildirimin `url` alanı yalnızca `*.bogahost.com` ise kabul edilir (`resolve_internal_url`). |
+
+### Teşhis ve elle test (tepsi menüsü)
+
+Bu zincirin **her halkası** eskiden hatasını sessizce yutuyordu (`let _ = eval(...)`,
+`let _ = show()`, sayfa tarafında boş `catch`). "Bildirim gelmiyor" denildiğinde
+nerede koptuğunu gösteren tek bir işaret yoktu. Tepsiye iki öğe eklendi:
+
+| Öğe | Ne yapar | Ne ayırt eder |
+|---|---|---|
+| **Test bildirimi gönder** | Anında native bildirim gösterir + gerçek beslemeyi bir kez zorla yoklatır | Bildirim **görünüyorsa** işletim sistemi/izin tarafı sağlamdır → sorun yoklamadadır. **Görünmüyorsa** izin kapalıdır → sayfada çıkan kutudaki "Sistem Ayarlarını Aç" düğmesi doğrudan oraya götürür. |
+| **Bildirim durumu…** | Zincirin 5 halkasını tek ekranda gösterir: yoklama turu sayısı + son tur, sayfa tarafının son durumu, köprü (invoke) çağrı sayısı + son çağrı, gösterilen bildirim sayısı + son başlık, tekilleştirme dosyası + kayıtlı anahtar sayısı | Hangi halkanın çalıştığını/durduğunu **ölçerek** gösterir |
+
+Ayrıca her adım `stderr`e `[<app>][notify] …` önekiyle yazılır.
+
+### İzin durumu — dürüst durum (ÖNEMLİ)
+
+`tauri-plugin-notification` v2'nin **masaüstü** uygulamasında
+(`plugins-workspace/plugins/notification/src/desktop.rs`) `permission_state()` ve
+`request_permission()` **sabit olarak `Granted` döner** — yalnızca Windows'ta değil,
+**macOS ve Linux'ta da**. Yani uygulama izin durumunu **okuyamaz**.
+
+Sonuç: v1.9.7'ye kadar tepside gösterilen **"Bildirimler: açık"** etiketi bir
+**iddiaydı**, ölçüm değil; izin gerçekte kapalıyken de "açık" yazıyordu. Artık durum
+iddia edilmez — öğe doğrudan **sistem ayarına** götürür, gerçek durum ise yukarıdaki
+**"Test bildirimi gönder"** ile ölçülür.
+
+> Ek olarak: `x-apple.systempreferences:` / `ms-settings:` adresleri
+> `tauri-plugin-shell`in varsayılan `open` süzgecinden (`^((mailto:\w+)|(tel:\w+)|(https?://\w+)).+`)
+> **geçemez**. Yani "ayarları aç" düğmesi de v1.9.7'ye kadar **hiçbir şey yapmıyordu**;
+> artık işletim sisteminin kendi açıcısı doğrudan çağrılır (bkz. `open_native`).
 
 ### Bildirime tıklama — dürüst durum
 
@@ -130,7 +160,7 @@ pencere öne getirilir. **Olmayan bir API uydurulmadı.**
 | Pencere **arkada / örtülü** | ✅ | Rust saati 45 sn'de bir `eval` eder; panel yoklaması dursa da kabuk kendi ister |
 | Pencere **kapalı, uygulama tepside** | ✅ | Aynı — WebView canlıdır, saat Rust'tadır |
 | Oturum açılışında **`--hidden` başlatıldı** | ✅ | v1.7.0 autostart; pencere hiç açılmaz, kabuk tepside yoklamaya devam eder |
-| Panel oturumu düştü (401/403) | ❌ (sessiz) | Yoklama durur; kullanıcı panele girince kendiliğinden sürer |
+| Panel oturumu düştü (401/403) | ❌ (sessiz) | Yoklama **5 dk** durur, sonra kendiliğinden yeniden dener; kullanıcı panele girince sürer |
 | Uygulama **tamamen kapalı (süreç yok)** | ❌ | **Fiziksel sınır** — aşağıya bakın |
 
 > **Kısılma notu (dürüst):** Rust saati kısılmaz, ancak `eval` ile tetiklenen `fetch`

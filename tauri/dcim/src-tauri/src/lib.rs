@@ -170,7 +170,70 @@ const NOTIFY_BURST_MAX: usize = 4;
 
 /// ILK calistirmada (kalici liste henuz yokken) yalnizca bu yastan (saniye)
 /// GENC kayitlar duyurulur; gecmis besleme topluca patlamaz.
-const NOTIFY_FIRST_RUN_MAX_AGE: i64 = 120;
+///
+/// v1.9.7'ye kadar 120 sn idi. Panel ucu son 12 kaydi dondurdugu ve bunlarin
+/// cogu 2 dakikadan eski oldugu icin ILK tur pratikte HER SEYI yutuyordu.
+/// Tekillestirme zaten ANAHTAR (id) bazlidir ve KALICIDIR; zaman filtresi
+/// yalnizca "cok eski gecmis topluca patlamasin" icindir — bu yuzden
+/// GEVSETILDI (15 dk). Tekrar bildirim riski yok, kacirma riski dustu.
+const NOTIFY_FIRST_RUN_MAX_AGE: i64 = 900;
+
+// ---------------------------------------------------------------------------
+// Bildirim yolu — TESHIS sayaclari
+// ---------------------------------------------------------------------------
+//
+// NEDEN VAR: v1.9.0-1.9.7 arasi bildirim yolunun HER halkasi hatalarini
+// SESSIZCE yutuyordu (`let _ = eval(...)`, `let _ = show()`, sayfa tarafinda
+// bos `catch`). Kullanici "hic bildirim gelmiyor" dediginde zincirin NEREDE
+// koptugunu gosteren TEK bir isaret bile yoktu. Asagidaki sayaclar tepsideki
+// "Bildirim durumu…" ogesi ve `stderr` gunlugu ile okunabilir.
+//
+// Hepsi `const fn` ile kurulur (ek bagimlilik yok).
+static NOTIFY_TICKS: AtomicUsize = AtomicUsize::new(0);
+static NOTIFY_FEED_CALLS: AtomicUsize = AtomicUsize::new(0);
+static NOTIFY_SHOWN: AtomicUsize = AtomicUsize::new(0);
+static NOTIFY_FIRST_RUN_SKIPPED: AtomicUsize = AtomicUsize::new(0);
+static NOTIFY_LAST_TICK: Mutex<Option<Instant>> = Mutex::new(None);
+static NOTIFY_LAST_FEED: Mutex<Option<Instant>> = Mutex::new(None);
+static NOTIFY_LAST_SHOWN: Mutex<Option<Instant>> = Mutex::new(None);
+/// En son masaustunde GOSTERILEN bildirimin basligi.
+static NOTIFY_LAST_TITLE: Mutex<Option<String>> = Mutex::new(None);
+/// Sayfa tarafinin bildirdigi son asama ("yoklaniyor", "atlandi: …", "kopru: …").
+static NOTIFY_LAST_STAGE: Mutex<Option<String>> = Mutex::new(None);
+
+fn diag_mark(slot: &Mutex<Option<Instant>>) {
+    if let Ok(mut s) = slot.lock() {
+        *s = Some(Instant::now());
+    }
+}
+
+fn diag_set(slot: &Mutex<Option<String>>, value: &str) {
+    if let Ok(mut s) = slot.lock() {
+        *s = Some(value.to_string());
+    }
+}
+
+/// "12 sn önce" / "hiç" — tarih bicimlendirme bagimliligi olmadan.
+fn diag_ago(slot: &Mutex<Option<Instant>>) -> String {
+    match slot.lock().ok().and_then(|s| *s) {
+        Some(t) => {
+            let secs = t.elapsed().as_secs();
+            if secs < 90 {
+                format!("{secs} sn önce")
+            } else {
+                format!("{} dk önce", secs / 60)
+            }
+        }
+        None => "hiç".to_string(),
+    }
+}
+
+fn diag_text(slot: &Mutex<Option<String>>) -> String {
+    slot.lock()
+        .ok()
+        .and_then(|s| s.clone())
+        .unwrap_or_else(|| "—".to_string())
+}
 
 /// Acilis/gecis yukleme katmani icin uygulama kimlikleri.
 /// (hostname, kisa ad, vurgu rengi, gecis durum metni)
@@ -357,6 +420,7 @@ pub fn run() {
             bogahost_notify_feed,
             bogahost_notify_state,
             bogahost_notify_request,
+            bogahost_notify_diag,
             bogahost_open_popup,
             bogahost_close_window,
             bogahost_print,
@@ -436,10 +500,22 @@ pub fn run() {
             let notify_i = MenuItem::with_id(
                 app,
                 "notify-status",
-                "Bildirimler: denetleniyor…",
+                // Durum IDDIA EDILMEZ (bkz. `refresh_notification_menu`).
+                "Bildirim ayarlarını aç",
                 true,
                 None::<&str>,
             )?;
+            // ELLE TEST + TESHIS: "hic bildirim gelmiyor" sikayetinde kullanicinin
+            // izin/OS tarafi ile yoklama zincirini TEK TIKLA ayirmasini saglar.
+            let notifytest_i = MenuItem::with_id(
+                app,
+                "notify-test",
+                "Test bildirimi gönder",
+                true,
+                None::<&str>,
+            )?;
+            let notifydiag_i =
+                MenuItem::with_id(app, "notify-diag", "Bildirim durumu…", true, None::<&str>)?;
             let dlfolder_i = MenuItem::with_id(
                 app,
                 "downloads-folder",
@@ -510,6 +586,8 @@ pub fn run() {
                 &dlfolder_i,
                 &dllast_i,
                 &notify_i,
+                &notifytest_i,
+                &notifydiag_i,
                 &notiflast_i,
                 &autostart_i,
                 &sep_c,
@@ -1124,37 +1202,181 @@ fn page_toast(app: &AppHandle, message: &str) {
     }
 }
 
-/// Dosyayi sistem dosya yoneticisinde SECILI olarak gosterir
-/// (macOS: Finder'da göster, Windows: Explorer'da seç). Basarisiz olursa
-/// dosyanin bulundugu klasoru acar.
-fn reveal_in_file_manager(app: &AppHandle, path: &Path) {
-    #[cfg(target_os = "macos")]
-    {
-        if std::process::Command::new("open")
-            .arg("-R")
-            .arg(path)
-            .spawn()
-            .is_ok()
-        {
-            return;
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        if std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
-            .spawn()
-            .is_ok()
-        {
-            return;
-        }
-    }
+// ---------------------------------------------------------------------------
+// Yerel yol / sistem adresi acma  (tauri-plugin-shell KULLANILMAZ)
+// ---------------------------------------------------------------------------
+//
+// KOK NEDEN — NEDEN `app.shell().open(...)` DEGIL:
+//
+// `tauri-plugin-shell`in `Shell::open` cagrisi hedefi bir SCOPE suzgecinden
+// gecirir. `tauri.conf.json` icinde `plugins.shell.open` TANIMLI DEGILSE
+// (bu depoda tanimli DEGIL) eklenti su varsayilan duzenli ifadeyi uygular:
+//
+//     ^((mailto:\w+)|(tel:\w+)|(https?://\w+)).+
+//
+// (kaynak: plugins-workspace/plugins/shell/src/lib.rs > `open_scope`)
+//
+// Yani YALNIZCA http/https/mailto/tel gecer. Bir DOSYA YOLU
+// (`/Users/…/Downloads/rapor.pdf`), bir KLASOR yolu ya da bir sistem adresi
+// (`x-apple.systempreferences:…`, `ms-settings:…`) bu suzgeci GECEMEZ:
+// `open` `Err` doner ve cagri yerlerinin TAMAMI sonucu `let _ =` ile yutar.
+//
+// Kullaniciya yansimasi (v1.8.0 - v1.9.7): "Klasörde göster", "İndirilenler
+// klasörünü aç", "Son indirilen dosyayı göster", "indirdikten sonra aç" ve
+// "Bildirim ayarlarını aç" dugmeleri HICBIR SEY YAPMIYORDU — hata mesaji da
+// yoktu ("basınca gram tepki almıyor").
+//
+// Cozum: bu hedefler isletim sisteminin KENDI acicisina DOGRUDAN verilir ve
+// sonuc DENETLENIR. Guvenlik zayiflamaz: buraya yalnizca kabugun KENDI urettigi
+// yollar (indirilenler klasoru) ve kapali beyaz listedeki sistem adresleri
+// gelir; sayfadan gelen serbest metin buraya ULASMAZ (bkz. `settings_url`,
+// `bogahost_open_external` — http(s) hala shell eklentisinden gider).
 
+/// Dosya/klasor yolunu ya da sistem adresini isletim sistemine actirir.
+/// GERCEK sonucu doner (cikis kodu denetlenir) — sessiz basarisizlik YOK.
+#[cfg(target_os = "macos")]
+fn open_native(target: &str) -> Result<(), String> {
+    // Mutlak yol: uygulama LaunchAgent ile acildiginda `PATH` guvenilmezdir.
+    match std::process::Command::new("/usr/bin/open").arg(target).status() {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("open çıkış kodu {}", s.code().unwrap_or(-1))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Windows: `explorer.exe` hem dosya/klasor yolunu hem `ms-settings:` gibi
+/// protokol adreslerini acar ve konsol penceresi ACMAZ (`cmd /C start`in
+/// aksine). BASARIDA BILE 1 donebildigi icin cikis kodu denetlenmez.
+#[cfg(target_os = "windows")]
+fn open_native(target: &str) -> Result<(), String> {
+    std::process::Command::new("explorer")
+        .arg(target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn open_native(target: &str) -> Result<(), String> {
+    match std::process::Command::new("xdg-open").arg(target).status() {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("xdg-open çıkış kodu {}", s.code().unwrap_or(-1))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Dosyayi dosya yoneticisinde SECILI gosterir (macOS: Finder, Windows: Explorer).
+#[cfg(target_os = "macos")]
+fn reveal_native(path: &Path) -> Result<(), String> {
+    match std::process::Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(path)
+        .status()
+    {
+        Ok(s) if s.success() => Ok(()),
+        // ONEMLI: `spawn()` yalnizca surecin BASLATILDIGINI soyler; `open -R`
+        // yol yanlissa/dosya silinmisse BASLATILIR ama 1 ile cikar. v1.9.7'ye
+        // kadar `spawn().is_ok()` denetlendigi icin bu durum "basarili" sayilip
+        // yedek yola HIC dusulmuyordu.
+        Ok(s) => Err(format!("open -R çıkış kodu {}", s.code().unwrap_or(-1))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn reveal_native(path: &Path) -> Result<(), String> {
+    // `explorer /select,` basarida bile 1 dondurur -> yalnizca baslatma denetlenir.
+    std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn reveal_native(path: &Path) -> Result<(), String> {
     let dir = path
         .parent()
-        .map(|d| d.to_path_buf())
-        .unwrap_or_else(|| downloads_dir(app));
-    let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+        .ok_or_else(|| "üst klasör bulunamadı".to_string())?;
+    open_native(&dir.to_string_lossy())
+}
+
+/// Acma denemesi basarisiz olduysa kullaniciya GORUNUR geri bildirim verir
+/// (sayfa mesaji + masaustu bildirimi) ve sebebi gunluge yazar.
+fn report_open_failure(app: &AppHandle, target: &str, err: &str) {
+    eprintln!("[{}][ac] basarisiz: {} — {}", APP_KEY, target, err);
+    page_toast(app, &format!("Açılamadı: {target}"));
+    notify(app, "Açılamadı", &format!("{target}\n{err}"));
+}
+
+/// Hedefi AYRI is parcaciginda acar ve basarisiz olursa kullaniciya SOYLER.
+///
+/// NEDEN AYRI IS PARCACIGI: `open_native` acici surecin cikis kodunu BEKLER
+/// (sessiz basarisizligi ancak boyle yakalayabiliriz). Bu bekleme komut/menu
+/// is parcaciginda yapilirsa arayuz kisa sureligine donabilir.
+fn open_target_reported(app: &AppHandle, target: &str) {
+    let handle = app.clone();
+    let target = target.to_string();
+    std::thread::spawn(move || {
+        if let Err(e) = open_native(&target) {
+            report_open_failure(&handle, &target, &e);
+        }
+    });
+}
+
+/// Yerel yolu acar; basarisiz olursa kullaniciya SOYLER (sessiz yutma yok).
+fn open_path_reported(app: &AppHandle, path: &Path) {
+    open_target_reported(app, &path.to_string_lossy());
+}
+
+/// Dosyayi sistem dosya yoneticisinde SECILI olarak gosterir
+/// (macOS: Finder'da göster, Windows: Explorer'da seç).
+///
+/// Basarisiz olursa ya da dosya artik yoksa SESSIZ KALMAZ: en azindan
+/// dosyanin bulundugu klasoru acar ve ne oldugunu yazar.
+///
+/// AYRI IS PARCACIGINDA calisir: `status()` acici surecin bitmesini bekler;
+/// menu/IPC is parcacigi bloklanmamalidir.
+fn reveal_in_file_manager(app: &AppHandle, path: &Path) {
+    let path = path.to_path_buf();
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let dir = path
+            .parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| downloads_dir(&handle));
+
+        // Dosya tasinmis/silinmis: klasoru ac ve sebebini soyle.
+        if !path.exists() {
+            eprintln!(
+                "[{}][indirme] dosya yok, klasor aciliyor: {}",
+                APP_KEY,
+                path.display()
+            );
+            match open_native(&dir.to_string_lossy()) {
+                Ok(()) => page_toast(
+                    &handle,
+                    "Dosya bulunamadı (taşınmış olabilir) — İndirilenler klasörü açıldı.",
+                ),
+                Err(e) => report_open_failure(&handle, &dir.to_string_lossy(), &e),
+            }
+            return;
+        }
+
+        match reveal_native(&path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("[{}][indirme] klasorde gosterilemedi: {}", APP_KEY, e);
+                // Yedek: en azindan klasoru ac.
+                match open_native(&dir.to_string_lossy()) {
+                    Ok(()) => page_toast(&handle, "Dosya seçili açılamadı — klasör açıldı."),
+                    Err(e2) => {
+                        report_open_failure(&handle, &path.to_string_lossy(), &format!("{e} · {e2}"))
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// 4 kabugun ortak kullandigi WebView veri klasoru (cerez/oturum deposu).
@@ -1670,16 +1892,25 @@ fn bogahost_notify_feed(
     items: Vec<FeedItem>,
     unread: Option<i64>,
 ) -> Result<(), String> {
+    NOTIFY_FEED_CALLS.fetch_add(1, Ordering::SeqCst);
+    diag_mark(&NOTIFY_LAST_FEED);
+
     set_badge(&app, unread);
 
     if items.is_empty() {
+        eprintln!(
+            "[{}][notify] besleme: 0 kayit (yalnizca rozet: {:?})",
+            APP_KEY, unread
+        );
         return Ok(());
     }
 
     // `first_run` = kalici liste HENUZ YOK (ilk kurulum ya da temizlenmis
     // yapilandirma). O turda gecmis besleme TOPLUCA duyurulmaz.
     let (mut seen, first_run) = notify_seen_load(&app);
+    let seen_before = seen.len();
 
+    let mut skipped_old = 0usize;
     let mut fresh: Vec<&FeedItem> = Vec::new();
     for item in &items {
         if item.key.trim().is_empty() || seen.iter().any(|k| k == &item.key) {
@@ -1689,10 +1920,23 @@ fn bogahost_notify_feed(
         // elenen eski kayit sonraki turda geri gelmesin.
         seen.push(item.key.clone());
         if first_run && item.age_s.unwrap_or(0) > NOTIFY_FIRST_RUN_MAX_AGE {
+            skipped_old += 1;
             continue;
         }
         fresh.push(item);
     }
+    if skipped_old > 0 {
+        NOTIFY_FIRST_RUN_SKIPPED.fetch_add(skipped_old, Ordering::SeqCst);
+    }
+    eprintln!(
+        "[{}][notify] besleme: {} kayit · {} yeni · {} eski-elendi · {} bilinen anahtar{}",
+        APP_KEY,
+        items.len(),
+        fresh.len(),
+        skipped_old,
+        seen_before,
+        if first_run { " (ILK CALISTIRMA)" } else { "" }
+    );
 
     // Halka tampon: en eski anahtarlar dusuruluyor.
     if seen.len() > NOTIFY_SEEN_MAX {
@@ -1753,14 +1997,29 @@ fn notify_state_path(app: &AppHandle) -> Option<PathBuf> {
 
 /// Kalici "gosterildi" listesini okur.
 ///
-/// Ikinci deger ILK CALISTIRMA bayragidir (dosya yok ya da okunamadi) — cagiran
-/// o turda gecmis kayitlari duyurmaz.
+/// Ikinci deger ILK CALISTIRMA bayragidir — cagiran o turda gecmis kayitlari
+/// duyurmaz.
+///
+/// DIKKAT (v1.9.7 hatasi): eskiden dosya OKUNAMADIGINDA da `true` donuyordu.
+/// Dosya bozuk/erisilemez kaldigi surece HER TUR "ilk calistirma" sayiliyor ve
+/// yas filtresi bildirimleri SESSIZCE yutuyordu. Artik yalnizca dosya GERCEKTEN
+/// YOKKEN ilk calistirmadir; okuma hatasi ise gunluge yazilir ve bildirimler
+/// SUSTURULMAZ (kacirmaktansa gostermek yeglenir — tekillestirme id bazlidir).
 fn notify_seen_load(app: &AppHandle) -> (Vec<String>, bool) {
     let Some(path) = notify_state_path(app) else {
+        eprintln!("[{}][notify] yapilandirma klasoru yok", APP_KEY);
         return (Vec::new(), true);
     };
-    let Ok(raw) = std::fs::read_to_string(&path) else {
+    if !path.exists() {
         return (Vec::new(), true);
+    }
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        eprintln!(
+            "[{}][notify] durum dosyasi OKUNAMADI ({}) — bildirimler susturulmuyor",
+            APP_KEY,
+            path.display()
+        );
+        return (Vec::new(), false);
     };
     let keys = serde_json::from_str::<serde_json::Value>(&raw)
         .ok()
@@ -1803,12 +2062,112 @@ fn start_notify_clock(app: &AppHandle) {
         if RESTART_IN_PROGRESS.load(Ordering::SeqCst) || UPDATE_INSTALLING.load(Ordering::SeqCst) {
             continue;
         }
-        if let Some(window) = handle.get_webview_window("main") {
-            let _ = window.eval(
-                "try { window.__bogahostFeedTick && window.__bogahostFeedTick(); } catch (e) {}",
-            );
+        let Some(window) = handle.get_webview_window("main") else {
+            eprintln!("[{}][notify] tur atlandi: ana pencere yok", APP_KEY);
+            continue;
+        };
+        NOTIFY_TICKS.fetch_add(1, Ordering::SeqCst);
+        diag_mark(&NOTIFY_LAST_TICK);
+        // Sayfa tarafi her turda NE YAPTIGINI `bogahost_notify_diag` ile bildirir;
+        // boylece "eval dustu mu, fetch mi dustu, kayit mi yoktu" ayirt edilebilir.
+        if let Err(e) = window.eval(
+            "try { window.__bogahostFeedTick && window.__bogahostFeedTick(); } catch (e) {}",
+        ) {
+            eprintln!("[{}][notify] eval basarisiz: {}", APP_KEY, e);
+            diag_set(&NOTIFY_LAST_STAGE, &format!("eval hatasi: {e}"));
         }
     });
+}
+
+/// Sayfa tarafinin yoklama asamasini bildirdigi kanal (yalnizca TESHIS).
+///
+/// Hicbir sey gostermez, hicbir sey degistirmez: tepsideki "Bildirim durumu…"
+/// ogesi ve `stderr` gunlugu icin son asamayi saklar. Zincirin sayfa tarafinda
+/// kopmasi (oturum dususu, geri cekilme, panel disi sayfa) BURADAN gorunur.
+#[tauri::command]
+fn bogahost_notify_diag(stage: String, detail: Option<String>) {
+    let line = match detail.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => format!("{stage} — {d}"),
+        None => stage.clone(),
+    };
+    diag_set(&NOTIFY_LAST_STAGE, &line);
+    eprintln!("[{}][notify] sayfa: {}", APP_KEY, line);
+}
+
+/// ELLE TEST: tek tikla native bildirim gonderir (tepsi menusu).
+///
+/// NEDEN: "bildirim hic gelmiyor" sikayetinde iki ayri arizanin ayrilmasi
+/// gerekir — (a) isletim sistemi/izin tarafi, (b) yoklama zinciri. Bu oge
+/// YALNIZCA (a)'yi dener: bildirim gorunuyorsa OS tarafi saglamdir ve sorun
+/// yoklamadadir; gorunmuyorsa sorun izin/OS tarafindadir ve sayfada cikan
+/// kutudaki "Sistem Ayarlarını Aç" dugmesi dogrudan oraya goturur.
+fn send_test_notification(app: &AppHandle) {
+    let n = NOTIFY_SHOWN.load(Ordering::SeqCst) + 1;
+    notify(
+        app,
+        APP_TITLE,
+        &format!(
+            "Test bildirimi #{n} — bunu gördüyseniz masaüstü bildirimleri ÇALIŞIYOR."
+        ),
+    );
+
+    // Bildirim isletim sistemi tarafindan yutulursa kullanici sebebini gorsun.
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(
+            "try { window.__bogahostActionBox && window.__bogahostActionBox(\
+             \"Test bildirimi gönderildi\",\
+             \"Masaüstünde bir bildirim görmediyseniz izin kapalıdır: Sistem Ayarları \u{25b8} Bildirimler listesinden bu uygulamayı bulup açın.\",\
+             \"Sistem Ayarlarını Aç\", \"notifications\"); } catch (e) {}",
+        );
+        // Ayrica GERCEK beslemeyi de hemen bir kez yoklat (bekleme kalmasin).
+        let _ = w.eval("try { window.__bogahostFeedNow && window.__bogahostFeedNow(); } catch (e) {}");
+    }
+}
+
+/// Tepsi: "Bildirim durumu…" — zincirin her halkasini TEK ekranda gosterir.
+fn show_notify_diag(app: &AppHandle) {
+    let (keys, first_run) = notify_seen_load(app);
+    let path = notify_state_path(app)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "—".to_string());
+
+    let message = format!(
+        "1) Yoklama saati (Rust, {}sn)\n   tur: {} · son tur: {}\n\n\
+         2) Sayfa tarafı\n   son durum: {}\n\n\
+         3) Köprü (invoke)\n   çağrı: {} · son çağrı: {}\n\n\
+         4) Masaüstü bildirimi\n   gönderilen: {} · son: {}\n   son başlık: {}\n\n\
+         5) Tekilleştirme\n   kayıtlı anahtar: {}{}\n   dosya: {}\n   ilk turda elenen: {}\n\n\
+         İzin: masaüstünde eklenti izin durumunu bildirmez (her zaman \"granted\" der).\n\
+         Gerçek durumu ölçmek için \"Test bildirimi gönder\" öğesini kullanın.",
+        NOTIFY_POLL_INTERVAL.as_secs(),
+        NOTIFY_TICKS.load(Ordering::SeqCst),
+        diag_ago(&NOTIFY_LAST_TICK),
+        diag_text(&NOTIFY_LAST_STAGE),
+        NOTIFY_FEED_CALLS.load(Ordering::SeqCst),
+        diag_ago(&NOTIFY_LAST_FEED),
+        NOTIFY_SHOWN.load(Ordering::SeqCst),
+        diag_ago(&NOTIFY_LAST_SHOWN),
+        diag_text(&NOTIFY_LAST_TITLE),
+        keys.len(),
+        if first_run { " (henüz dosya yok)" } else { "" },
+        path,
+        NOTIFY_FIRST_RUN_SKIPPED.load(Ordering::SeqCst),
+    );
+
+    let handle = app.clone();
+    app.dialog()
+        .message(message)
+        .title(format!("{APP_TITLE} — Bildirim durumu"))
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Bildirim ayarlarını aç".to_string(),
+            "Kapat".to_string(),
+        ))
+        .show(move |open| {
+            if open {
+                open_notification_settings(&handle);
+            }
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,9 +2187,11 @@ fn bogahost_open_settings(app: AppHandle, kind: String) -> Result<(), String> {
     let Some(target) = settings_url(&kind) else {
         return Ok(());
     };
-    app.shell()
-        .open(target.to_string(), None)
-        .map_err(|e| e.to_string())
+    // `x-apple.systempreferences:` / `ms-settings:` adresleri shell eklentisinin
+    // varsayilan suzgecini GECEMEZ (bkz. `open_native` notu) — bu yuzden ayar
+    // dugmeleri v1.9.7'ye kadar hicbir sey yapmiyordu.
+    open_target_reported(&app, target);
+    Ok(())
 }
 
 /// `bogahost_open_settings` icin platforma gore ayar adresi.
@@ -2289,7 +2650,16 @@ const INIT_SCRIPT: &str = r#"
   try {
     window.__bogahostDownloadDone = function (name, folder) {
       toast(name + ' → İndirilenler klasörüne kaydedildi', 'Klasörde göster', function () {
-        invoke('bogahost_reveal_download', {}).catch(function () {});
+        // SESSIZ YUTMA YOK: kopru dusrse kullanici SEBEBINI gorsun
+        // (v1.9.7'ye kadar `catch(function(){})` ile yutuluyordu ve dugme
+        // "hicbir tepki vermiyor" gibi gorunuyordu).
+        try {
+          invoke('bogahost_reveal_download', {}).catch(function (e) {
+            toast('Klasör açılamadı: ' + ((e && e.message) ? e.message : e));
+          });
+        } catch (e2) {
+          toast('Klasör açılamadı (köprü yok).');
+        }
       });
       try { console.log('[bogahost] indirildi:', folder); } catch (e) {}
     };
@@ -2987,6 +3357,19 @@ const EXTRA_SCRIPT: &str = r#"
     try { console.warn('[bogahost]', msg); } catch (e2) {}
   }
 
+  // TESHIS: bildirim yolunun sayfa tarafindaki her asamasi Rust'a bildirilir
+  // (tepsi > "Bildirim durumu…" ve stderr gunlugu). Hicbir sey GOSTERMEZ.
+  // NEDEN: v1.9.7'ye kadar bu betikteki her hata bos `catch` ile yutuluyordu;
+  // "bildirim gelmiyor" sikayetinde zincirin nerede koptugu GORULEMIYORDU.
+  function diag(stage, detail) {
+    try {
+      invoke('bogahost_notify_diag', {
+        stage: String(stage),
+        detail: (detail == null ? null : String(detail))
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
   // =========================================================================
   // 1) EYLEMLI UYARI KUTUSU
   // =========================================================================
@@ -3104,7 +3487,13 @@ const EXTRA_SCRIPT: &str = r#"
   var FEED_RE = /\/notifications(\/feed)?(\?|$)/;
   var feedSeenAt = 0;
   var chatCursor = null;
-  var halted = false;
+  // 401/403 sonrasi yoklamanin YENIDEN DENENECEGI an.
+  // v1.9.7'ye kadar `halted = true` KALICIYDI: tek bir 401 (ornegin oturum bir
+  // an dusmesi ya da yetki ara katmaninin bir turda 403 vermesi) yoklamayi
+  // sayfa yenilenene kadar TAMAMEN olduruyordu — kullanici acisindan
+  // "bildirimler bir daha hic gelmedi" demekti. Artik SURELI durur.
+  var haltedUntil = 0;
+  var HALT_MS = 300000;
   var backoff = 0;
 
   function APP_TITLE_SAFE() {
@@ -3126,18 +3515,23 @@ const EXTRA_SCRIPT: &str = r#"
     }
     var count = (typeof unread === 'number') ? unread : null;
     // Yeni kayit yoksa bile rozeti tazelemek icin sayiyi gonder.
-    if (!fresh.length && count === null) { return; }
-    try { invoke('bogahost_notify_feed', { items: fresh, unread: count }).catch(function () {}); } catch (e) {}
+    if (!fresh.length && count === null) { diag('kayit yok', list.length + ' kayit, hepsi bilinen'); return; }
+    diag('köprü', fresh.length + ' yeni / ' + list.length + ' kayıt · okunmamış=' + count);
+    try {
+      invoke('bogahost_notify_feed', { items: fresh, unread: count })
+        .catch(function (e) { diag('köprü HATASI', e && e.message ? e.message : e); });
+    } catch (e) { diag('köprü HATASI', 'invoke yok'); }
   }
 
   // DCIM / Finans / Görevler bicimi: {unread, items:[{id,title,body,url,read,age_s}]}
   function handleStandardFeed(d) {
     var items = (d && d.items) || [];
     var out = [];
+    var readSkipped = 0;
     for (var i = 0; i < items.length; i++) {
       var n = items[i];
       // Panelde ZATEN okunmus kaydi masaustunde duyurma.
-      if (n.read) { continue; }
+      if (n.read) { readSkipped++; continue; }
       out.push({
         key: 'feed:' + n.id,
         title: n.title || APP_TITLE_SAFE(),
@@ -3146,6 +3540,7 @@ const EXTRA_SCRIPT: &str = r#"
         age_s: n.age_s || 0
       });
     }
+    diag('besleme', items.length + ' kayıt · ' + readSkipped + ' okunmuş elendi');
     pushFeed(out, typeof d.unread === 'number' ? d.unread : null);
   }
 
@@ -3207,7 +3602,8 @@ const EXTRA_SCRIPT: &str = r#"
       // Bicimi ALANA gore ayirt et (URL'e degil): Chat farkli bir sema dondurur.
       if (Object.prototype.hasOwnProperty.call(data, 'items')) { handleStandardFeed(data); }
       else if (Object.prototype.hasOwnProperty.call(data, 'max_msg')) { handleChatFeed(data); }
-    } catch (e) {}
+      else { diag('şema TANINMADI', Object.keys(data).slice(0, 8).join(',')); }
+    } catch (e) { diag('şema HATASI', e && e.message ? e.message : e); }
   }
 
   // ---- Panelin KENDI yoklamasini dinle (ek istek yok) ----
@@ -3249,11 +3645,23 @@ const EXTRA_SCRIPT: &str = r#"
     return '/admin/notifications/feed';
   }
 
+  // Yoklama YALNIZCA panel sayfalarinda yapilir (giris/2FA ekraninda 401/302
+  // dongusu olusmasin).
+  //
+  // KALDIRILDI (v1.9.7 hatasi): eskiden "sayfada `input[type=password]` varsa
+  // panel degildir" varsayimi vardi. Panelin profil/sifre-degistirme formu,
+  // kasa/vault ekrani ya da herhangi bir gizli modal parola alani icerdiginde
+  // O SAYFADA yoklama TAMAMEN susuyordu — sebebi de hicbir yerde gorunmuyordu.
+  // Yerine ADRES tabanli, kapali bir liste kullanilir (Laravel rota adlariyla
+  // birebir: /admin/login, /admin/logout, /admin/2fa/…, /admin/erisim-engeli).
+  var NOT_PANEL_RE = /^\/admin\/(login|logout|2fa|erisim-engeli)(\/|$)/;
+
   function looksLikePanel() {
     try {
-      // Giris ekraninda yoklama YAPMA (401/302 dongusu olusmasin).
-      if (document.querySelector('input[type="password"]')) { return false; }
-      return String(location.pathname || '').indexOf('/admin') === 0;
+      var p = String(location.pathname || '');
+      if (p.indexOf('/admin') !== 0) { return false; }
+      if (NOT_PANEL_RE.test(p)) { return false; }
+      return true;
     } catch (e) { return false; }
   }
 
@@ -3263,22 +3671,34 @@ const EXTRA_SCRIPT: &str = r#"
   // gosterilmez, yalnizca konsola yazilir. Her turda hata bildirimi CIKMAZ.
   window.__bogahostFeedTick = function () {
     try {
-      // Oturum/yetki yok: yoklama TAMAMEN durdu (sayfa yenilenince sifirlanir).
-      if (halted) { return; }
+      // Oturum/yetki yok: yoklama SURELI durdu (kalici DEGIL — bkz. haltedUntil).
+      if (Date.now() < haltedUntil) {
+        diag('atlandı', 'oturum/yetki yok · ' + Math.round((haltedUntil - Date.now()) / 1000) + ' sn sonra yeniden');
+        return;
+      }
       // Giris ekrani / panel disi sayfa.
-      if (!looksLikePanel()) { return; }
+      if (!looksLikePanel()) { diag('atlandı', 'panel dışı sayfa: ' + location.pathname); return; }
       // Sunucu bogulmus -> ustel geri cekilme suresi dolmadi.
-      if (backoff > Date.now()) { return; }
+      if (backoff > Date.now()) {
+        diag('atlandı', 'geri çekilme · ' + Math.round((backoff - Date.now()) / 1000) + ' sn');
+        return;
+      }
       // Panel PENCERE ACIKKEN kendisi yokluyor (son 60 sn icinde yanit gorduk):
-      // ayni ucu ikinci kez cagirip sunucuyu yorma.
-      if (feedSeenAt && (Date.now() - feedSeenAt) < 60000) { return; }
+      // ayni ucu ikinci kez cagirip sunucuyu yorma. (Panel `document.hidden`
+      // iken kendi yoklamasini durdurur; o an bu kosul kendiliginden dusar.)
+      if (feedSeenAt && (Date.now() - feedSeenAt) < 60000) {
+        diag('atlandı', 'panelin kendi yoklaması ' + Math.round((Date.now() - feedSeenAt) / 1000) + ' sn önce görüldü');
+        return;
+      }
 
+      diag('yoklanıyor', feedUrl());
       nativeFetch(feedUrl(), {
         credentials: 'same-origin',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       }).then(function (res) {
         if (res.status === 401 || res.status === 403) {
-          halted = true;
+          haltedUntil = Date.now() + HALT_MS;
+          diag('durdu', res.status + ' oturum/yetki yok — 5 dk sonra yeniden');
           console.warn('[bogahost] bildirim yoklamasi durdu: oturum/yetki yok');
           return null;
         }
@@ -3291,9 +3711,22 @@ const EXTRA_SCRIPT: &str = r#"
       }).catch(function (e) {
         // Ag yok / DNS / TLS: sessizce geri cekil.
         backoffBump(0);
+        diag('yoklama HATASI', e && e.message ? e.message : e);
         console.warn('[bogahost] bildirim yoklamasi basarisiz:', e);
       });
-    } catch (e) {}
+    } catch (e) { diag('yoklama HATASI', e && e.message ? e.message : e); }
+  };
+
+  // ELLE tetikleme: tum bekleme/geri cekilme sayaclarini sifirlar ve HEMEN
+  // yoklar. Tepsideki "Test bildirimi gönder" bunu da cagirir — kullanici
+  // 45 sn'lik turu beklemeden gercek beslemeyi de denemis olur.
+  window.__bogahostFeedNow = function () {
+    haltedUntil = 0;
+    backoff = 0;
+    backoffStep = 0;
+    feedSeenAt = 0;
+    diag('elle yoklama', 'tepsiden tetiklendi');
+    try { window.__bogahostFeedTick(); } catch (e) {}
   };
 
   // Ustel geri cekilme: 90 sn -> 3 dk -> 6 dk ... en fazla 15 dk.
@@ -3301,6 +3734,7 @@ const EXTRA_SCRIPT: &str = r#"
   function backoffBump(status) {
     backoffStep = Math.min(backoffStep ? backoffStep * 2 : 90000, 900000);
     backoff = Date.now() + backoffStep;
+    diag('ertelendi', 'HTTP ' + status + ' · ' + Math.round(backoffStep / 1000) + ' sn');
     console.warn('[bogahost] bildirim yoklamasi ertelendi (' + status + ')');
   }
 
@@ -4603,9 +5037,8 @@ fn bogahost_save_file(
 
     if open_after.unwrap_or(false) {
         // WebView'de gosterilemeyen turler (PDF vb.) sistem uygulamasinda acilir.
-        let _ = app
-            .shell()
-            .open(target.to_string_lossy().to_string(), None);
+        // DOSYA YOLU -> shell eklentisi DEGIL (bkz. `open_native` notu).
+        open_path_reported(&app, &target);
     }
 
     Ok(target.to_string_lossy().to_string())
@@ -4614,13 +5047,24 @@ fn bogahost_save_file(
 /// Sayfadaki indirme bilgi mesajinin "Klasörde göster" dugmesi.
 /// Son indirilen dosyayi dosya yoneticisinde SECILI acar; kayit yoksa
 /// dogrudan Indirilenler klasorunu acar.
+///
+/// SESSIZ DEGIL: hicbir yol tutmazsa kullaniciya sebebi bildirilir
+/// (bkz. `reveal_in_file_manager` / `report_open_failure`).
 #[tauri::command]
 fn bogahost_reveal_download(app: AppHandle) -> Result<(), String> {
     match last_download(&app) {
-        Some(p) => reveal_in_file_manager(&app, &p),
+        Some(p) => {
+            eprintln!("[{}][indirme] klasorde goster: {}", APP_KEY, p.display());
+            reveal_in_file_manager(&app, &p);
+        }
         None => {
             let dir = downloads_dir(&app);
-            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+            eprintln!(
+                "[{}][indirme] kayitli dosya yok, klasor aciliyor: {}",
+                APP_KEY,
+                dir.display()
+            );
+            open_path_reported(&app, &dir);
         }
     }
     Ok(())
@@ -4777,7 +5221,8 @@ async fn bogahost_fetch_download(
     remember_download(&app, &target);
     notify_download_saved(&app, &target);
     if open_after.unwrap_or(false) {
-        let _ = app.shell().open(target.to_string_lossy().to_string(), None);
+        // DOSYA YOLU -> shell eklentisi DEGIL (bkz. `open_native` notu).
+        open_path_reported(&app, &target);
     }
     Ok(target.to_string_lossy().to_string())
 }
@@ -5275,9 +5720,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "view-zoom-in" => apply_zoom(app, 0.1),
         "view-zoom-out" => apply_zoom(app, -0.1),
         "view-zoom-reset" => set_zoom(app, 1.0),
+        // Klasor/dosya yollari shell eklentisinden GECMEZ (bkz. `open_native`).
         "downloads-folder" => {
             let dir = downloads_dir(app);
-            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+            open_path_reported(app, &dir);
         }
         "downloads-last" => {
             // Dosyayi klasorde SECILI gosterir (Finder / Explorer).
@@ -5285,30 +5731,22 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 Some(p) => reveal_in_file_manager(app, &p),
                 None => {
                     let dir = downloads_dir(app);
-                    let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+                    open_path_reported(app, &dir);
                 }
             }
         }
+        // Izin durumu HICBIR masaustu platformunda okunamadigi icin (bkz.
+        // `refresh_notification_menu`) tiklama HER ZAMAN sistem ayarini acar.
+        // "Acik" iddia edip kullaniciyi yaniltmaktansa dogrudan yol gosterilir.
         "notify-status" => {
-            // Windows'ta durum guvenilir okunamaz (yukaridaki nota bakin):
-            // tiklama HER ZAMAN ayarlari acar.
-            let granted = if cfg!(target_os = "windows") {
-                false
-            } else {
-                notification_granted(app)
-            };
-            if granted {
-                notify(
-                    app,
-                    APP_TITLE,
-                    "Bildirimler açık. Panel bildirimleri masaüstünde gösteriliyor.",
-                );
-            } else {
-                open_notification_settings(app);
-            }
+            open_notification_settings(app);
             let h = app.clone();
             std::thread::spawn(move || refresh_notification_menu(&h));
         }
+        // Tek tikla native bildirim — izin/OS tarafi ile yoklama zincirini ayirir.
+        "notify-test" => send_test_notification(app),
+        // Zincirin her halkasinin son durumu (yoklama / sayfa / kopru / gosterim).
+        "notify-diag" => show_notify_diag(app),
         // Bildirime tiklama olayi olmadigi icin hedef adres BURADAN acilir.
         "notify-last-open" => {
             let target = app
@@ -5643,6 +6081,19 @@ fn ensure_notification_permission(app: &AppHandle) {
             APP_TITLE,
             "Bildirimler açıldı. Panel bildirimleri artık masaüstünde gösterilecek.",
         );
+        // DIKKAT: `granted` masaustunde HER ZAMAN true'dur (eklenti sabit deger
+        // dondurur — bkz. `refresh_notification_menu`). Yani yukaridaki bildirim
+        // isletim sistemi tarafindan SESSIZCE yutulmus olabilir. Bu yuzden ilk
+        // acilista sayfada gorunur bir dogrulama kutusu birakilir: kullanici
+        // bildirimi gormediyse tek dugmeyle ayarlara gider.
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.eval(
+                "try { window.__bogahostActionBox && window.__bogahostActionBox(\
+                 \"Bildirimler açıldı\",\
+                 \"Şimdi bir deneme bildirimi gönderildi. Masaüstünde görmediyseniz izin kapalıdır — aşağıdaki düğmeyle açabilirsiniz. (Tepsi menüsü \u{25b8} Test bildirimi gönder)\",\
+                 \"Sistem Ayarlarını Aç\", \"notifications\"); } catch (e) {}",
+            );
+        }
     }
 
     // Izin REDDEDILDIYSE sessiz kalma: sayfada aciklama + "Bildirim Ayarlarını
@@ -5673,24 +6124,20 @@ fn show_notification_denied_box(app: &AppHandle) {
 
 /// Tepsi menusundeki "Bildirimler: ..." ogesinin etiketini gunceller.
 ///
-/// DURUSTLUK NOTU: `tauri-plugin-notification`, Windows masaustunde bir izin
-/// kavrami OLMADIGI icin `permission_state()` cagrisindan HER ZAMAN `Granted`
-/// dondurur. Bunu "Bildirimler: açık" diye gostermek YANILTICIDIR — kullanici
-/// Windows Ayarlar'dan bildirimleri kapatmis olabilir ve uygulama bunu goremez.
-/// Bu yuzden Windows'ta durum IDDIA EDILMEZ, ayara YONLENDIRILIR.
+/// DURUSTLUK NOTU (v1.9.7'de DUZELTILDI): eskiden bu etiket macOS/Linux'ta
+/// `notification_granted()` sonucuna gore "Bildirimler: açık / kapalı" diyordu.
+/// Bu bilgi UYDURMAYDI: `tauri-plugin-notification` v2'nin MASAUSTU uygulamasi
+/// (plugins-workspace/plugins/notification/src/desktop.rs) `permission_state()`
+/// ve `request_permission()` cagrilarindan SABIT olarak `Granted` dondurur —
+/// yalnizca Windows'ta degil, HER masaustu platformunda. Yani izin gercekte
+/// KAPALIYKEN de menude "açık" yaziyordu ve kullanici bildirimlerin neden
+/// gelmedigini asla goremiyordu.
+///
+/// Artik durum IDDIA EDILMEZ: oge dogrudan sistem ayarina goturur, gercek durum
+/// ise "Test bildirimi gönder" (gorunur mu?) ve "Bildirim durumu…" (zincirin
+/// hangi halkasi calisiyor?) ile OLCULUR.
 fn refresh_notification_menu(app: &AppHandle) {
-    #[cfg(target_os = "windows")]
-    let label = {
-        let _ = notification_granted(app);
-        "Bildirimler: Windows ayarlarından yönetilir"
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    let label = if notification_granted(app) {
-        "Bildirimler: açık"
-    } else {
-        "Bildirimler: kapalı (ayarları aç)"
-    };
+    let label = "Bildirim ayarlarını aç";
     if let Some(state) = app.try_state::<AppState>() {
         if let Ok(items) = state.notify_items.lock() {
             for item in items.iter() {
@@ -5701,6 +6148,11 @@ fn refresh_notification_menu(app: &AppHandle) {
 }
 
 /// Sistem bildirim ayarlarini acar.
+///
+/// `x-apple.systempreferences:` / `ms-settings:` adresleri shell eklentisinin
+/// varsayilan suzgecini GECEMEZ (bkz. `open_native` notu): v1.9.7'ye kadar
+/// tepsideki "Bildirimler: kapalı (ayarları aç)" ogesi TIKLANINCA HICBIR SEY
+/// YAPMIYORDU — yani izin kapali olan kullanicinin onarma yolu da kapaliydi.
 fn open_notification_settings(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     let url = "x-apple.systempreferences:com.apple.preference.notifications";
@@ -5709,7 +6161,7 @@ fn open_notification_settings(app: &AppHandle) {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let url = "https://bogahost.com/";
 
-    let _ = app.shell().open(url.to_string(), None);
+    open_target_reported(app, url);
 }
 
 /// Son BILINEN surumun saklandigi dosya (uygulama yapilandirma klasoru).
@@ -6372,18 +6824,35 @@ async fn check_update_legacy(app: AppHandle, verbose: bool) {
 /// Native bildirim gosterir.
 /// macOS bildirim API'si ANA THREAD'den cagrilmalidir; bu yuzden gosterim
 /// `run_on_main_thread` ile kuyruga alinir (cagiran thread BLOKLANMAZ).
+///
+/// SESSIZ DEGIL: bu zincirin son halkasidir ve v1.9.7'ye kadar hem kuyruklama
+/// hem gosterim hatasini `let _ =` ile yutuyordu. Artik her iki hata da
+/// `stderr`e yazilir ve tepsideki "Bildirim durumu…" ogesinde gorunur.
 fn notify(app: &AppHandle, title: &str, body: &str) {
     let handle = app.clone();
     let title = title.to_string();
     let body = body.to_string();
-    let _ = app.run_on_main_thread(move || {
-        let _ = handle
+
+    NOTIFY_SHOWN.fetch_add(1, Ordering::SeqCst);
+    diag_mark(&NOTIFY_LAST_SHOWN);
+    diag_set(&NOTIFY_LAST_TITLE, &title);
+    eprintln!("[{}][notify] gosteriliyor: {}", APP_KEY, title);
+
+    if let Err(e) = app.run_on_main_thread(move || {
+        if let Err(e) = handle
             .notification()
             .builder()
             .title(title)
             .body(body)
-            .show();
-    });
+            .show()
+        {
+            eprintln!("[{}][notify] isletim sistemi reddetti: {}", APP_KEY, e);
+            diag_set(&NOTIFY_LAST_STAGE, &format!("OS hatasi: {e}"));
+        }
+    }) {
+        eprintln!("[{}][notify] ana thread'e kuyruklanamadi: {}", APP_KEY, e);
+        diag_set(&NOTIFY_LAST_STAGE, &format!("kuyruk hatasi: {e}"));
+    }
 }
 
 /// "1.2.0" tarzi surumleri sayisal parcalara ayirir ("v" oneki ve ekler tolere edilir).
