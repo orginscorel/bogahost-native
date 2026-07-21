@@ -1872,7 +1872,9 @@ fn remember_notify_url(app: &AppHandle, url: Option<&str>) {
 /// Sayfanin normallestirdigi tek besleme kaydi.
 #[derive(serde::Deserialize)]
 struct FeedItem {
-    /// Kayit basina BENZERSIZ anahtar ("feed:123", "msg:45", "conv:9").
+    /// Kayit basina BENZERSIZ anahtar ("feed:123", "feed:conv-9", "feed:int-7").
+    /// Ayni kaydin iki farkli yoldan (panelin yoklamasi / kabugun yoklamasi)
+    /// gelmesi halinde anahtar AYNI olmalidir — yoksa iki kez bildirilir.
     key: String,
     title: Option<String>,
     body: Option<String>,
@@ -2626,6 +2628,35 @@ const INIT_SCRIPT: &str = r#"
     if (!inDocumentView()) { return; }
     clearDocumentMark();
     goBackToPanel();
+  }, true);
+
+  // ---- KLAVYEDEN KESIN KACIS: Ctrl/Cmd + Shift + H -> panele don ----
+  //
+  // NEDEN: "Panele dön" ogesi menu cubugunda `CmdOrCtrl+Shift+H` hizlandiricisi
+  // ile tanimlidir; ancak WINDOWS'ta uygulama menu cubugu YOKTUR (menu yalnizca
+  // tepside gorunur) ve TEPSI menusu hizlandirici DINLEMEZ. Yani Windows'ta o
+  // kisayol pratikte HIC calismiyordu. Burada sayfa tarafinda baglanir:
+  // hicbir IPC/komut gerektirmez, ACL bozuk olsa bile calisir.
+  //
+  // Sayfa kisayollariyla catismaz: paneller Ctrl+Shift+H kullanmiyor ve olay
+  // yalnizca ucu birlikte basildiginda yakalanir.
+  document.addEventListener('keydown', function (ev) {
+    try {
+      // ALT CERCEVEDE calistirma: `location.href` orada IFRAME'i gezdirir,
+      // pencereyi degil (betik Windows'ta alt cercevelere de enjekte edilir).
+      if (!isTopFrame) { return; }
+      if (!ev.shiftKey || !(ev.ctrlKey || ev.metaKey) || ev.altKey) { return; }
+      var k = String(ev.key || '').toLowerCase();
+      if (k !== 'h' && ev.keyCode !== 72) { return; }
+      ev.preventDefault();
+      // Onizleme penceresindeysek "panele donmek" pencereyi KAPATMAKTIR.
+      if (typeof window.__bogahostClosePreview === 'function') {
+        window.__bogahostClosePreview();
+        return;
+      }
+      clearDocumentMark();
+      try { location.href = panelHomeHref(); } catch (e2) {}
+    } catch (e) {}
   }, true);
 
   // Serit: `document.body` gec olusabilecegi icin birkac saniye denenir.
@@ -3486,7 +3517,6 @@ const EXTRA_SCRIPT: &str = r#"
   // ile ucretsiz dinlenir, kendi istegimiz ATLANIR (sunucuya ek yuk binmez).
   var FEED_RE = /\/notifications(\/feed)?(\?|$)/;
   var feedSeenAt = 0;
-  var chatCursor = null;
   // 401/403 sonrasi yoklamanin YENIDEN DENENECEGI an.
   // v1.9.7'ye kadar `halted = true` KALICIYDI: tek bir 401 (ornegin oturum bir
   // an dusmesi ya da yetki ara katmaninin bir turda 403 vermesi) yoklamayi
@@ -3523,7 +3553,8 @@ const EXTRA_SCRIPT: &str = r#"
     } catch (e) { diag('köprü HATASI', 'invoke yok'); }
   }
 
-  // DCIM / Finans / Görevler bicimi: {unread, items:[{id,title,body,url,read,age_s}]}
+  // Standart bicim — 4 uygulamanin TAMAMI (Chat dahil, 2026-07-21'den beri):
+  // {unread, items:[{id,title,body,url,read,age_s}]}
   function handleStandardFeed(d) {
     var items = (d && d.items) || [];
     var out = [];
@@ -3544,52 +3575,68 @@ const EXTRA_SCRIPT: &str = r#"
     pushFeed(out, typeof d.unread === 'number' ? d.unread : null);
   }
 
-  // Chat bicimi: {ok, init, messages:[], new_conversations:[], internal_messages:[], max_*}
+  // Chat bicimi: {ok, init, messages:[], new_conversations:[],
+  //               internal_messages:[], max_*, waiting, unread}
+  //
+  // BU YOL YALNIZCA panelin KENDI yoklamasini dinlerken kullanilir (yukaridaki
+  // `fetch` sarmalayicisi). Kabugun KENDI yoklamasi artik 4 uygulamada da
+  // standart `/admin/notifications/feed` ucunu cagirir — bkz. `feedUrl`.
+  //
+  // Anahtarlar standart yoldakiyle AYNI bicimdedir ("feed:conv-12",
+  // "feed:msg-45", "feed:int-7"): ayni kayit iki yoldan gelse bile Rust'taki
+  // kalici tekillestirme onu TEK kayit sayar, iki bildirim CIKMAZ.
   function handleChatFeed(d) {
     if (!d || d.ok !== true) { return; }
-    // Imleci HER yanittan tazele (yedek yoklama bunu kullanir).
-    chatCursor = {
-      msg: d.max_msg || 0,
-      conv: d.max_conv || 0,
-      internal: d.max_internal || 0
-    };
-    // Ilk cagri yalnizca imlec kurar — gecmis TOPLUCA gosterilmez.
-    if (d.init) { return; }
+
+    // Rozet sayisi: sunucunun verdigi toplam okunmamis (karsilanmamis sohbet +
+    // okunmamis personel ic mesaji). `unread` alani olmayan eski sunucu
+    // surumlerinde `waiting`e duser.
+    var count = (typeof d.unread === 'number') ? d.unread
+              : ((typeof d.waiting === 'number') ? d.waiting : null);
+
+    // Ilk cagri yalnizca imlec kurar — gecmis TOPLUCA gosterilmez. ROZET YINE DE
+    // yazilir: eskiden bu turda `return` edildigi icin uygulama acilisinda Dock
+    // rozeti ilk gercek olaya kadar BOS kaliyordu.
+    if (d.init) { pushFeed([], count); return; }
 
     var out = [];
     var convs = d.new_conversations || [];
     for (var a = 0; a < convs.length; a++) {
       out.push({
-        key: 'conv:' + convs[a].id,
+        key: 'feed:conv-' + convs[a].id,
         title: 'Yeni sohbet · ' + (convs[a].visitor || 'Ziyaretçi'),
         body: convs[a].preview || 'Sohbet başladı',
-        url: '/admin/chats?c=' + convs[a].id,
-        age_s: 0
+        // Sohbet ekrani derin baglantiyi `?open=` ile okur (`?c=` YOK SAYILIR).
+        url: '/admin/chats?open=' + convs[a].id,
+        age_s: convs[a].age_s || 0
       });
     }
     var msgs = d.messages || [];
     for (var b = 0; b < msgs.length; b++) {
       out.push({
-        key: 'msg:' + msgs[b].id,
+        key: 'feed:msg-' + msgs[b].id,
         title: msgs[b].visitor || 'Ziyaretçi',
         body: msgs[b].preview || 'Yeni mesaj',
-        url: '/admin/chats?c=' + msgs[b].conversation_id,
-        age_s: 0
+        url: '/admin/chats?open=' + msgs[b].conversation_id,
+        age_s: msgs[b].age_s || 0
       });
     }
+    // Personeller arasi IC SOHBET: ekip kanali "Ekip · Ahmet", birebir "Ahmet".
+    // Tiklaninca dogru kanala gider (birebirde gonderen `peer` olarak acilir).
     var ints = d.internal_messages || [];
     for (var c = 0; c < ints.length; c++) {
+      var team = !!ints[c].team;
       out.push({
-        key: 'int:' + ints[c].id,
-        title: 'Personel · ' + (ints[c].from || 'Ekip'),
-        body: ints[c].preview || '',
-        url: '/admin/internal',
-        age_s: 0
+        key: 'feed:int-' + ints[c].id,
+        title: (team ? 'Ekip · ' : '') + (ints[c].from || 'Personel'),
+        body: ints[c].preview || 'Yeni personel mesajı',
+        url: team ? '/admin/internal' : ('/admin/internal?peer=' + ints[c].peer),
+        age_s: ints[c].age_s || 0
       });
     }
 
-    // Rozet: bekleyen (karsilanmamis) sohbet sayisi.
-    pushFeed(out, typeof d.waiting === 'number' ? d.waiting : null);
+    diag('chat beslemesi', out.length + ' kayıt · okunmamış=' + count);
+    pushFeed(out, count);
   }
 
   // `fromPanel` = yaniti PANEL istedi (biz degil). Yalnizca o durumda
@@ -3635,13 +3682,17 @@ const EXTRA_SCRIPT: &str = r#"
   }
 
   // ---- Kabugun KENDI yoklamasi (saat Rust'ta) ----
+  //
+  // 4 uygulamada da AYNI adres. Chat'e (2026-07-21) diger uc sistemle AYNI
+  // semada `/admin/notifications/feed` ucu eklendi; oncesinde Chat'e ozel,
+  // IMLECLI bir adres kullaniliyordu ve iki gercek sorunu vardi:
+  //   1) imlec ancak bir yanit gorulduginde kuruluyordu — uygulama acilisindaki
+  //      ilk tur yalnizca imlec kurmakla geciyordu (45 sn kayip),
+  //   2) kayitlarin YASI bilinmiyordu (age_s = 0), bu yuzden ILK calistirmada
+  //      Rust'in "eskiyi eleme" filtresi ise yaramiyor, gunler oncesinin
+  //      mesajlari masaustune dusebiliyordu.
+  // Standart uc her turda hem gercek `age_s` hem de toplam `unread` verir.
   function feedUrl() {
-    if (APP_KEY === 'chat') {
-      if (!chatCursor) { return '/admin/notifications'; }
-      return '/admin/notifications?after_msg=' + chatCursor.msg +
-             '&after_conv=' + chatCursor.conv +
-             '&after_internal=' + chatCursor.internal;
-    }
     return '/admin/notifications/feed';
   }
 
@@ -3691,7 +3742,7 @@ const EXTRA_SCRIPT: &str = r#"
         return;
       }
 
-      diag('yoklanıyor', feedUrl());
+      diag('yoklanıyor', (APP_KEY || '?') + ' · ' + feedUrl());
       nativeFetch(feedUrl(), {
         credentials: 'same-origin',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -4424,6 +4475,7 @@ const LOADING_OVERLAY_JS: &str = r#"
   var bodyTimer = null;
   var tries = 0;
   var done = false;
+  var recovered = false;
   var anims = [];
 
   function info() {
@@ -4745,8 +4797,115 @@ const LOADING_OVERLAY_JS: &str = r#"
     fadeOut(f);
   }
 
+  // ---- BEYAZ EKRAN EMNIYETI ------------------------------------------------
+  //
+  // KOK NEDEN (Windows/WebView2'de belirgin): gezinme basarisiz olur ya da
+  // sayfa BOS bir belge dondururse ekranda bomboş beyaz/koyu bir yuzey kalir.
+  // Katman `HARD_CAP` dolunca kendini kaldirdigi icin kullanicinin elinde
+  // HICBIR cikis yolu kalmiyordu (Windows'ta menu cubugu da YOKTUR).
+  //
+  // Cozum tamamen SAYFA TARAFIDIR: hicbir IPC/komut cagrilmaz — ACL, kopru ya
+  // da Rust tarafi tamamen bozuk olsa bile bu ekran cikar ve tiklanabilir.
+  function looksEmpty() {
+    try {
+      var b = document.body;
+      if (!b) { return true; }
+      // Katmanin kendi dugumleri <html>'e eklenir, <body>'ye DEGIL; bu yuzden
+      // asagidaki olcum sayfanin KENDI icerigini olcer.
+      if (String(b.innerText || '').replace(/\s+/g, '').length > 0) { return false; }
+      if (b.querySelector('img,svg,canvas,video,iframe,embed,object,input,button')) { return false; }
+      return b.children.length === 0;
+    } catch (e) { return false; }
+  }
+
+  function homeUrl() {
+    try { return String(location.origin) + '/admin'; } catch (e) { return '/admin'; }
+  }
+
+  function recoveryButton(label, primary, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.style.cssText = join([
+      'cursor:pointer', 'border:0', 'border-radius:10px', 'padding:11px 20px',
+      'font:600 13.5px -apple-system,"Segoe UI",Roboto,Arial,sans-serif',
+      'color:#fff',
+      'background:' + (primary ? BRAND : 'rgba(255,255,255,.16)')
+    ]);
+    b.onclick = onClick;
+    return b;
+  }
+
+  // Katmani "sayfa acilamadi" kurtarma ekranina cevirir.
+  function showRecovery() {
+    if (recovered) { return; }
+    recovered = true;
+    // Normal kaldirma yollarini kapat: Rust `HIDE_OVERLAY_SCRIPT` cagirsa bile
+    // bu ekran kullanici bir seye BASANA KADAR durur.
+    done = true;
+    try { clearTimeout(barTimer); } catch (e) {}
+    try { clearTimeout(capTimer); } catch (e) {}
+    try { clearTimeout(bodyTimer); } catch (e) {}
+    stopAnims();
+    drop(barEl); barEl = null;
+    drop(fullEl); fullEl = null; statusEl = null;
+
+    var r = root();
+    if (!r) { return; }
+    var wrap = document.createElement('div');
+    wrap.id = FULL_ID;
+    wrap.style.cssText = join([
+      'position:fixed', 'inset:0', 'left:0', 'top:0', 'right:0', 'bottom:0',
+      'z-index:2147483647', 'background:' + BG, 'color:' + FG,
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif',
+      'text-align:center', 'padding:24px'
+    ]);
+    var box = document.createElement('div');
+    box.style.cssText = 'max-width:420px;';
+
+    var h = document.createElement('div');
+    h.style.cssText = join(['font-size:19px', 'font-weight:650', 'margin-bottom:10px']);
+    h.textContent = 'Sayfa açılamadı';
+
+    var p = document.createElement('div');
+    p.style.cssText = join(['color:' + MUTED, 'margin-bottom:22px']);
+    p.textContent = shortName() + ' yüklenemedi ya da boş geldi. Bağlantınızı denetleyip yeniden deneyin.';
+
+    var row = document.createElement('div');
+    row.style.cssText = join(['display:flex', 'gap:10px', 'justify-content:center', 'flex-wrap:wrap']);
+    row.appendChild(recoveryButton('Yeniden dene', true, function () {
+      try { location.reload(); } catch (e) {}
+    }));
+    row.appendChild(recoveryButton('Panele dön', false, function () {
+      try { location.href = homeUrl(); } catch (e) {}
+    }));
+
+    box.appendChild(h);
+    box.appendChild(p);
+    box.appendChild(row);
+    wrap.appendChild(box);
+    try { r.appendChild(wrap); } catch (e) {}
+  }
+
+  // YANLIS POZITIF KORUMASI: tek olcum yetmez (agir paneller govdeyi gec
+  // doldurabilir). Bos gorunurse 2 sn sonra BIR KEZ daha bakilir; iki olcum de
+  // bos derse kurtarma ekrani cikar, aksi halde katman normal sekilde kalkar.
+  function emptyGuard(onStillEmpty, onFine) {
+    if (!looksEmpty()) { onFine(); return; }
+    setTimeout(function () {
+      if (looksEmpty()) { onStillEmpty(); } else { onFine(); }
+    }, 2000);
+  }
+
+  function capReached() {
+    emptyGuard(showRecovery, hide);
+  }
+
   window.__bogahostLoadingFull = showFull;
   window.__bogahostLoadingHide = hide;
+  // Tani/elle kurtarma icin disari acilir (tepsi ya da konsoldan cagrilabilir).
+  window.__bogahostRecovery = showRecovery;
 
   // Rust cagirir (acilis otomatik guncellemesi): katman gorunurken durum
   // metnini sabitler ("Güncelleniyor…"). Katman zaten kapandiysa zararsizca
@@ -4765,7 +4924,10 @@ const LOADING_OVERLAY_JS: &str = r#"
   // splash'i Rust `wake_overlay` (boot/switch) tarafindan `__bogahostLoadingFull`
   // uzerinden uyandirilir (v1.7.0'dan beri calisan, kanitlanmis yol).
   barTimer = setTimeout(showBar, BAR_DELAY);
-  capTimer = setTimeout(hide, HARD_CAP);
+  // ESKIDEN: `setTimeout(hide, HARD_CAP)` — katman kalkiyor, sayfa bossa
+  // kullanici BEYAZ EKRANDA mahsur kaliyordu. Artik once sayfa bos mu diye
+  // bakilir; bossa cikis yollari olan kurtarma ekrani gosterilir.
+  capTimer = setTimeout(capReached, HARD_CAP);
 
   // Asama 2: govde gelmeye basladi -> "Yükleniyor…"
   function watchBody() {
@@ -4781,7 +4943,12 @@ const LOADING_OVERLAY_JS: &str = r#"
     setTimeout(hide, 350);
   }
 
-  function onLoad() { setTimeout(hide, 40); }
+  function onLoad() {
+    setTimeout(hide, 40);
+    // Sayfa "yuklendim" dedi ama ekranda HICBIR SEY yoksa (WebView2'de gorulen
+    // bos belge hali) kullanici beyaz ekranda mahsur kalmasin.
+    setTimeout(function () { emptyGuard(showRecovery, function () {}); }, 6000);
+  }
 
   try {
     if (document.readyState === 'complete') {
