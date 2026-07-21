@@ -1,6 +1,6 @@
 # Bogahost Native
 
-Bogahost'un 4 iç yönetim sisteminin **native kabukları**:
+Bogahost'un 5 iç yönetim sisteminin **native kabukları**:
 
 | Anahtar | Uygulama | Canlı URL | App ID |
 |---------|----------|-----------|--------|
@@ -8,6 +8,7 @@ Bogahost'un 4 iç yönetim sisteminin **native kabukları**:
 | `dcim` | Bogahost DCIM | https://dcim.bogahost.com/admin | `com.bogahost.dcim` |
 | `chat` | Bogahost Chat | https://chat.bogahost.com/admin | `com.bogahost.chat` |
 | `task` | Bogahost Görevler | https://task.bogahost.com/admin | `com.bogahost.task` |
+| `muh` | Bogahost Muhasebe | https://muh.bogahost.com/admin | `com.bogahost.muh` |
 
 ## Mimari
 
@@ -19,7 +20,7 @@ bulunmaz; kabuk yalnızca yukarıdaki canlı adresi açar.
 
 ```
 bogahost-native/
-├── apps.config.json         # 4 uygulamanın tek doğruluk kaynağı (URL, appId, renk, ikon)
+├── apps.config.json         # 5 uygulamanın tek doğruluk kaynağı (URL, appId, renk, ikon)
 ├── package.json             # kök npm komutları (aşağıdaki tablo)
 ├── scripts/*.mjs            # dev / build / icons / doctor / clean orkestratörleri
 ├── assets/icons/            # her uygulama için kaynak ikon (icon-source-<key>.png)
@@ -30,7 +31,7 @@ bogahost-native/
 ```
 
 > **Önemli:** Bu depo **yalnızca kabukları** üretir. Backend/frontend uygulama koduna
-> (`/home/finansboga`, `/home/dcimboga`, `/home/bogahost`, `/home/taskboga`) **dokunmaz**.
+> (`/home/finansboga`, `/home/dcimboga`, `/home/bogahost`, `/home/taskboga`, `/home/muhboga`) **dokunmaz**.
 > Uygulama davranışı canlı siteden gelir.
 
 ## Hızlı başlangıç

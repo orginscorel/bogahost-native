@@ -19,6 +19,7 @@ const config: CapacitorConfig = {
       'dcim.bogahost.com',
       'chat.bogahost.com',
       'task.bogahost.com',
+      'muh.bogahost.com',
     ],
     cleartext: false,
     androidScheme: 'https',

@@ -2,7 +2,7 @@
 
 ## Gerçek durum
 
-Bogahost'un mevcut push altyapısı **Web Push (VAPID / aes128gcm)** üzerine kuruludur ve 4 sistemde
+Bogahost'un mevcut push altyapısı **Web Push (VAPID / aes128gcm)** üzerine kuruludur ve 5 sistemde
 (DCIM / Chat / Görevler / Finans) çalışır — bkz. auto-memory `bogahost-push-birlesik` ve
 `bogahost-push-reliability-2026-07-19`. Bu bildirimler:
 
@@ -105,7 +105,7 @@ Chat kayıtları (`msg:` / `conv:` / `int:`) kabuk tarafında başlık/gövde/ad
 |---|---|
 | Ek sunucu yükü | **Pencere açıkken sıfır**: panel zaten yokluyor, `window.fetch` sarmalanıp yanıt gövdesi klonlanarak okunur. Kendi isteğimiz yalnızca **60 sn'dir panel yanıtı görülmediyse** atılır (yani pratikte pencere gizliyken). |
 | Tekilleştirme | **Kalıcı**, `app_config_dir/notify-state.json` içinde son **300** bildirim anahtarı (halka tampon). Uygulama yeniden başlayınca eski bildirimler **tekrar patlamaz**. |
-| 4 uygulama ayrımı | Paket kimlikleri farklı → `app_config_dir` farklı → **her uygulama kendi listesini** tutar. |
+| 5 uygulama ayrımı | Paket kimlikleri farklı → `app_config_dir` farklı → **her uygulama kendi listesini** tutar. |
 | İlk çalıştırma | Kalıcı liste **dosyası henüz yoksa** yalnızca **15 dk'dan genç** kayıtlar duyurulur; gerisi sessizce "görüldü" işaretlenir. (v1.9.7'ye kadar 120 sn idi ve uç son 12 kaydı döndürdüğü için ilk tur pratikte **her şeyi yutuyordu**. Dosya **okunamadığında** da "ilk çalıştırma" sayılıyordu — yani bozuk/erişilemez dosya bildirimleri **kalıcı olarak** susturabiliyordu; artık okuma hatasında **susturulmaz**.) |
 | Patlama koruması | Tek turda en fazla **4** bildirim; fazlası tek "**N yeni bildirim var**" özetine düşer. |
 | Okunmuşlar | Panelde `read` işaretli kayıt masaüstünde **duyurulmaz**. |

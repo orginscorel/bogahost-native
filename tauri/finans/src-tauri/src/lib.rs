@@ -1,6 +1,6 @@
 // Bogahost Finans — Tauri v2 masaustu kabugu.
 //
-// Bu dosya 4 uygulamada (finans/dcim/chat/task) AYNIDIR; yalnizca asagidaki
+// Bu dosya 5 uygulamada (finans/dcim/chat/task/muh) AYNIDIR; yalnizca asagidaki
 // APP_KEY / APP_TITLE sabitleri farklidir. Degistirirken hepsini birlikte guncelleyin.
 
 use std::path::{Path, PathBuf};
@@ -26,11 +26,12 @@ const APP_TITLE: &str = "Bogahost Finans";
 
 /// Uygulamalar arasi gecis tablosu — `apps.config.json` ile BIREBIR ayni olmali.
 /// (key, menu etiketi, canli URL)
-const APPS: [(&str, &str, &str); 4] = [
+const APPS: [(&str, &str, &str); 5] = [
     ("finans", "Finans", "https://finans.bogahost.com/admin"),
     ("dcim", "DCIM", "https://dcim.bogahost.com/admin"),
     ("chat", "Chat", "https://chat.bogahost.com/admin"),
     ("task", "Görevler", "https://task.bogahost.com/admin"),
+    ("muh", "Muhasebe", "https://muh.bogahost.com/admin"),
 ];
 
 /// Uygulama icinde kalmasi gereken alan adi. Bu alan adinin DISINDAKI her adres
@@ -81,14 +82,15 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 /// DOGRUDAN origin IP'sine (`ORIGIN_IP`) cozup Cloudflare'i tamamen atlamak.
 /// TLS SNI ve `Host` ORIJINAL alan adi kalir; AutoSSL origin sertifikasi bu
 /// adlar icin gecerli oldugundan sertifika dogrulamasi ACIK birakilir
-/// (`danger_accept_invalid_certs` KULLANILMAZ). Yalnizca bu dort alt alan adi
+/// (`danger_accept_invalid_certs` KULLANILMAZ). Yalnizca bu bes alt alan adi
 /// pinlenir; diger host'lar (ornegin duz `bogahost.com`) normal yoldan gider.
 const ORIGIN_IP: [u8; 4] = [46, 224, 208, 126];
-const ORIGIN_PINNED_HOSTS: [&str; 4] = [
+const ORIGIN_PINNED_HOSTS: [&str; 5] = [
     "finans.bogahost.com",
     "dcim.bogahost.com",
     "chat.bogahost.com",
     "task.bogahost.com",
+    "muh.bogahost.com",
 ];
 
 /// Otomatik guncelleme yeni surumun indirilecegi taban adres (manuel yedek yol).
@@ -157,7 +159,7 @@ const WINDOW_STATE_FILE: &str = "window-state.json";
 const NOTIFY_POLL_INTERVAL: Duration = Duration::from_secs(45);
 
 /// Gosterilmis bildirim anahtarlarinin KALICI listesi (uygulama yapilandirma
-/// klasoru). 4 uygulamanin paket kimligi farkli oldugu icin bu dosya da
+/// klasoru). 5 uygulamanin paket kimligi farkli oldugu icin bu dosya da
 /// uygulama basina AYRIDIR — biri digerinin bildirimini yutmaz.
 const NOTIFY_STATE_FILE: &str = "notify-state.json";
 
@@ -238,15 +240,16 @@ fn diag_text(slot: &Mutex<Option<String>>) -> String {
 /// Acilis/gecis yukleme katmani icin uygulama kimlikleri.
 /// (hostname, kisa ad, vurgu rengi, gecis durum metni)
 ///
-/// Vurgu renkleri `apps.config.json` icinde 4 uygulamada da AYNI (`#5443D2`)
+/// Vurgu renkleri `apps.config.json` icinde 5 uygulamada da AYNI (`#5443D2`)
 /// oldugu icin kimlik ayrimi burada yapilir: ortak marka moru + uygulamaya OZEL
-/// ikincil vurgu. Katman hedef sayfada cizildigi icin bu tablo 4 binary'de de
+/// ikincil vurgu. Katman hedef sayfada cizildigi icin bu tablo 5 binary'de de
 /// aynidir (hangi uygulamadan hangisine gecildigi fark etmez).
-const OVERLAY_APPS: [(&str, &str, &str, &str); 4] = [
+const OVERLAY_APPS: [(&str, &str, &str, &str); 5] = [
     ("finans.bogahost.com", "Finans", "#22c55e", "Finans'a geçiliyor…"),
     ("dcim.bogahost.com", "DCIM", "#6a58ea", "DCIM'e geçiliyor…"),
     ("chat.bogahost.com", "Chat", "#06b6d4", "Chat'e geçiliyor…"),
     ("task.bogahost.com", "Görevler", "#f59e0b", "Görevler'e geçiliyor…"),
+    ("muh.bogahost.com", "Muhasebe", "#e11d48", "Muhasebe'ye geçiliyor…"),
 ];
 
 /// Pencere arka plani — sayfa gelene kadar BEYAZ parlama (FOUC) olmasin.
@@ -269,13 +272,13 @@ const HIDDEN_LAUNCH_FLAG: &str = "--hidden";
 /// dusmezse katman gene de "Yükleniyor…" olarak gorunur.
 const OVERLAY_WAKE_DELAYS_MS: [u64; 5] = [0, 60, 150, 320, 650];
 
-/// 4 uygulamanin PAYLASTIGI WebView veri klasoru (cerez/oturum deposu).
+/// 5 uygulamanin PAYLASTIGI WebView veri klasoru (cerez/oturum deposu).
 ///
 /// Neden paylasimli: bu projede SSO YOKTUR — her uygulama WHMCS admin bilgisiyle
 /// KENDI alan adinda ayri dogrulama yapar. Her uygulama kendi ozel veri klasorunu
 /// kullanirsa, DCIM uygulamasinda alinan `dcim.bogahost.com` oturum cerezi Finans
 /// uygulamasinin WebView'inde GORUNMEZ; "Uygulamalar" menusunden gecis yapinca
-/// yeniden giris istenir. Ortak klasor sayesinde 4 kabuk ayni cerez kavanozunu
+/// yeniden giris istenir. Ortak klasor sayesinde 5 kabuk ayni cerez kavanozunu
 /// paylasir: her uygulamaya BIR KEZ giris yapilir, gecislerde tekrar sorulmaz.
 /// (Bu SSO DEGILDIR — sunucu tarafi degismez, yalnizca cerezler paylasilir.)
 ///
@@ -961,14 +964,14 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow<Wry>
         builder = builder.additional_browser_args(WEBVIEW2_BROWSER_ARGS);
     }
 
-    // Oturum cerezleri 4 uygulamada PAYLASILIR — bkz. `SHARED_WEBVIEW_DIR_NAME`.
+    // Oturum cerezleri 5 uygulamada PAYLASILIR — bkz. `SHARED_WEBVIEW_DIR_NAME`.
     // Klasor hazirlanamazsa varsayilan (uygulamaya ozel) depo kullanilir:
     // gecislerde tekrar giris istenir ama uygulama CALISMAYA DEVAM EDER.
     //
     // ⚠ macOS SINIRI: `data_directory` yalnizca Windows (WebView2) ve Linux
     // (WebKitGTK) arka uclarinda ETKILIDIR. WKWebView'de karsiligi YOKTUR ve
     // wry bu degeri macOS'ta SESSIZCE YOK SAYAR — macOS'ta her uygulama
-    // `WKWebsiteDataStore::defaultDataStore` kullanir, yani 4 kabuk cerezleri
+    // `WKWebsiteDataStore::defaultDataStore` kullanir, yani 5 kabuk cerezleri
     // PAYLASMAZ ve her birinde AYRI giris yapilir. Bu bir hata degil, ust akis
     // (Tauri 2.11) sinirdir; cozumu `with_data_store_identifier` (macOS 14+)
     // olurdu ama Tauri bunu da disari acmaz.
@@ -3553,7 +3556,7 @@ const EXTRA_SCRIPT: &str = r#"
     } catch (e) { diag('köprü HATASI', 'invoke yok'); }
   }
 
-  // Standart bicim — 4 uygulamanin TAMAMI (Chat dahil, 2026-07-21'den beri):
+  // Standart bicim — 5 uygulamanin TAMAMI (Chat dahil, 2026-07-21'den beri):
   // {unread, items:[{id,title,body,url,read,age_s}]}
   function handleStandardFeed(d) {
     var items = (d && d.items) || [];
@@ -3579,7 +3582,7 @@ const EXTRA_SCRIPT: &str = r#"
   //               internal_messages:[], max_*, waiting, unread}
   //
   // BU YOL YALNIZCA panelin KENDI yoklamasini dinlerken kullanilir (yukaridaki
-  // `fetch` sarmalayicisi). Kabugun KENDI yoklamasi artik 4 uygulamada da
+  // `fetch` sarmalayicisi). Kabugun KENDI yoklamasi artik 5 uygulamada da
   // standart `/admin/notifications/feed` ucunu cagirir — bkz. `feedUrl`.
   //
   // Anahtarlar standart yoldakiyle AYNI bicimdedir ("feed:conv-12",
@@ -3683,7 +3686,7 @@ const EXTRA_SCRIPT: &str = r#"
 
   // ---- Kabugun KENDI yoklamasi (saat Rust'ta) ----
   //
-  // 4 uygulamada da AYNI adres. Chat'e (2026-07-21) diger uc sistemle AYNI
+  // 5 uygulamada da AYNI adres. Chat'e (2026-07-21) diger sistemlerle AYNI
   // semada `/admin/notifications/feed` ucu eklendi; oncesinde Chat'e ozel,
   // IMLECLI bir adres kullaniliyordu ve iki gercek sorunu vardi:
   //   1) imlec ancak bir yanit gorulduginde kuruluyordu — uygulama acilisindaki

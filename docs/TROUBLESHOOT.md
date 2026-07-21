@@ -153,7 +153,7 @@
   sunucunun verdiği yetki cevabıdır — erişim için yöneticinize başvurun.
 
 **Uygulamalar arası geçiş "çalışmıyor" / ekranda "Yükleniyor…" kalıyor**
-- 4 uygulamanın `APPS` tablosu, CSP host listesi ve `allowNavigation` listesi **simetriktir**;
+- 5 uygulamanın `APPS` tablosu, CSP host listesi ve `allowNavigation` listesi **simetriktir**;
   eksik host yoktur (task → finans dahil).
 - Eski davranışta hedef sayfa hiç yüklenmezse "Yükleniyor…" katmanı kalıcı kalıyordu.
   v1.5.0'da katman en geç **15 saniye** sonunda kaldırılır.

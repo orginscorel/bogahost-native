@@ -1,7 +1,7 @@
 name: Android (APK + AAB)
 
 # Capacitor 7 Android kabuklarını derler.
-# Her uygulama (finans/dcim/chat/task) için ayrı APK + AAB üretir.
+# Her uygulama (finans/dcim/chat/task/muh) için ayrı APK + AAB üretir.
 # İmzalama secret'ları varsa imzalanır; yoksa unsigned artifact üretilir (job FAIL etmez).
 
 on:
@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [finans, dcim, chat, task]
+        app: [finans, dcim, chat, task, muh]
 
     env:
       # Play Console her yüklemede ARTAN bir versionCode ister. run_number workflow

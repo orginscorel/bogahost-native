@@ -91,6 +91,8 @@ jobs:
             app_upper: CHAT
           - app: task
             app_upper: TASK
+          - app: muh
+            app_upper: MUH
 
     env:
       WORKSPACE: capacitor/${{ matrix.app }}/ios/App/App.xcworkspace

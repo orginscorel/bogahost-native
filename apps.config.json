@@ -46,6 +46,17 @@
       "themeColor": "#5443D2",
       "backgroundColor": "#0e1015",
       "iconSource": "assets/icons/icon-source-task.png"
+    },
+    {
+      "key": "muh",
+      "appId": "com.bogahost.muh",
+      "name": "Bogahost Muhasebe",
+      "shortName": "Muhasebe",
+      "url": "https://muh.bogahost.com/admin",
+      "hostname": "muh.bogahost.com",
+      "themeColor": "#5443D2",
+      "backgroundColor": "#0e1015",
+      "iconSource": "assets/icons/icon-source-muh.png"
     }
   ]
 }

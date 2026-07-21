@@ -30,7 +30,7 @@ const app = arg('app');
 const pubkey = arg('pubkey').trim();
 
 if (!app) {
-  console.error('HATA: --app zorunlu (finans|dcim|chat|task)');
+  console.error('HATA: --app zorunlu (finans|dcim|chat|task|muh)');
   process.exit(1);
 }
 

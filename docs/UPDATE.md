@@ -106,7 +106,7 @@ kullanıcı "Şimdi uygula" dediği an çalıştırılır. macOS/Linux'ta
 Kod: `tauri/<app>/src-tauri/src/lib.rs` → `run_update_flow`, `try_auto_update`,
 `stage_update`, `show_update_banner`, `bogahost_apply_update`,
 `save_resume_url` / `take_resume_url`, `UPDATE_UI_JS`, `check_update_legacy`.
-Dosya 4 uygulamada **birebir aynıdır**; yalnızca `APP_KEY`/`APP_TITLE` farklıdır.
+Dosya 5 uygulamada **birebir aynıdır**; yalnızca `APP_KEY`/`APP_TITLE` farklıdır.
 
 ---
 
@@ -246,7 +246,7 @@ Private key **üretilmez ve depoya konmaz**. Üretim için hazır workflow:
    - `TAURI_SIGNING_PRIVATE_KEY` = indirilen `bogahost-updater.key` dosyasının **tüm içeriği**
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = kullandığınız parola (parolasızsa **boş** değer)
    - `TAURI_SIGNING_PUBLIC_KEY` = özetteki public key
-     *(alternatif: 4 uygulamanın `tauri.conf.json > plugins.updater.pubkey` alanındaki
+     *(alternatif: 5 uygulamanın `tauri.conf.json > plugins.updater.pubkey` alanındaki
      `__TAURI_UPDATER_PUBKEY__` yerine yazıp commit'leyin — public key gizli değildir)*
 5. Artifact'ı **silin**; private key'i güvenli bir kasada saklayın (ör. Bilgi Kasası).
 

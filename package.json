@@ -2,7 +2,7 @@
   "name": "bogahost-native",
   "version": "1.9.12",
   "private": true,
-  "description": "Bogahost 4 sistemin (Finans/DCIM/Chat/Görevler) native kabukları — Capacitor (Android/iOS) + Tauri (Windows/macOS). Canlı PWA URL'sini yükler; backend/frontend'e dokunmaz.",
+  "description": "Bogahost 5 sistemin (Finans/DCIM/Chat/Görevler/Muhasebe) native kabukları — Capacitor (Android/iOS) + Tauri (Windows/macOS). Canlı PWA URL'sini yükler; backend/frontend'e dokunmaz.",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs --pwa",

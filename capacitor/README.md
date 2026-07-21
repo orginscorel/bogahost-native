@@ -32,10 +32,11 @@ yalnızca kabuk/izin/ikon değişince gerekir.
 | dcim   | com.bogahost.dcim     | https://dcim.bogahost.com/admin       | — |
 | chat   | com.bogahost.chat     | https://chat.bogahost.com/admin       | WebRTC (kamera/mikrofon) |
 | task   | com.bogahost.task     | https://task.bogahost.com/admin       | — |
+| muh    | com.bogahost.muh      | https://muh.bogahost.com/admin        | — |
 
 ## Uygulamalar arası geçiş (mobil)
 
-`server.allowNavigation` artık dört host'u da içerir:
+`server.allowNavigation` artık beş host'u da içerir:
 
 ```ts
 allowNavigation: [
@@ -43,6 +44,7 @@ allowNavigation: [
   'dcim.bogahost.com',
   'chat.bogahost.com',
   'task.bogahost.com',
+  'muh.bogahost.com',
 ],
 ```
 

@@ -17,7 +17,7 @@ apple-touch + favicon mevcut). Yalnızca aşağıdaki 2 gerçek eksik tamamlanı
 | Chat | `/home/bogahost/public_html/livechat/public` | `resources/views/admin/layout.blade.php` | `public/sw.js` |
 | Görevler | `/home/taskboga/laravel/public` | `resources/views/admin/layout.blade.php` | `public/push-sw.js` |
 
-## 1) Çevrimdışı (offline) sayfası — 4 uygulama
+## 1) Çevrimdışı (offline) sayfası — 5 uygulama
 1. `offline.html` → her uygulamanın `public/offline.html` konumuna kopyala.
    (İstersen tema rengini uygulamaya göre değiştir; şablon Finans moru #5443D2.)
 2. `sw-offline-snippet.js` içeriğini ilgili SW dosyasının **en altına** ekle.

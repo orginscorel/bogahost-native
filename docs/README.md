@@ -1,6 +1,6 @@
 # Bogahost Native — Dokümantasyon
 
-Bu klasör, Bogahost'un 4 sisteminin (Finans / DCIM / Chat / Görevler) native kabuklarının
+Bu klasör, Bogahost'un 5 sisteminin (Finans / DCIM / Chat / Görevler / Muhasebe) native kabuklarının
 derleme, imzalama, dağıtım ve sorun giderme belgelerini içerir.
 
 Proje özeti ve mimari için kök [`../README.md`](../README.md).
@@ -23,7 +23,7 @@ Proje özeti ve mimari için kök [`../README.md`](../README.md).
 
 | Workflow | Runner | Üretir | Tetik |
 |----------|--------|--------|-------|
-| `android.yml` | ubuntu-latest | APK + AAB (4 uygulama) | dispatch, `v*` tag, workflow_call |
+| `android.yml` | ubuntu-latest | APK + AAB (5 uygulama) | dispatch, `v*` tag, workflow_call |
 | `ios.yml` | macos-latest | .xcarchive (imzasız doğrulama) / IPA (imzalıysa) | dispatch, `v*` tag, workflow_call |
 | `windows.yml` | windows-latest | MSI + EXE (NSIS) | dispatch, `v*` tag, workflow_call |
 | `macos.yml` | macos-latest | DMG + App | dispatch, `v*` tag, workflow_call |

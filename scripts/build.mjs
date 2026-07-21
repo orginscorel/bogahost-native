@@ -118,7 +118,7 @@ function main() {
   const apps = loadApps();
 
   if (args.pwa) {
-    console.log('ℹ PWA: 4 uygulama zaten canlı sitede PWA olarak yayında (manifest + service worker sunucuda).');
+    console.log('ℹ PWA: 5 uygulama zaten canlı sitede PWA olarak yayında (manifest + service worker sunucuda).');
     console.log('  Native kabuk bu PWA URL\'lerini WebView içinde yükler; ayrı bir PWA derlemesi gerekmez.');
     console.log(`  ${DOCS}`);
     return;

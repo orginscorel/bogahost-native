@@ -38,7 +38,7 @@ sürümlerini sıfırdan App Store'a taşımak için gereken **her adımı** anl
 
 ---
 
-## 2. App ID / Bundle ID oluşturma (4 uygulama)
+## 2. App ID / Bundle ID oluşturma (5 uygulama)
 
 <https://developer.apple.com/account/resources/identifiers/list> → **+**
 
@@ -84,7 +84,7 @@ Anahtar Zinciri'nde **"Apple Distribution: …"** girdisini bulun → sağ tık 
 **Dışa Aktar** → biçim `.p12` → **bir parola belirleyin** (bu parola
 `APPLE_CERT_PASSWORD` secret'ı olacak).
 
-> Aynı `.p12` **dört uygulamanın hepsi** için kullanılır. Sertifika bundle ID'ye
+> Aynı `.p12` **beş uygulamanın hepsi** için kullanılır. Sertifika bundle ID'ye
 > bağlı değildir; profil bağlıdır.
 
 ---
@@ -236,7 +236,7 @@ Uygulama kaydında (App Store Connect → App Review Information) mutlaka doldur
   ekranıyla açıldığı için inceleme uzmanı içeri giremezse **reddedilir**.
   2FA aktifse ya inceleme hesabında kapatın ya da "Notes" alanına nasıl
   geçileceğini yazın (Guideline 2.1 ihlali sayılmaması için).
-- **Notes:** uygulamanın kurum içi bir operasyon paneli olduğunu, dört sistemin
+- **Notes:** uygulamanın kurum içi bir operasyon paneli olduğunu, beş sistemin
   ne yaptığını ve demo hesapla nelerin görülebileceğini açıklayın.
 
 ### ⚠️ Reddedilme riskleri (gerçekçi olalım)
@@ -253,7 +253,7 @@ ret sebebidir.** Azaltma önerileri:
 - **Dosya indirme ve "Fotoğraflara kaydet"** — native paylaşım sayfası.
 - **Offline ekranı** — bağlantı yokken anlamlı bir ekran (bkz.
   `pwa-enhancements/offline.html`); "bağlantı yok" beyaz sayfası ret sebebidir.
-- **Uygulamalar arası geçiş** — dört sistem arasında kabuk içi geçiş.
+- **Uygulamalar arası geçiş** — beş sistem arasında kabuk içi geçiş.
 - **Universal link** — `https://finans.bogahost.com/...` bağlantıları
   uygulamada açılır.
 - İnceleme notuna şunu yazın: *"Bu, Bogahost personelinin kullandığı kurum içi

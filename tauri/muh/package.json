@@ -1,0 +1,20 @@
+{
+  "name": "bogahost-tauri-muh",
+  "productName": "Bogahost Muhasebe",
+  "version": "1.6.0",
+  "private": true,
+  "description": "Bogahost Muhasebe — Tauri (Windows/macOS) masaustu kabugu. Canli URL'yi (https://muh.bogahost.com/admin) WebView ile yukler.",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:win": "tauri build --bundles msi nsis",
+    "tauri:build:mac": "tauri build --bundles dmg app"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

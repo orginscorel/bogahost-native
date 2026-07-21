@@ -78,7 +78,7 @@ Uygulamaya özel secret yoksa ortak `PROVISIONING_PROFILE` yedeğe düşer.
 İsteğe bağlı (TestFlight'a otomatik yükleme + otomatik imzalama):
 `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_PRIVATE_KEY`.
 
-> Not: 4 uygulamanın her biri ayrı App ID + ayrı provisioning profile ister; tek
+> Not: 5 uygulamanın her biri ayrı App ID + ayrı provisioning profile ister; tek
 > Distribution sertifikası hepsi için yeterlidir. ASC API anahtarı verilirse
 > otomatik, verilmezse manuel imzalama kullanılır — ikisi de kodludur.
 

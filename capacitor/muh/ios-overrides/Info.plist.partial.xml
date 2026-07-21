@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Muhasebe — iOS Info.plist parçası.
+
+  CI, `npx cap add ios` sonrası bu anahtarları üretilen
+  ios/App/App/Info.plist içindeki kök <dict> öğesine BİRLEŞTİRİR
+  (PlistBuddy ile). Tam bir plist değildir; yalnızca eklenecek çiftlerdir.
+
+  KAMERA/MİKROFON NEDEN BURADA? Kabuğun allowNavigation listesi 4 Bogahost
+  sistemini de kapsar (capacitor.config.ts) — kullanıcı bu kabuktan
+  chat.bogahost.com'a geçip görüntülü/sesli aramayı başlatabilir. iOS,
+  getUserMedia çağrıldığında kullanım açıklaması YOKSA süreci ANINDA SONLANDIRIR
+  (çökme). Bu yüzden dört uygulamada da tanımlıdır.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Belge fotoğrafı çekmek ve Bogahost sistemleri arasında görüntülü arama yapmak için kameraya erişim gerekir.</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Bogahost sistemleri arasında sesli ve görüntülü arama yapmak için mikrofona erişim gerekir.</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Belge ve ekran görüntüsü eklemek için fotoğraf kitaplığına erişim gerekir.</string>
+
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>İndirilen dosyaları fotoğraf kitaplığına kaydetmek için erişim gerekir.</string>
+
+    <!-- Native push (APNs) için arka plan modu. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- Uzak içerik yükleneceğinden ATS gevşetmesine gerek yok: tüm bağlantılar HTTPS. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+
+    <!-- Sürüm alanları: Xcode, build sırasında pbxproj'daki build ayarlarını buraya
+         genişletir (prepare.mjs bu ayarları package.json sürümünden yazar).
+         Şablon sabit "1.0" yazsa bile mağazaya doğru sürüm gider. -->
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- Yalnız standart HTTPS/TLS kullanılır → ihracat kısıtlamasına tabi şifreleme yok.
+         Bu anahtar olmadan HER TestFlight yüklemesi elle "ihracat uyumluluğu" yanıtı bekler. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+</dict>
+</plist>

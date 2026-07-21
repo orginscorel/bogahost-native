@@ -74,7 +74,7 @@ jobs:
             echo "| 1 | Bu çalıştırmanın **artifact**'ını (\`updater-private-key\`) indirin. |"
             echo "| 2 | İçindeki \`bogahost-updater.key\` dosyasının **tüm içeriğini**, depo ayarlarında \`TAURI_SIGNING_PRIVATE_KEY\` secret'ı olarak ekleyin. |"
             echo "| 3 | Kullandığınız parolayı \`TAURI_SIGNING_PRIVATE_KEY_PASSWORD\` secret'ı olarak ekleyin (parolasızsa **boş** değerle ekleyin). |"
-            echo "| 4 | Yukarıdaki PUBLIC key'i \`TAURI_SIGNING_PUBLIC_KEY\` secret'ı olarak ekleyin **veya** 4 uygulamanın \`tauri.conf.json > plugins.updater.pubkey\` alanındaki \`__TAURI_UPDATER_PUBKEY__\` yerine yazıp commit'leyin. |"
+            echo "| 4 | Yukarıdaki PUBLIC key'i \`TAURI_SIGNING_PUBLIC_KEY\` secret'ı olarak ekleyin **veya** 5 uygulamanın \`tauri.conf.json > plugins.updater.pubkey\` alanındaki \`__TAURI_UPDATER_PUBKEY__\` yerine yazıp commit'leyin. |"
             echo "| 5 | Artifact'ı bu sayfadan **silin**. Private key'i güvenli bir kasada (ör. Bilgi Kasası) saklayın. |"
             echo
             echo "> **UYARI:** Private key kaybolursa yayınlanmış uygulamalar bir daha otomatik güncelleme alamaz."

@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-notify",
+  "description": "Canli muh.bogahost.com paneline (ve onizleme pencerelerine) native bildirim izni + INIT_SCRIPT'in (lib.rs) kendi enjekte ettigi 19 ozel bogahost_* komutu (indirme/kaydet/yazdir/popup/dis-baglanti/ayarlar/guncelleme koprusu). Bu komutlar UZAK sayfa kaynagindan (https://) cagrildigi icin (icerigi biz kontrol etsek de calisan JS'in origin'i webview'in yukledigi https:// adresidir) ayrica burada listelenmeleri GEREKIR — core:default bunlari KAPSAMAZ (yalnizca cekirdek/plugin komutlarini kapsar, uygulamaya ozel #[tauri::command] fonksiyonlarini degil). Her komut icin Tauri build sirasinda otomatik uretilen izin kimligi 'allow-<komut-adi-tire-ile>' bicimindedir (alt cizgiler tire'ye cevrilir) ve uygulamaya ait (plugin olmayan) komutlarda on-ek GEREKMEZ (bkz. https://v2.tauri.app/reference/acl/capability/ - 'For commands directly implemented in the application itself only ${permission-name} is required').",
+  "windows": [
+    "main",
+    "popup-*"
+  ],
+  "remote": {
+    "urls": [
+      "https://muh.bogahost.com",
+      "https://*.bogahost.com"
+    ]
+  },
+  "permissions": [
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "allow-bogahost-bridge"
+  ]
+}

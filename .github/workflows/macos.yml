@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [finans, dcim, chat, task]
+        app: [finans, dcim, chat, task, muh]
 
     steps:
       - name: Checkout

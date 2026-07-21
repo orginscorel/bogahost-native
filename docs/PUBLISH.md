@@ -4,7 +4,7 @@
 Actions çalıştırmasının **Artifacts** bölümünden veya `release.yml` ile oluşan **GitHub Release**'ten
 indirilir.
 
-4 uygulama = 4 ayrı mağaza kaydı (`com.bogahost.finans/.dcim/.chat/.task`). Bunlar **iç yönetim
+5 uygulama = 5 ayrı mağaza kaydı (`com.bogahost.finans/.dcim/.chat/.task/.muh`). Bunlar **iç yönetim
 araçlarıdır**; herkese açık mağaza yerine sınırlı/dahili dağıtım (aşağıda) çoğu zaman daha uygundur.
 
 ---
@@ -64,7 +64,7 @@ araçlarıdır**; herkese açık mağaza yerine sınırlı/dahili dağıtım (a�
 
 ## Doğrudan dağıtım (mağazasız, dahili ekip)
 
-Bu 4 sistem iç araç olduğundan en pratik yol genellikle mağaza değil:
+Bu 5 sistem iç araç olduğundan en pratik yol genellikle mağaza değil:
 
 | Platform | Dosya | Yöntem |
 |----------|-------|--------|

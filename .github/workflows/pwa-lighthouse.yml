@@ -25,6 +25,7 @@ jobs:
           - { key: dcim,   url: 'https://dcim.bogahost.com/' }
           - { key: chat,   url: 'https://chat.bogahost.com/' }
           - { key: task,   url: 'https://task.bogahost.com/' }
+          - { key: muh,    url: 'https://muh.bogahost.com/' }
 
     steps:
       - name: Checkout

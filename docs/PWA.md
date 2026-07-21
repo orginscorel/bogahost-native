@@ -1,6 +1,6 @@
 # PWA olarak kurulum
 
-4 sistem (Finans / DCIM / Chat / Görevler) zaten canlı web uygulamalarıdır. Native kabuk yerine
+5 sistem (Finans / DCIM / Chat / Görevler / Muhasebe) zaten canlı web uygulamalarıdır. Native kabuk yerine
 bunları doğrudan **PWA (Progressive Web App)** olarak kurmak mümkündür — **mağaza, imzalama ücreti
 veya inceleme gerektirmez**. Çoğu dahili kullanım için en hızlı yol budur.
 

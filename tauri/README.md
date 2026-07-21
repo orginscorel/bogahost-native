@@ -1,6 +1,6 @@
 # Bogahost — Tauri 2 Masaüstü Kabukları (Windows + macOS)
 
-Bu klasör, dört Bogahost sistemi için **Tauri v2** masaüstü uygulama kaynaklarını içerir:
+Bu klasör, beş Bogahost sistemi için **Tauri v2** masaüstü uygulama kaynaklarını içerir:
 
 | Uygulama | Klasör | Yüklenen canlı URL |
 |----------|--------|--------------------|
@@ -8,6 +8,7 @@ Bu klasör, dört Bogahost sistemi için **Tauri v2** masaüstü uygulama kaynak
 | Bogahost DCIM     | `tauri/dcim/`   | https://dcim.bogahost.com/admin |
 | Bogahost Chat     | `tauri/chat/`   | https://chat.bogahost.com/admin |
 | Bogahost Görevler | `tauri/task/`   | https://task.bogahost.com/admin |
+| Bogahost Muhasebe | `tauri/muh/`    | https://muh.bogahost.com/admin |
 
 ## Mimari
 
@@ -30,7 +31,7 @@ tamamen sunucudan gelir.
 
 ## Native davranış (`src-tauri/src/lib.rs`)
 
-> `lib.rs` 4 uygulamada **birebir aynıdır**; yalnızca `APP_KEY` / `APP_TITLE`
+> `lib.rs` 5 uygulamada **birebir aynıdır**; yalnızca `APP_KEY` / `APP_TITLE`
 > sabitleri farklıdır. Birini değiştirirken dördünü birlikte güncelleyin.
 
 - **Sistem tepsisi (tray):** Göster / Gizle / **Uygulamalar ▸** / Güncellemeleri
@@ -118,7 +119,7 @@ Ayrıntı, `latest.json` şeması ve anahtar üretimi:
 (512×512) kaynağından üretilir. Her uygulama klasöründe:
 
 ```bash
-cd tauri/finans   # veya dcim / chat / task
+cd tauri/finans   # veya dcim / chat / task / muh
 npx tauri icon ../../assets/icons/icon-source-finans.png
 ```
 
