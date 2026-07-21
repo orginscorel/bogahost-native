@@ -671,10 +671,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Bu isleyici TUM pencereler icin calisir. Splash penceresi ne tepsiye
-            // gizlenmeli ne de konumu/boyutu ana pencerenin durumu olarak
-            // kaydedilmeli — bu yuzden once etiket denetlenir.
-            if window.label() != "main" {
+            // Bu isleyici TUM pencereler icin calisir; davranis ETIKETE gore ayrilir:
+            //   * "popup-*" -> onizleme penceresi. Kapanmasi ASLA engellenmez;
+            //                  kapandiktan sonra odak ANA pencereye geri verilir
+            //                  (kullanici bos masaustunde degil panelde kalir).
+            //   * "main"    -> kapatma = tepsiye gizle + konum/boyut kaydi.
+            //   * "splash"  -> dokunulmaz (ne gizlenir ne durumu kaydedilir).
+            let label = window.label();
+            if label.starts_with("popup-") {
+                if matches!(event, WindowEvent::Destroyed) {
+                    focus_main_after_preview(window.app_handle());
+                }
+                return;
+            }
+            if label != "main" {
                 return;
             }
             match event {
@@ -1250,14 +1260,59 @@ fn bogahost_open_popup(app: AppHandle, url: String) -> Result<(), String> {
     open_popup_window(&app, parsed).map_err(|e| e.to_string())
 }
 
-/// Onizleme penceresini kendi icinden kapatir (ESC / "Kapat" dugmesi).
-/// ANA pencere kapatilmaz — orada bu komut yok sayilir.
+/// Onizleme penceresini kendi icinden kapatir (ESC / Cmd+W / cubuk dugmesi).
+///
+/// ANA pencereden cagrilirsa pencere KAPATILMAZ; bunun yerine acik kalmis tum
+/// onizleme pencereleri kapatilir (panel sayfasinin "onizlemeyi kapat" yolu).
 #[tauri::command]
-fn bogahost_close_window(window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
+fn bogahost_close_window(app: AppHandle, window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
     if window.label() == "main" {
+        close_preview_windows(&app);
         return Ok(());
     }
-    window.close().map_err(|e| e.to_string())
+    // `close` once `CloseRequested` yayar; herhangi bir sebeple takilirsa
+    // `destroy` KESIN kapatir — hicbir pencere kapatilamaz kalmamalidir.
+    if window.close().is_err() {
+        window.destroy().map_err(|e| e.to_string())?;
+    }
+    focus_main_after_preview(&app);
+    Ok(())
+}
+
+/// Onizleme penceresi kapandiktan sonra odagi ANA pencereye geri verir.
+///
+/// NEDEN: onizleme kapatildiginda odak isletim sistemine (bos masaustu / baska
+/// uygulama) dusuyordu; kullanici "uygulamaya geri donemiyorum" olarak
+/// bildiriyordu. Ana pencere tepsiye gizlenmisse once GORUNUR yapilir.
+fn focus_main_after_preview(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        if !w.is_visible().unwrap_or(true) {
+            let _ = w.show();
+        }
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// TUM onizleme (popup) pencerelerini kapatir ve panele doner.
+///
+/// Bu, tepsi/menu ogesi "Önizlemeyi kapat"in govdesidir ve onizleme icerigi
+/// HTML DEGILSE (native PDF/gorsel goruntuleyicide DOM YOKTUR: ne ESC dinleyicisi
+/// ne de kapatma cubugu cizilebilir) kullanicinin KESIN kacis yoludur.
+/// Ayrica `reveal_window` cagrilir: acilista takilmis bir splash varsa kapanir
+/// ve ana pencere GORUNUR olur — hicbir durumda ekranda kapatilamaz bir pencere
+/// ya da gorunmez bir ana pencere kalmaz.
+fn close_preview_windows(app: &AppHandle) {
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("popup-") {
+            if w.close().is_err() {
+                let _ = w.destroy();
+            }
+        }
+    }
+    // Tek seferliktir; ana pencere zaten gosterildiyse hicbir sey yapmaz.
+    reveal_window(app);
+    focus_main_after_preview(app);
 }
 
 /// Sayfanin `window.print()` cagrisini native yazdirma akisina baglar.
@@ -2114,8 +2169,14 @@ const INIT_SCRIPT: &str = r#"
     try { if (window.history && history.length > 1) { history.back(); return; } } catch (e) {}
     try { location.href = panelHomeHref(); } catch (e2) {}
   }
+  // Serit YALNIZCA ust cercevede cizilir: gomulu (iframe) PDF/rapor
+  // onizlemelerinin ICINE serit cizilmemeli — panel zaten ekranda duruyor.
+  var isTopFrame = true;
+  try { isTopFrame = (window.top === window.self); } catch (e) { isTopFrame = true; }
+
   function showBackStrip() {
     try {
+      if (!isTopFrame) { return; }
       if (document.getElementById(BACK_STRIP_ID)) { return; }
       var bar = document.createElement('div');
       bar.id = BACK_STRIP_ID;
@@ -2132,9 +2193,96 @@ const INIT_SCRIPT: &str = r#"
       bar.appendChild(label);
       (document.body || document.documentElement).appendChild(bar);
       try { document.documentElement.style.scrollPaddingTop = '52px'; } catch (e) {}
+      // Belgenin ilk satirlari seridin ALTINDA kaybolmasin.
+      try {
+        var b = document.body;
+        if (b && b.getAttribute('data-bogahost-strip-pad') !== '1') {
+          b.setAttribute('data-bogahost-strip-pad', '1');
+          var cur = 0;
+          try { cur = parseFloat(window.getComputedStyle(b).paddingTop) || 0; } catch (e2) {}
+          b.style.paddingTop = (cur + 52) + 'px';
+        }
+      } catch (e3) {}
     } catch (e) {}
   }
   try { window.__bogahostShowBackStrip = showBackStrip; } catch (e) {}
+
+  // ---- Belge/onizleme MODU: serit kendiliginden cizilsin + ESC panele donsun ----
+  //
+  // KOK NEDEN (v1.9.6 sikayeti): `handleMaybeDownload` sunucudan HTML alinca
+  // ANA pencereyi `location.href` ile o belgeye goturuyordu (yazdirma onizlemesi,
+  // rapor onizlemesi). Bu adresler Rust `looks_like_document_url` suzgecine
+  // KASITLI OLARAK takilmaz (HTML sayfalar yanlislikla geri alinmasin diye), bu
+  // yuzden `return_to_panel` HIC calismiyor, `__bogahostShowBackStrip` de kimse
+  // tarafindan CAGRILMIYORDU: kullanici gorunur hicbir cikis yolu olmadan
+  // onizlemede kaliyordu. Artik sayfa bunu KENDISI anlar.
+  //
+  // Iki tetikleyici vardir:
+  //   1) ISARET (kesin): gezinmeyi baslatan sayfa hedefi `sessionStorage`a yazar;
+  //      hedef belge acilinca isaret eslesir -> serit KESIN cizilir. Yanlis
+  //      pozitif URL tahminine gerek kalmaz.
+  //   2) ADRES (belirsizlik yok): gercek dosya uzantisi / acik indirme bayragi /
+  //      bilinen uzantisiz belge yollari. Panel sayfalari bu kaliplara uymaz.
+  var DOC_MARK_KEY = 'bogahost-doc-view';
+  var DOC_EXT_RE = /\.(pdf|csv|xlsx?|docx?|pptx?|zip|rar|7z|gz|tgz|tar|ics|sql)$/i;
+  var DOC_FLAG_RE = /[?&](indir|download|dl|export)(=|&|$)/i;
+  var DOC_PATH_RE = /(^|\/)(e-fatura-pdf|e-arsiv-pdf|dekont)(\/|$)/i;
+
+  function isDocumentLocation() {
+    try {
+      if (DOC_EXT_RE.test(String(location.pathname || ''))) { return true; }
+      if (DOC_FLAG_RE.test(String(location.search || ''))) { return true; }
+      if (DOC_PATH_RE.test(String(location.pathname || ''))) { return true; }
+    } catch (e) {}
+    return false;
+  }
+
+  function markDocumentView(href) {
+    try { sessionStorage.setItem(DOC_MARK_KEY, String(href)); } catch (e) {}
+  }
+  function clearDocumentMark() {
+    try { sessionStorage.removeItem(DOC_MARK_KEY); } catch (e) {}
+  }
+  function wasMarkedDocumentView() {
+    try {
+      var v = sessionStorage.getItem(DOC_MARK_KEY);
+      if (!v) { return false; }
+      if (v === location.href) { return true; }
+      // Baska bir sayfaya gecildi -> isaret bayat, temizle.
+      clearDocumentMark();
+    } catch (e) {}
+    return false;
+  }
+  function inDocumentView() {
+    return isTopFrame && (isDocumentLocation() || wasMarkedDocumentView());
+  }
+  try { window.__bogahostMarkDocumentView = markDocumentView; } catch (e) {}
+
+  // ESC: YALNIZCA belge/onizleme gorunumundeyken panele doner. Normal panel
+  // sayfalarinda ESC'e DOKUNULMAZ (modal/dropdown kapatma davranisi bozulmasin).
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' && ev.keyCode !== 27) { return; }
+    if (!inDocumentView()) { return; }
+    clearDocumentMark();
+    goBackToPanel();
+  }, true);
+
+  // Serit: `document.body` gec olusabilecegi icin birkac saniye denenir.
+  function maybeShowBackStrip() {
+    if (!inDocumentView()) { return; }
+    showBackStrip();
+  }
+  var stripTries = 0;
+  var stripTimer = setInterval(function () {
+    stripTries++;
+    maybeShowBackStrip();
+    if (stripTries >= 20 || document.getElementById(BACK_STRIP_ID)) { clearInterval(stripTimer); }
+  }, 400);
+  maybeShowBackStrip();
+  try {
+    document.addEventListener('DOMContentLoaded', maybeShowBackStrip);
+    window.addEventListener('load', maybeShowBackStrip);
+  } catch (e) {}
 
   // Indirme BASARILI bilgisi (bkz. Rust `notify_download_saved`):
   // dosya adi + kaydedildigi klasor + tek tikla "Klasörde göster".
@@ -2449,6 +2597,11 @@ const INIT_SCRIPT: &str = r#"
       }
       if (isDocumentResponse(res)) { return saveResponse(res, u, null, true); }
       if (newTab) { return openPopup(u.href); }
+      // ANA pencere bir onizleme/belge sayfasina gidiyor: hedefi ISARETLE ki
+      // acilan sayfada "‹ Panele dön" seridi + ESC KESIN devreye girsin
+      // (bkz. "Belge/onizleme MODU"). Bu isaret olmadan kullanici onizlemede
+      // gorunur cikis yolu olmadan kaliyordu.
+      markDocumentView(u.href);
       try { location.href = u.href; } catch (e) {}
       return null;
     });
@@ -2554,7 +2707,9 @@ const INIT_SCRIPT: &str = r#"
       // kapatilabilir bir onizleme penceresi ac — panel yerinde kalsin.
       ev.preventDefault();
       openPopup(abs.href).catch(function () {
-        // Kopru yoksa eski davranis (en azindan link calissin).
+        // Kopru yoksa eski davranis (en azindan link calissin). Ana pencere
+        // ele gecirildigi icin hedef ISARETLENIR -> serit + ESC devreye girer.
+        markDocumentView(abs.href);
         try { location.href = abs.href; } catch (e4) {}
       });
     }
@@ -2646,6 +2801,7 @@ const INIT_SCRIPT: &str = r#"
     }
     // Kalan ic adresler: ANA pencereyi ele gecirmesin diye ayri pencerede acilir.
     openPopup(abs.href).catch(function () {
+      markDocumentView(abs.href);
       try { location.href = abs.href; } catch (e3) {}
     });
     return null;
@@ -4238,80 +4394,158 @@ fn loading_overlay_script() -> String {
 
 /// Onizleme (popup) penceresine EK olarak enjekte edilir.
 ///
-/// Pencerede zaten baslik cubugu + kapat dugmesi vardir; buna ek olarak
-/// ESC tusu ve sag ustte belirgin bir "Kapat" dugmesi sunulur — kullanici
-/// acilan PDF/CSV/gorsel icinde ASLA kilitli kalmasin.
+/// Pencerede zaten OS baslik cubugu + kapat dugmesi vardir (`decorations(true)`,
+/// bkz. `open_popup_window`); buna EK OLARAK — dekorasyon bir gun kapatilirsa
+/// ya da kullanici baslik cubugunu fark etmezse kilitli kalmasin diye — sayfanin
+/// ustune sabit bir cubuk cizilir:
+///   sol   : "‹ Geri / Kapat (ESC)"
+///   orta  : sayfa basligi
+///   sag   : "Yazdır"
+/// Ayrica ESC ve Cmd+W / Ctrl+W pencereyi kapatir.
+///
+/// SINIR: native PDF/gorsel goruntuleyicide (WKWebView PDFKit / WebView2 PDF)
+/// belge DOM'u YOKTUR — cubuk cizilemez, tus dinleyicisi baglanamaz. O durumun
+/// garantisi OS baslik cubugu + tepsi/menu ogesi "Önizlemeyi kapat"tir
+/// (bkz. `close_preview_windows`).
 const POPUP_INIT_SCRIPT: &str = r#"
 (function () {
   if (window.__BOGAHOST_POPUP__) { return; }
   window.__BOGAHOST_POPUP__ = true;
 
-  function closeSelf() {
+  // Betik ALT CERCEVELERE de enjekte edilir. Gorunur cubuk YALNIZCA ust
+  // cercevede cizilir (gomulu iframe'in icinde ikinci bir cubuk cikmasin);
+  // klavye kisayollari ise HER cercevede baglanir — odak iframe'deyken de
+  // ESC calissin.
+  var isTop = true;
+  try { isTop = (window.top === window); } catch (e) { isTop = true; }
+
+  function invokeCmd(cmd) {
     try {
       var t = window.__TAURI__;
-      if (t && t.core && typeof t.core.invoke === 'function') { t.core.invoke('bogahost_close_window', {}); return; }
-      if (t && typeof t.invoke === 'function') { t.invoke('bogahost_close_window', {}); return; }
+      if (t && t.core && typeof t.core.invoke === 'function') { return t.core.invoke(cmd, {}); }
+      if (t && typeof t.invoke === 'function') { return t.invoke(cmd, {}); }
       if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-        window.__TAURI_INTERNALS__.invoke('bogahost_close_window', {});
-        return;
+        return window.__TAURI_INTERNALS__.invoke(cmd, {});
       }
     } catch (e) {}
-    try { window.close(); } catch (e2) {}
+    return Promise.reject(new Error('ipc-yok'));
   }
 
-  document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' || ev.keyCode === 27) { closeSelf(); }
-  }, true);
+  // Kopru herhangi bir sebeple calismazsa `window.close()` yedegi devreye girer
+  // (eski surumde yedek YALNIZCA senkron hata halinde calisiyordu; IPC reddi
+  // sessizce yutuluyor ve pencere acik kaliyordu).
+  var closing = false;
+  function closeSelf() {
+    if (closing) { return; }
+    closing = true;
+    invokeCmd('bogahost_close_window').catch(function () {
+      closing = false;
+      try { window.close(); } catch (e) {}
+    });
+  }
+  try { window.__bogahostClosePreview = closeSelf; } catch (e) {}
 
   function printSelf() {
+    invokeCmd('bogahost_print').catch(function () {
+      try { (window.__bogahostNativePrint || window.print).call(window); } catch (e) {}
+    });
+  }
+
+  // ESC + Cmd/Ctrl+W: pencere klavyeden de HER ZAMAN kapatilabilsin.
+  // (macOS'ta Cmd+W ayrica menu cubugundan da gelir; iki kez kapatma zararsizdir.)
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' || ev.keyCode === 27) { closeSelf(); return; }
+    var isW = (ev.key === 'w' || ev.key === 'W' || ev.keyCode === 87);
+    if (isW && (ev.metaKey || ev.ctrlKey) && !ev.altKey) {
+      try { ev.preventDefault(); } catch (e) {}
+      closeSelf();
+    }
+  }, true);
+
+  var BAR_ID = 'bogahost-popup-bar';
+  var BAR_H = 46;
+
+  function styleButton(b, primary) {
+    b.setAttribute('style', 'flex:0 0 auto;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;font:600 13px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#fff;background:' + (primary ? '#5443D2' : 'rgba(255,255,255,.14)') + ';');
+  }
+
+  function currentTitle() {
     try {
-      var t = window.__TAURI__;
-      if (t && t.core && typeof t.core.invoke === 'function') { t.core.invoke('bogahost_print', {}); return; }
-      if (t && typeof t.invoke === 'function') { t.invoke('bogahost_print', {}); return; }
-      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-        window.__TAURI_INTERNALS__.invoke('bogahost_print', {});
+      var t = String(document.title || '').trim();
+      if (t) { return t; }
+      var p = String(location.pathname || '').split('/').filter(Boolean).pop();
+      if (p) { return decodeURIComponent(p); }
+    } catch (e) {}
+    return 'Önizleme';
+  }
+
+  function addBar() {
+    if (!isTop) { return; }
+    try {
+      var existing = document.getElementById(BAR_ID);
+      if (existing) {
+        // Baslik sonradan degisebilir (SPA / gec yuklenen rapor).
+        var lbl = document.getElementById('bogahost-popup-title');
+        if (lbl) { lbl.textContent = currentTitle(); }
         return;
       }
-    } catch (e) {}
-    try { (window.__bogahostNativePrint || window.print).call(window); } catch (e2) {}
-  }
-
-  function styleButton(b, right) {
-    b.setAttribute('style', 'position:fixed;top:12px;right:' + right + 'px;z-index:2147483647;background:#5443D2;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:13px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.92;');
-  }
-
-  function addCloseButton() {
-    try {
-      if (document.getElementById('bogahost-popup-close')) { return; }
       var host = document.body || document.documentElement;
       if (!host) { return; }
 
-      var p = document.createElement('button');
-      p.id = 'bogahost-popup-print';
-      p.type = 'button';
-      p.textContent = 'Yazdır';
-      styleButton(p, 122);
-      p.onclick = printSelf;
-      host.appendChild(p);
+      var bar = document.createElement('div');
+      bar.id = BAR_ID;
+      bar.setAttribute('style', 'position:fixed;left:0;right:0;top:0;z-index:2147483647;height:' + BAR_H + 'px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 12px;background:#14161d;border-bottom:1px solid rgba(255,255,255,.14);box-shadow:0 4px 16px rgba(0,0,0,.4);font:14px/1.3 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;');
 
-      var b = document.createElement('button');
-      b.id = 'bogahost-popup-close';
-      b.type = 'button';
-      b.textContent = 'Kapat (ESC)';
-      styleButton(b, 14);
-      b.onclick = closeSelf;
-      host.appendChild(b);
+      var back = document.createElement('button');
+      back.id = 'bogahost-popup-close';
+      back.type = 'button';
+      back.textContent = '‹ Geri / Kapat (ESC)';
+      styleButton(back, true);
+      back.onclick = closeSelf;
+
+      var title = document.createElement('div');
+      title.id = 'bogahost-popup-title';
+      title.setAttribute('style', 'flex:1 1 auto;text-align:center;color:#e6e8ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;');
+      title.textContent = currentTitle();
+
+      var pr = document.createElement('button');
+      pr.id = 'bogahost-popup-print';
+      pr.type = 'button';
+      pr.textContent = 'Yazdır';
+      styleButton(pr, false);
+      pr.onclick = printSelf;
+
+      bar.appendChild(back);
+      bar.appendChild(title);
+      bar.appendChild(pr);
+      host.appendChild(bar);
+
+      // Icerik cubugun ALTINDA kalmasin (cubuk `fixed`, sayfayi asagi iteriz).
+      try {
+        var b = document.body;
+        if (b && b.getAttribute('data-bogahost-bar-pad') !== '1') {
+          b.setAttribute('data-bogahost-bar-pad', '1');
+          var cur = 0;
+          try { cur = parseFloat(window.getComputedStyle(b).paddingTop) || 0; } catch (e2) {}
+          b.style.paddingTop = (cur + BAR_H) + 'px';
+        }
+      } catch (e3) {}
     } catch (e) {}
   }
 
-  // PDF/gorsel gibi icerikte `document.body` olmayabilir; birkac kez denenir.
+  // PDF/gorsel gibi icerikte `document.body` gec olusur (ya da hic olusmaz);
+  // birkac saniye boyunca denenir. `load` sonrasi baslik da tazelenir.
   var tries = 0;
   var timer = setInterval(function () {
     tries++;
-    addCloseButton();
-    if (tries >= 8 || document.getElementById('bogahost-popup-close')) { clearInterval(timer); }
+    addBar();
+    if (tries >= 20) { clearInterval(timer); }
   }, 400);
-  addCloseButton();
+  addBar();
+  try {
+    document.addEventListener('DOMContentLoaded', addBar);
+    window.addEventListener('load', addBar);
+  } catch (e) {}
 })();
 "#;
 
@@ -4799,6 +5033,16 @@ fn build_view_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     // KURTARMA YOLU: pencere bir sekilde panelden koptuysa (PDF/gorsel/hata
     // sayfasi) kullanici TEK tikla panele donebilsin.
     let home = menu_item(app, "view-home", "Panele dön", Some("CmdOrCtrl+Shift+H"))?;
+    // KURTARMA YOLU 2: onizleme penceresinde native PDF/gorsel goruntuleyici
+    // acildiysa sayfa DOM'u YOKTUR — ne ESC dinleyicisi ne de kapatma cubugu
+    // cizilebilir. Bu oge (tepsi + macOS menu cubugu) o durumda da HER ZAMAN
+    // erisilebilir olan kapatma yoludur.
+    let close_preview = menu_item(
+        app,
+        "view-close-preview",
+        "Önizlemeyi kapat",
+        Some("CmdOrCtrl+Shift+W"),
+    )?;
     let zoom_in = menu_item(app, "view-zoom-in", "Yakınlaştır", Some("CmdOrCtrl+Equal"))?;
     let zoom_out = menu_item(app, "view-zoom-out", "Uzaklaştır", Some("CmdOrCtrl+Minus"))?;
     let zoom_reset = menu_item(app, "view-zoom-reset", "Gerçek Boyut", Some("CmdOrCtrl+0"))?;
@@ -4818,6 +5062,7 @@ fn build_view_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         &back,
         &forward,
         &home,
+        &close_preview,
         &sep2,
         &zoom_in,
         &zoom_out,
@@ -5014,6 +5259,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 let _ = w.set_focus();
             }
         }
+        // Acik onizleme pencerelerini kapat + panele don. Onizlemede native
+        // PDF/gorsel goruntuleyici varsa (DOM yok -> ESC/cubuk calismaz) kacis
+        // yolu BUDUR; bu yuzden hem tepside hem macOS menu cubugunda durur.
+        "view-close-preview" => close_preview_windows(app),
         // Menuden yazdirma ANA pencereyi (paneli) yazdirir.
         // Onizleme penceresindeki PDF icin o pencerenin kendi "Yazdır" dugmesi
         // kullanilir (bkz. `POPUP_INIT_SCRIPT` -> `bogahost_print`); boylece
