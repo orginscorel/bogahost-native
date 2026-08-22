@@ -174,6 +174,12 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     }
 }
 
+/// Adrese göre eşleşen kayıtlar — arayüz bunu otomatik seçim için kullanır.
+#[tauri::command(async)]
+fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, String> {
+    kasa::eslesenler(&uygulama.state::<Durum>(), &url)
+}
+
 /// Yalnızca kullanıcı adını döndürür — parola için ayrı komut yok, bilerek.
 #[tauri::command(async)]
 fn kullanici_adi(uygulama: tauri::AppHandle, id: i64) -> Result<String, String> {
@@ -276,7 +282,7 @@ pub fn run() {
         .manage(HedefDurum::default())
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
-            kayitlar, hedef, izinler, pencereler, hedef_sec,
+            kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
             doldur, kullanici_adi, panoya_sifre
         ])
         .setup(|uygulama| {
@@ -287,6 +293,7 @@ pub fn run() {
             }
 
             kisayol_kur(uygulama.handle())?;
+            hedef_izle(uygulama.handle());
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -326,4 +333,57 @@ fn kisayol_kur(uygulama: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
     })?;
 
     Ok(())
+}
+
+/// Öndeki pencereyi arka planda izler ve KENDİMİZ DIŞINDAKİ son pencereyi
+/// hedef olarak saklar.
+///
+/// NEDEN GEREKLİ: kullanıcının hedefi elle seçmesi ya da her seferinde kısayola
+/// basması işi uzatıyordu. Profesyonel parola yöneticileri de böyle çalışır:
+/// siz uygulamaya geçtiğinizde hedef ZATEN belirlenmiştir, çünkü ondan önceki
+/// pencere biliniyordur.
+///
+/// KENDİ PENCEREMİZ NEDEN ATLANIYOR: kullanıcı Kasa'ya tıkladığı anda öndeki
+/// pencere biz oluruz. O anki değeri yazsaydık hedef her seferinde "Bogahost
+/// Kasa" olurdu — yani hiçbir zaman doğru olmazdı.
+///
+/// MALİYET: macOS'ta her tur bir `osascript` çağırıyor. Bu yüzden kendi
+/// penceremiz odaktayken tur ATLANIYOR — kullanıcı zaten Kasa'ya bakıyorsa
+/// hedefin değişmesi mümkün değil ve boşuna süreç açmanın anlamı yok.
+fn hedef_izle(uygulama: &tauri::AppHandle) {
+    const ARALIK_MS: u64 = 1500;
+    let u = uygulama.clone();
+
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(ARALIK_MS));
+
+        // Kendi penceremiz odaktaysa tur atla.
+        let bizdeyiz = u
+            .get_webview_window("main")
+            .and_then(|p| p.is_focused().ok())
+            .unwrap_or(false);
+        if bizdeyiz {
+            continue;
+        }
+
+        let h = pencere::ondeki();
+        if h.program.is_empty() || h.program == "Bogahost Kasa" {
+            continue;
+        }
+
+        // Aynı hedefe tekrar tekrar olay göndermeyelim; arayüz boşuna
+        // eşleşme sorgusu yapmasın diye kimlik VE adres birlikte kıyaslanıyor
+        // (aynı tarayıcıda sekme değişince adres değişir, kimlik değişmez).
+        let durum = u.state::<HedefDurum>();
+        let degisti = {
+            let mevcut = durum.0.lock().unwrap();
+            mevcut.kimlik != h.kimlik || mevcut.url != h.url
+        };
+        if !degisti {
+            continue;
+        }
+
+        *durum.0.lock().unwrap() = h.clone();
+        let _ = u.emit("hedef-degisti", h);
+    });
 }

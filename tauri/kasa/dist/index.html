@@ -111,7 +111,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
-let kayitlar = [], secili = null, bilet = false, hedefKimlik = '';
+let kayitlar = [], secili = null, bilet = false, hedefKimlik = '', esleseninAdresi = '';
 
 function durumYaz(el, metin, tur) {
   el.className = 'durum' + (tur ? ' ' + tur : '');
@@ -177,7 +177,10 @@ async function yenile() {
   try {
     kayitlar = await invoke('kayitlar');
     ciz();
-    durumYaz($('durum'), kayitlar.length + ' kayıt — yalnızca size ait olanlar');
+    durumYaz($('durum'), kayitlar.length
+      ? kayitlar.length + ' kayıt — size ait olanlar ve ekiple paylaşılanlar'
+      : 'Kasanızda kayıt yok. Panelden ekleyin ya da bir yöneticiden kaydı ekiple paylaşmasını isteyin.',
+      kayitlar.length ? '' : 'hata');
   } catch (e) { durumYaz($('durum'), 'Liste alınamadı: ' + e, 'hata'); }
 }
 
@@ -201,7 +204,13 @@ function ciz() {
     d.ondblclick = () => $('doldurDugme').click();
     l.appendChild(d);
   });
-  if (!secili && gorunen.length) { secili = gorunen[0]; }
+  // İlk kaydı kendiliğinden seç — ama SEÇİMİ GÖRÜNÜR KIL. Önceki halde
+  // atama listeyi çizdikten sonra yapılıyordu, yani vurgu hiç basılmıyordu
+  // ve kullanıcıya "hiçbir şey seçili değil" gibi görünüyordu.
+  if (!secili && gorunen.length) { secili = gorunen[0]; ciz(); return; }
+  // Seçili kayıt filtrenin dışında kaldıysa seçimi bırakma — kullanıcı
+  // aramayı temizleyince geri gelsin.
+  if (secili && !gorunen.some(k => k.id === secili.id) && !s) { secili = gorunen[0] || null; }
 }
 $('ara').addEventListener('input', ciz);
 
@@ -217,7 +226,11 @@ $('hedefSec').addEventListener('change', async (e) => {
 $('tazeleHedef').addEventListener('click', () => pencereleriTara(false));
 
 // Kısayola basıldığında hedef pencere değişir
-listen('hedef-degisti', (o) => hedefYaz(o.payload));
+listen('hedef-degisti', async (o) => {
+  const h = o.payload;
+  hedefYaz(h);
+  await otomatikEslestir(h);
+});
 listen('pano-temizlendi', () => durumYaz($('durum'), 'Pano temizlendi.'));
 
 function hedefYaz(h) {
@@ -278,6 +291,47 @@ async function panoyaYaz(metin) {
   const t = window.__TAURI__ && window.__TAURI__.clipboardManager;
   if (t && t.writeText) { await t.writeText(metin); return; }
   await navigator.clipboard.writeText(metin);
+}
+
+/** Hedef bir tarayıcıysa açık sekmenin adresine göre kaydı KENDİLİĞİNDEN seçer.
+ *
+ *  Eşleştirmeyi sunucudaki /vault/api/match ucu yapar — tarayıcı eklentisiyle
+ *  aynı sınır-güvenli kural ("ornek.com" kaydı "kotuornek.com" ile eşleşmez).
+ *  Kullanıcının listeden elle seçmesi artık istisna; kural bu. */
+async function otomatikEslestir(h) {
+  if (!h || !h.url) { esleseninAdresi = ''; return; }
+  if (h.url === esleseninAdresi) return;          // aynı sekme, tekrar sorma
+  esleseninAdresi = h.url;
+
+  let bulunan = [];
+  try { bulunan = await invoke('eslesenler', { url: h.url }); } catch (e) { return; }
+  if (!bulunan.length) {
+    durumYaz($('durum'), `Bu adres için kayıt yok: ${adres(h.url)}`);
+    return;
+  }
+
+  // Sunucu en iyi eşleşmeyi başa koyuyor.
+  secili = bulunan[0];
+  // Eşleşen kayıt listede yoksa (arama kutusu filtreliyorsa) filtreyi temizle.
+  if (!kayitlar.some(k => k.id === secili.id)) { await yenile(); }
+  else { ciz(); }
+  listeyeKaydir();
+
+  durumYaz($('durum'),
+    bulunan.length > 1
+      ? `${adres(h.url)} → "${secili.label}" seçildi (${bulunan.length} eşleşme)`
+      : `${adres(h.url)} → "${secili.label}" seçildi`, 'iyi');
+}
+
+/** Adresin yalnız alan adı kısmı — durum satırında tam URL göstermek gürültü. */
+function adres(u) {
+  try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u.slice(0, 40); }
+}
+
+/** Otomatik seçilen kayıt ekranın dışında kalmasın. */
+function listeyeKaydir() {
+  const el = $('liste').querySelector('.satir.secili');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
 }
 
 // ── Eylemler ─────────────────────────────────────────────────────────────

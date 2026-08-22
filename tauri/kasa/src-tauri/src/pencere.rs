@@ -21,6 +21,9 @@ pub struct Hedef {
     /// Pencereyi yeniden öne getirmek için tutamak.
     /// Windows'ta HWND'nin ondalık gösterimi, macOS'ta uygulama adı.
     pub kimlik: String,
+    /// Tarayıcıysa açık sekmenin adresi. Kaydı otomatik eşleştirmek için.
+    /// Windows'ta okunamaz (aşağıdaki nota bakın), bu yüzden Option.
+    pub url: Option<String>,
 }
 
 // ── Windows ────────────────────────────────────────────────────────────────
@@ -80,6 +83,7 @@ mod win {
             baslik: b,
             program: p,
             kimlik: (hwnd.0 as isize).to_string(),
+            url: None,
         }
     }
 
@@ -111,6 +115,7 @@ mod win {
             baslik: b,
             program: p,
             kimlik: (hwnd.0 as isize).to_string(),
+            url: None,
         });
         TRUE
     }
@@ -121,6 +126,32 @@ mod win {
             let _ = EnumWindows(Some(topla), LPARAM(&mut liste as *mut _ as isize));
         }
         liste
+    }
+
+    /// Öndeki tarayıcının açık sekmesindeki adres.
+    ///
+    /// NEDEN APPLESCRIPT: tarayıcılar adresi işletim sistemine pencere başlığı
+    /// olarak vermez; başlıkta sayfa BAŞLIĞI yazar. Adresi almanın desteklenen
+    /// yolu uygulamanın kendi betik arayüzüdür.
+    ///
+    /// DİKKAT: macOS her hedef uygulama için AYRI Otomasyon izni sorar
+    /// ("Bogahost Kasa, Google Chrome'u kontrol etmek istiyor"). İzin
+    /// verilmezse burada None döner ve otomatik eşleşme sessizce devre dışı
+    /// kalır — doldurma yine elle seçimle çalışır.
+    pub fn aktif_url(program: &str) -> Option<String> {
+        let p = program.to_lowercase();
+        let betik = if p.contains("safari") {
+            format!("tell application \"{program}\" to get URL of front document")
+        } else if p.contains("chrome") || p.contains("brave") || p.contains("edge")
+            || p.contains("vivaldi") || p.contains("chromium") || p.contains("opera")
+        {
+            format!("tell application \"{program}\" to get URL of active tab of front window")
+        } else {
+            // Firefox'un betik arayüzü adres vermiyor; zorlamanın anlamı yok.
+            return None;
+        };
+        let u = osa(&betik)?;
+        if u.is_empty() || u == "missing value" { None } else { Some(u) }
     }
 
     pub fn one_getir(kimlik: &str) -> bool {
@@ -158,12 +189,17 @@ mod mac {
             baslik: ad.clone(),
             program: ad.clone(),
             kimlik: ad,
+            url: None,
         }
     }
 
     pub fn ondeki() -> Hedef {
         match osa("tell application \"System Events\" to get name of first application process whose frontmost is true") {
-            Some(ad) if !ad.is_empty() => hedef_yap(ad),
+            Some(ad) if !ad.is_empty() => {
+                let mut h = hedef_yap(ad.clone());
+                h.url = aktif_url(&ad);
+                h
+            }
             _ => Hedef::default(),
         }
     }
@@ -179,6 +215,32 @@ mod mac {
             .filter(|s| !s.is_empty() && s != "Bogahost Kasa")
             .map(hedef_yap)
             .collect()
+    }
+
+    /// Öndeki tarayıcının açık sekmesindeki adres.
+    ///
+    /// NEDEN APPLESCRIPT: tarayıcılar adresi işletim sistemine pencere başlığı
+    /// olarak vermez; başlıkta sayfa BAŞLIĞI yazar. Adresi almanın desteklenen
+    /// yolu uygulamanın kendi betik arayüzüdür.
+    ///
+    /// DİKKAT: macOS her hedef uygulama için AYRI Otomasyon izni sorar
+    /// ("Bogahost Kasa, Google Chrome'u kontrol etmek istiyor"). İzin
+    /// verilmezse burada None döner ve otomatik eşleşme sessizce devre dışı
+    /// kalır — doldurma yine elle seçimle çalışır.
+    pub fn aktif_url(program: &str) -> Option<String> {
+        let p = program.to_lowercase();
+        let betik = if p.contains("safari") {
+            format!("tell application \"{program}\" to get URL of front document")
+        } else if p.contains("chrome") || p.contains("brave") || p.contains("edge")
+            || p.contains("vivaldi") || p.contains("chromium") || p.contains("opera")
+        {
+            format!("tell application \"{program}\" to get URL of active tab of front window")
+        } else {
+            // Firefox'un betik arayüzü adres vermiyor; zorlamanın anlamı yok.
+            return None;
+        };
+        let u = osa(&betik)?;
+        if u.is_empty() || u == "missing value" { None } else { Some(u) }
     }
 
     pub fn one_getir(kimlik: &str) -> bool {

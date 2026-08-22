@@ -199,6 +199,33 @@ pub fn liste(durum: &Durum) -> Result<Vec<Kayit>, String> {
     Ok(cikti)
 }
 
+/// Adrese göre eşleşen kayıtlar — en iyi eşleşme başta.
+///
+/// Eşleştirme SUNUCUDA yapılır: `/vault/api/match` ucu, tarayıcı eklentisinin
+/// yıllardır kullandığı sınır-güvenli host karşılaştırmasını uygular
+/// ("ornek.com" kaydı "kotuornek.com" ile eşleşmez). Aynı mantığı burada
+/// yeniden yazmak, iki yerde ayrışan iki kural demek olurdu.
+pub fn eslesenler(durum: &Durum, url: &str) -> Result<Vec<Kayit>, String> {
+    let t = jeton_of(durum)?;
+    let j: serde_json::Value = istemci()
+        .get(format!("{SUNUCU}/vault/api/match"))
+        .query(&[("url", url)])
+        .bearer_auth(t)
+        .send()
+        .and_then(|r| r.json())
+        .map_err(|e| format!("Eslesme alinamadi: {e}"))?;
+
+    let mut cikti = Vec::new();
+    if let Some(dizi) = j["items"].as_array() {
+        for k in dizi {
+            if let Ok(kayit) = serde_json::from_value::<Kayit>(k.clone()) {
+                cikti.push(kayit);
+            }
+        }
+    }
+    Ok(cikti)
+}
+
 /// Parolayı TEK SEFERLİK getirir. Çağıran kullanır ve bırakır; hiçbir yerde saklanmaz.
 pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
     let t = jeton_of(durum)?;
