@@ -23,7 +23,6 @@
             }
         ],
         "security": {
-            "comment": "Arayüz YEREL. Dışarıya tek bağlantı kasa sunucusudur ve o da Rust tarafından yapılır; WebView'ın ağa çıkmasına gerek yok. Bu yüzden connect-src kapalı tutuldu.",
             "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
         }
     },

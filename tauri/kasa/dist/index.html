@@ -123,7 +123,7 @@ $('girisDugme').onclick = async () => {
       });
       if (!s.tamam) {
         durumYaz(d, s.kurulum_gerekli
-          ? 'Kasa için iki adımlı doğrulama zorunlu. Önce panelden 2FA kurun.'
+          ? 'Kasa için iki adımlı doğrulama zorunlu. Kurmak için: dcim.bogahost.com → Yönetim → İki Adımlı Doğrulama (/admin/twofactor)'
           : (s.hata || 'Giriş yapılamadı.'), 'hata');
         return;
       }
@@ -158,6 +158,7 @@ async function kasayiAc() {
         'macOS Erişilebilirlik izni yok: Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Bogahost Kasa', 'hata');
     }
   }
+  try { hedefYaz(await invoke('hedef')); } catch (e) {}
   await yenile();
 }
 
@@ -209,6 +210,15 @@ function hedefYaz(h) {
   el.textContent = `Hedef: ${(h.baslik || '(başlıksız)').slice(0, 70)}  ·  ${h.program}`;
 }
 
+/** Panoya yaz: önce Tauri eklentisi (izin verilmiş), olmazsa tarayıcı API'si.
+ *  navigator.clipboard bazı WebView sürümlerinde pencere odakta değilken
+ *  sessizce reddediyor; eklenti yolu bundan etkilenmiyor. */
+async function panoyaYaz(metin) {
+  const t = window.__TAURI__ && window.__TAURI__.clipboardManager;
+  if (t && t.writeText) { await t.writeText(metin); return; }
+  await navigator.clipboard.writeText(metin);
+}
+
 // ── Eylemler ─────────────────────────────────────────────────────────────
 $('doldurDugme').onclick = async () => {
   if (!secili) { durumYaz($('durum'), 'Önce bir kayıt seçin.', 'hata'); return; }
@@ -223,7 +233,7 @@ $('kadiKopya').onclick = async () => {
   if (!secili) return;
   try {
     const k = await invoke('kullanici_adi', { id: secili.id });
-    await navigator.clipboard.writeText(k);
+    await panoyaYaz(k);
     durumYaz($('durum'), 'Kullanıcı adı kopyalandı.', 'iyi');
   } catch (e) { durumYaz($('durum'), 'Kopyalanamadı: ' + e, 'hata'); }
 };
