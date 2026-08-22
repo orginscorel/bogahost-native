@@ -28,10 +28,13 @@
   .hedef{margin:10px 16px 0;padding:10px 12px;border-radius:10px;
          background:var(--kart);border:1px solid var(--cizgi);font-size:13px}
   .hedef.bos{color:var(--sonuk)}
-  .hedef.tarayici{border-color:var(--sari);background:#fff8ec;color:#8a5a00}
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]) .hedef.tarayici{background:#2b2013;color:#f0b27a}
-  }
+  .hedefKutu{margin:10px 16px 0;display:flex;gap:8px;align-items:stretch}
+  .hedefKutu .hedef{margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hedefSec{flex:1;min-width:0;padding:9px 10px;border:1px solid var(--cizgi);border-radius:10px;
+            background:var(--kart);color:var(--metin);font-size:13px;outline:none}
+  .tazele{padding:0 12px;border:1px solid var(--cizgi);border-radius:10px;background:var(--kart);
+          color:var(--metin);font-size:14px;cursor:pointer;line-height:1}
+  .tazele:hover{border-color:var(--vurgu)}
   .ara{margin:10px 16px;padding:9px 12px;border:1px solid var(--cizgi);border-radius:9px;
        background:var(--kart);color:var(--metin);font-size:14px;outline:none}
   .ara:focus{border-color:var(--mor)}
@@ -87,6 +90,10 @@
     <div class="marka">Bogahost Kasa</div>
     <div class="ipucu" id="kisayolIpucu">Kısayol: Ctrl + Alt + K — doldurmak istediğiniz pencere öndeyken basın.</div>
   </div>
+  <div class="hedefKutu">
+    <select class="hedefSec" id="hedefSec" title="Yazılacak programı seçin"></select>
+    <button class="tazele" id="tazeleHedef" title="Açık programları yeniden tara">⟳</button>
+  </div>
   <div class="hedef bos" id="hedef">Hedef pencere seçilmedi.</div>
   <input class="ara" id="ara" placeholder="Ara: etiket, kullanıcı adı, alan adı…">
   <div class="liste" id="liste"></div>
@@ -104,7 +111,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
-let kayitlar = [], secili = null, bilet = false;
+let kayitlar = [], secili = null, bilet = false, hedefKimlik = '';
 
 function durumYaz(el, metin, tur) {
   el.className = 'durum' + (tur ? ' ' + tur : '');
@@ -152,12 +159,16 @@ async function kasayiAc() {
   $('girisEkrani').classList.add('gizli');
   $('kasaEkrani').classList.remove('gizli');
   if (navigator.platform.toLowerCase().includes('mac')) {
-    $('kisayolIpucu').textContent = 'Kısayol: ⌘ + Alt + K — doldurmak istediğiniz pencere öndeyken basın.';
-    if (!(await invoke('izin_var'))) {
+    $('kisayolIpucu').textContent = 'Programı yukarıdan seçin — ya da hedef pencere öndeyken ⌘ + Alt + K.';
+    const iz = await izinleriSor();
+    if (iz && !iz.erisilebilirlik) {
       durumYaz($('durum'),
-        'macOS Erişilebilirlik izni yok: Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Bogahost Kasa', 'hata');
+        'macOS Erişilebilirlik izni yok — doldurma çalışmaz: Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Bogahost Kasa', 'hata');
     }
+  } else {
+    $('kisayolIpucu').textContent = 'Programı yukarıdan seçin — ya da hedef pencere öndeyken Ctrl + Alt + K.';
   }
+  await pencereleriTara(true);
   try { hedefYaz(await invoke('hedef')); } catch (e) {}
   await yenile();
 }
@@ -194,20 +205,70 @@ function ciz() {
 }
 $('ara').addEventListener('input', ciz);
 
+$('hedefSec').addEventListener('change', async (e) => {
+  const k = e.target.value;
+  if (!k) { hedefKimlik = ''; hedefYaz(null); return; }
+  try {
+    const h = await invoke('hedef_sec', { kimlik: k });
+    if (h) hedefYaz(h);
+    else { durumYaz($('durum'), 'O pencere artık açık değil — listeyi tazeleyin.', 'hata'); await pencereleriTara(true); }
+  } catch (err) { durumYaz($('durum'), 'Hedef seçilemedi: ' + err, 'hata'); }
+});
+$('tazeleHedef').addEventListener('click', () => pencereleriTara(false));
+
 // Kısayola basıldığında hedef pencere değişir
 listen('hedef-degisti', (o) => hedefYaz(o.payload));
 listen('pano-temizlendi', () => durumYaz($('durum'), 'Pano temizlendi.'));
 
 function hedefYaz(h) {
   const el = $('hedef');
-  if (!h || !h.program) { el.className = 'hedef bos'; el.textContent = 'Hedef pencere seçilmedi.'; return; }
-  if (h.tarayici) {
-    el.className = 'hedef tarayici';
-    el.textContent = `Hedef: ${h.program} (tarayıcı) — tarayıcıda doldurmayı Chrome eklentisi yapar, orası daha güvenilir.`;
+  if (!h || !h.program) {
+    el.className = 'hedef bos';
+    el.textContent = 'Hedef seçilmedi — yukarıdan bir program seçin.';
     return;
   }
+  hedefKimlik = h.kimlik || '';
+  if ($('hedefSec').value !== hedefKimlik) $('hedefSec').value = hedefKimlik;
   el.className = 'hedef';
-  el.textContent = `Hedef: ${(h.baslik || '(başlıksız)').slice(0, 70)}  ·  ${h.program}`;
+  const b = (h.baslik || '').trim();
+  el.textContent = b && b !== h.program
+    ? `Hedef: ${h.program}  ·  ${b.slice(0, 60)}`
+    : `Hedef: ${h.program}`;
+}
+
+/** Açık programları tara ve seçiciyi doldur.
+ *  Hedefi yalnızca kısayolla yakalayabilmek yetmiyordu: kullanıcı uygulamayı
+ *  doğrudan açtığında ekranda seçilecek hiçbir şey olmuyordu. */
+async function pencereleriTara(sessiz) {
+  const sec = $('hedefSec');
+  let liste = [];
+  try { liste = await invoke('pencereler'); } catch (e) { liste = []; }
+
+  sec.innerHTML = '';
+  const bos = document.createElement('option');
+  bos.value = ''; bos.textContent = liste.length ? '— yazılacak programı seçin —' : '— açık program bulunamadı —';
+  sec.appendChild(bos);
+
+  liste.forEach(h => {
+    const o = document.createElement('option');
+    o.value = h.kimlik;
+    const b = (h.baslik || '').trim();
+    o.textContent = b && b !== h.program ? `${h.program} — ${b.slice(0, 50)}` : h.program;
+    sec.appendChild(o);
+  });
+  if (hedefKimlik) sec.value = hedefKimlik;
+
+  if (!liste.length && !sessiz) {
+    const iz = await izinleriSor();
+    if (iz && !iz.otomasyon) {
+      durumYaz($('durum'), 'Program listesi okunamadı: macOS Otomasyon izni gerekiyor. Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Bogahost Kasa → System Events', 'hata');
+    }
+  }
+  return liste;
+}
+
+async function izinleriSor() {
+  try { return await invoke('izinler'); } catch (e) { return null; }
 }
 
 /** Panoya yaz: önce Tauri eklentisi (izin verilmiş), olmazsa tarayıcı API'si.

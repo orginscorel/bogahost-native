@@ -6,9 +6,8 @@
 //! pencereyi okuma ve BAŞKA bir programa tuş gönderme. Bu yüzden arayüz
 //! yereldir (uzak URL değil) ve iş mantığı Rust tarafındadır.
 //!
-//! TARAYICILAR KAPSAM DIŞI: Chrome'da doldurmayı mevcut "Bogahost Kasa"
-//! eklentisi yapar; sayfanın alanlarını gördüğü için orada daha güvenilirdir.
-//! Kullanıcı bir tarayıcı penceresi seçerse uyarılır.
+//! TARAYICI DAHİL HER PENCEREYE YAZAR. Klavye girdisi olarak gönderildiği için
+//! hedefin ne olduğu fark etmez; ayrı bir tarayıcı istisnası yoktur.
 //!
 //! KOMUTLAR NEDEN `#[tauri::command(async)]`:
 //! Tauri'de `async` İŞARETİ OLMAYAN komutlar ANA İŞ PARÇACIĞINDA çalışır.
@@ -79,9 +78,41 @@ fn hedef(uygulama: tauri::AppHandle) -> pencere::Hedef {
     uygulama.state::<HedefDurum>().0.lock().unwrap().clone()
 }
 
+#[derive(Serialize)]
+struct Izinler {
+    /// Pencere adlarını okumak / pencereyi öne getirmek (macOS: Apple Events)
+    otomasyon: bool,
+    /// Başka programa tuş göndermek (macOS: Accessibility)
+    erisilebilirlik: bool,
+}
+
+/// İki izin AYRI AYRI sorulur. Biri verilip diğeri unutulduğunda ekranda
+/// "hiç pencere yok" gibi yanıltıcı bir durum oluşuyordu; artık hangisinin
+/// eksik olduğunu söyleyebiliyoruz.
 #[tauri::command(async)]
-fn izin_var() -> bool {
-    pencere::erisilebilirlik_izni_var()
+fn izinler() -> Izinler {
+    Izinler {
+        otomasyon: pencere::otomasyon_izni_var(),
+        erisilebilirlik: pencere::erisilebilirlik_izni_var(),
+    }
+}
+
+/// Açık programların listesi — kullanıcı hedefi buradan seçebilsin diye.
+///
+/// NEDEN GEREKLİ: hedef yalnızca küresel kısayolla yakalanabiliyordu. Kullanıcı
+/// uygulamayı doğrudan açtığında ya da Otomasyon izni verilmemişken ekranda
+/// "Hedef pencere seçilmedi" yazıyor ve seçilecek hiçbir şey bulunmuyordu.
+#[tauri::command(async)]
+fn pencereler() -> Vec<pencere::Hedef> {
+    pencere::listele()
+}
+
+/// Listeden seçilen pencereyi hedef yapar.
+#[tauri::command(async)]
+fn hedef_sec(uygulama: tauri::AppHandle, kimlik: String) -> Option<pencere::Hedef> {
+    let secilen = pencere::listele().into_iter().find(|h| h.kimlik == kimlik)?;
+    *uygulama.state::<HedefDurum>().0.lock().unwrap() = secilen.clone();
+    Some(secilen)
 }
 
 /// Kullanıcı adını ve parolayı hedef pencereye YAZAR.
@@ -101,7 +132,7 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     if h.program.is_empty() {
         return DoldurSonuc {
             tamam: false,
-            mesaj: "Hedef pencere yok. Doldurulacak pencere öndeyken kısayola basın.".into(),
+            mesaj: "Hedef pencere seçilmedi. Listeden bir program seçin ya da doldurulacak pencere öndeyken kısayola basın.".into(),
         };
     }
 
@@ -110,12 +141,20 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         Err(e) => return DoldurSonuc { tamam: false, mesaj: format!("Alınamadı: {e}") },
     };
 
-    // Kendi penceremiz odağı bırakmalı ki tuşlar hedefe gitsin
+    // SIRA ÖNEMLİ: ÖNCE hedefi öne getir, SONRA kendi penceremizi gizle.
+    // Windows'ta SetForegroundWindow yalnızca çağıran süreç ÖN PLANDAYKEN
+    // çalışır; kendimizi önce gizlersek o hakkı kaybeder ve tuşlar yanlış
+    // pencereye gider. Gizleme ikinci adımda, hedef zaten odaktayken yapılır.
+    if !h.kimlik.is_empty() {
+        pencere::one_getir(&h.kimlik);
+        std::thread::sleep(std::time::Duration::from_millis(240));
+    }
+
     let pencere_tauri = uygulama.get_webview_window("main");
     if let Some(p) = &pencere_tauri {
         let _ = p.hide();
     }
-    std::thread::sleep(std::time::Duration::from_millis(220));
+    std::thread::sleep(std::time::Duration::from_millis(140));
 
     let sonuc = yaz(&kullanici, &sifre, enter_bas);
 
@@ -237,7 +276,8 @@ pub fn run() {
         .manage(HedefDurum::default())
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
-            kayitlar, hedef, izin_var, doldur, kullanici_adi, panoya_sifre
+            kayitlar, hedef, izinler, pencereler, hedef_sec,
+            doldur, kullanici_adi, panoya_sifre
         ])
         .setup(|uygulama| {
             // Kayıtlı oturumu belleğe al (geçerliliği arayüz açılışında sorulur)

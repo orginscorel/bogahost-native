@@ -3,9 +3,8 @@
 Bilgi Kasası'ndaki kullanıcı adı ve parolayı **masaüstü programlarına** yazar:
 RDP, FileZilla, WinSCP, veritabanı araçları, VPN istemcileri…
 
-Tarayıcılar kapsam dışıdır — Chrome'da doldurmayı mevcut **Bogahost Kasa
-eklentisi** yapar; sayfanın alanlarını gördüğü için orada daha güvenilirdir.
-Kullanıcı bir tarayıcı penceresi seçerse uygulama uyarır.
+Tarayıcılar dahil **her pencereye** yazar: kimlik bilgisi klavye girdisi olarak
+gönderildiği için hedefin ne olduğu fark etmez.
 
 ## Diğer uygulamalardan farkı
 
@@ -28,6 +27,18 @@ programa tuş gönderme. Bu yüzden:
 | Girişte **2FA zorunlu** | Sunucu (`/vault/api/giris`) 2FA kurulu olmayan hesaba jeton vermez. |
 | Her kullanıcı **kendi kayıtlarını** görür | Ortak havuz yok; `/vault/api/items` ve `/reveal` jetonun sahibine göre kapsamlanır. |
 | Panoya kopyalama **30 sn sonra temizlenir** | Araya başka bir şey kopyalandıysa panoya dokunulmaz. |
+
+## Hedef nasıl seçilir
+
+İki yol var:
+
+1. **Listeden** — uygulama açık programları tarar, üstteki açılır listeden
+   seçersiniz. "Doldur" dendiğinde o pencere önce öne getirilir.
+2. **Kısayolla** — hedef pencere öndeyken kısayola basarsınız, o anki pencere
+   yakalanır.
+
+Başta yalnızca kısayol vardı; uygulama doğrudan açıldığında ya da macOS
+Otomasyon izni verilmemişken ekranda seçilecek hiçbir şey kalmıyordu.
 
 ## Kısayol
 

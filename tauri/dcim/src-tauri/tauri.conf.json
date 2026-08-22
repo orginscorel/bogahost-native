@@ -1,66 +1,66 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Bogahost DCIM",
-  "version": "1.10.0",
-  "identifier": "com.bogahost.dcim",
-  "build": {
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [],
-    "security": {
-      "csp": "default-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com; connect-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com wss://finans.bogahost.com wss://dcim.bogahost.com wss://chat.bogahost.com wss://task.bogahost.com wss://muh.bogahost.com; img-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com data: blob:; script-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com 'unsafe-inline'; font-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com data:; media-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com blob:; frame-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "msi",
-      "nsis",
-      "dmg",
-      "app"
-    ],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "copyright": "(c) 2026 Bogahost",
-    "category": "Business",
-    "shortDescription": "Bogahost DCIM masaustu uygulamasi",
-    "longDescription": "Bogahost DCIM yonetim panelinin masaustu kabugu (canli URL WebView).",
-    "windows": {
-      "wix": {
-        "language": [
-          "tr-TR"
-        ]
-      },
-      "nsis": {
-        "installMode": "currentUser",
-        "languages": [
-          "Turkish",
-          "English"
-        ]
-      }
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Bogahost DCIM",
+    "version": "1.10.1",
+    "identifier": "com.bogahost.dcim",
+    "build": {
+        "frontendDist": "../dist"
     },
-    "macOS": {
-      "minimumSystemVersion": "10.15",
-      "entitlements": "Bogahost.entitlements"
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [],
+        "security": {
+            "csp": "default-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com; connect-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com wss://finans.bogahost.com wss://dcim.bogahost.com wss://chat.bogahost.com wss://task.bogahost.com wss://muh.bogahost.com; img-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com data: blob:; script-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com 'unsafe-inline'; font-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com data:; media-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com blob:; frame-src 'self' https://finans.bogahost.com https://dcim.bogahost.com https://chat.bogahost.com https://task.bogahost.com https://muh.bogahost.com"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": [
+            "msi",
+            "nsis",
+            "dmg",
+            "app"
+        ],
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ],
+        "copyright": "(c) 2026 Bogahost",
+        "category": "Business",
+        "shortDescription": "Bogahost DCIM masaustu uygulamasi",
+        "longDescription": "Bogahost DCIM yonetim panelinin masaustu kabugu (canli URL WebView).",
+        "windows": {
+            "wix": {
+                "language": [
+                    "tr-TR"
+                ]
+            },
+            "nsis": {
+                "installMode": "currentUser",
+                "languages": [
+                    "Turkish",
+                    "English"
+                ]
+            }
+        },
+        "macOS": {
+            "minimumSystemVersion": "10.15",
+            "entitlements": "Bogahost.entitlements"
+        }
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGMkVFQ0U5Q0M4RkI4RkQKUldUOXVJL002ZXd1WDlpbGtZWmpXajY2UjZla3I3M2RMdzl0eGZQem1qamc2Y0N2WmNSeHN3ZjEK",
+            "endpoints": [
+                "https://native.bogahost.com/updates/dcim/{{target}}/{{arch}}/latest.json",
+                "https://native.bogahost.com/updates/dcim/latest.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
     }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGMkVFQ0U5Q0M4RkI4RkQKUldUOXVJL002ZXd1WDlpbGtZWmpXajY2UjZla3I3M2RMdzl0eGZQem1qamc2Y0N2WmNSeHN3ZjEK",
-      "endpoints": [
-        "https://native.bogahost.com/updates/dcim/{{target}}/{{arch}}/latest.json",
-        "https://native.bogahost.com/updates/dcim/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
-  }
 }

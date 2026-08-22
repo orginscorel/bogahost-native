@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-muh"
-version = "1.10.0"
+version = "1.10.1"
 description = "Bogahost Muhasebe Arşivi — Tauri v2 masaustu kabugu (canli URL WebView)"
 authors = ["Bogahost"]
 edition = "2021"
