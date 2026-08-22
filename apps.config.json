@@ -62,13 +62,13 @@
             "key": "kasa",
             "appId": "com.bogahost.kasa",
             "name": "Bogahost Kasa",
+            "_not": "DIGERLERINDEN FARKLI: canli URL yukleyen bir kabuk DEGIL. Arayuzu yereldir; isi isletim sistemi duzeyinde yapar (kuresel kisayol, ondeki pencereyi okuma, baska programa tus gonderme). Bu yuzden url alani yoktur.",
             "shortName": "Kasa",
-            "": "DIGERLERINDEN FARKLI: canli URL yukleyen bir kabuk DEGIL. Arayuzu yereldir; isi isletim sistemi duzeyinde yapar (kuresel kisayol, ondeki pencereyi okuma, baska programa tus gonderme). Bu yuzden url alani yoktur.",
             "yerel": true,
             "hostname": "dcim.bogahost.com",
             "themeColor": "#5443D2",
             "backgroundColor": "#0e1015",
-            "iconSource": "assets/icons/icon-source-dcim.png",
+            "iconSource": "assets/icons/icon-source-kasa.png",
             "platformlar": [
                 "windows",
                 "macos"
