@@ -414,7 +414,13 @@ a:focus-visible,button:focus-visible{
       desc:"Görev takibi, mesai planlama, bilgi kasası ve destek talepleri." },
     { key:"muh",    name:"Bogahost Muhasebe Arşivi", icon:"/assets/icons/muh.png",
       accent:"#e11d48", soft:"rgba(225,29,72,.16)",
-      desc:"Muhasebe arşiv deposu; aylık fatura, dekont ve banka ekstresi arşivi — dönemsel olarak muhasebeciye ZIP gönderilir." }
+      desc:"Muhasebe arşiv deposu; aylık fatura, dekont ve banka ekstresi arşivi — dönemsel olarak muhasebeciye ZIP gönderilir." },
+    /* Kasa YALNIZ masaüstüdür: işini görebilmek için küresel kısayol, öndeki
+       pencereyi okuma ve başka programa tuş gönderme gerekiyor. Mobilde bu
+       yetenekler yok — bu yüzden Android satırı hiç çizilmesin diye "plat". */
+    { key:"kasa",   name:"Bogahost Kasa",     icon:"/assets/icons/kasa.png",
+      accent:"#5443D2", soft:"rgba(84,67,210,.16)", plat:["mac","win"],
+      desc:"Kasadaki kullanıcı adı ve parolayı masaüstü programlarına yazar — RDP, FileZilla, WinSCP, veritabanı araçları. Tarayıcılarda doldurmayı Chrome eklentisi yapar." }
   ];
 
   var OS = {
@@ -495,18 +501,22 @@ a:focus-visible,button:focus-visible{
        net cagriya sahip olsun diye sirayla Windows, sonra Android one cikar. */
     var lead = dmg ? "mac" : (win ? "win" : (apk ? "droid" : null));
 
+    /* Uygulamanin hedefledigi platformlar. Belirtilmemisse ucu de. */
+    var izin = app.plat || ["mac","win","droid"];
+    function hedefte(p){ return izin.indexOf(p) !== -1; }
+
     var rows = "";
 
-    rows += '<div class="dl-row">'
+    if(hedefte("mac")) rows += '<div class="dl-row">'
       + (dmg ? dlButton(OS.mac, dmg, app.name, lead === "mac") : dlMissing(OS.mac))
       + '</div>';
 
-    rows += '<div class="dl-row">'
+    if(hedefte("win")) rows += '<div class="dl-row">'
       + (win ? dlButton(OS.win, win, app.name, lead === "win", exe ? null : "64-bit paket (.msi)") : dlMissing(OS.win))
       + (exe && msi ? altLink(msi, "MSI paketi") : "")
       + '</div>';
 
-    rows += '<div class="dl-row">'
+    if(hedefte("droid")) rows += '<div class="dl-row">'
       + (apk ? dlButton(OS.droid, apk, app.name, lead === "droid") : dlMissing(OS.droid))
       + '</div>';
 
