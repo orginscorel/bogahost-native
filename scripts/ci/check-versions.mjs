@@ -20,7 +20,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const APPS = ['finans', 'dcim', 'chat', 'task', 'muh'];
+const APPS = ['finans', 'dcim', 'chat', 'task', 'muh', 'kasa'];
 
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Kasa — macOS entitlements.
+
+  NEDEN ZORUNLU: Tauri'de bundle.macOS.hardenedRuntime VARSAYILAN OLARAK true'dur.
+  Hardened Runtime acikken bu izinler entitlement VERILMEDIKCE cekirdek tarafindan
+  reddedilir; Info.plist metinleri TEK BASINA YETMEZ.
+
+  KASA, DIGER UYGULAMALARDAN FARKLI: kamera/mikrofon/ekran ISTEMEZ. Yalnizca
+  (1) kasa sunucusuna HTTPS, (2) ondeki pencerenin adini okumak icin Apple Events.
+  Tus gonderme (CGEvent) bir entitlement DEGIL, TCC "Erisilebilirlik" iznidir —
+  kullanici Sistem Ayarlari > Gizlilik ve Guvenlik > Erisilebilirlik'ten verir.
+
+  Bu dosya tauri.conf.json > bundle.macOS.entitlements ile baglanir.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Kasa API'sine (https://dcim.bogahost.com) baglanti -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!--
+      Ondeki pencerenin uygulama adini ve baslik cubugunu okumak icin
+      System Events'e AppleScript sorusu gonderilir (src/pencere.rs).
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!--
+      Hardened Runtime, JIT'siz JavaScriptCore'u kisitlar. Arayuz yereldir ama
+      yine de WKWebView icinde calisir; bu iki anahtar olmadan bazi macOS
+      surumlerinde pencere bos/donuk aciliyor.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>

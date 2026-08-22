@@ -1,0 +1,47 @@
+[package]
+name = "bogahost-kasa"
+version = "1.10.0"
+description = "Bogahost Kasa — masaustu programlarina guvenli kimlik doldurma"
+authors = ["Bogahost"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# main.rs bu kutuphaneyi cagirir; Windows'ta isim cakismasini onlemek icin "_lib" son eki.
+name = "bogahost_kasa_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+# Ctrl+Alt+K (macOS: Cmd+Alt+K) — uygulama arka plandayken de yakalanmali
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Kasa API cagrilari. Jeton RUST TARAFINDA kalir, WebView'a hic verilmez.
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Tus gonderme: Windows'ta SendInput, macOS'ta CGEvent kullanir.
+# Tek arayuz sayesinde doldurma mantigi iki platformda AYNI kod yolundan gecer.
+enigo = "0.2"
+
+# Jeton saklama: Windows Credential Manager / macOS Keychain.
+# Kendi sifrelememizi yazmak yerine isletim sisteminin kasasi kullanilir —
+# anahtar yonetimi, kullanici izolasyonu ve kilit ekrani korumasi hazir gelir.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+# Odaktaki pencerenin basligi/programi — platforma ozel.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+] }

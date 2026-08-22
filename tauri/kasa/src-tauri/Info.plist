@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bogahost Kasa — macOS Info.plist EKI.
+
+  tauri-bundler bu dosyayi (src-tauri/Info.plist) OTOMATIK bulur ve urettigi
+  varsayilan Info.plist ile BIRLESTIRIR.
+
+  NEDEN ZORUNLU: macOS TCC katmani, Apple Events gondermeye calisan bir uygulamada
+  NSAppleEventsUsageDescription anahtari YOKSA uygulamayi ANINDA OLDURUR — izin
+  sorusu bile cikmaz. Kasa, ondeki pencereyi tanimak icin System Events'e soru
+  sordugundan bu anahtar sart.
+
+  Metin kullaniciya sistem izin penceresinde AYNEN gosterilir.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Kimlik bilgisini dogru programa yazabilmek icin one gelen pencerenin uygulama adini okumak gerekir.</string>
+</dict>
+</plist>

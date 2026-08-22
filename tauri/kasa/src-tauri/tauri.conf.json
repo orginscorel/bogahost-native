@@ -1,0 +1,80 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Bogahost Kasa",
+    "version": "1.10.0",
+    "identifier": "com.bogahost.kasa",
+    "build": {
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "label": "main",
+                "title": "Bogahost Kasa",
+                "width": 620,
+                "height": 560,
+                "minWidth": 520,
+                "minHeight": 440,
+                "resizable": true,
+                "center": true,
+                "visible": true,
+                "decorations": true
+            }
+        ],
+        "security": {
+            "comment": "Arayüz YEREL. Dışarıya tek bağlantı kasa sunucusudur ve o da Rust tarafından yapılır; WebView'ın ağa çıkmasına gerek yok. Bu yüzden connect-src kapalı tutuldu.",
+            "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": [
+            "msi",
+            "nsis",
+            "dmg",
+            "app"
+        ],
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ],
+        "copyright": "(c) 2026 Bogahost",
+        "category": "Business",
+        "shortDescription": "Bogahost Kasa — masaüstü kimlik doldurma",
+        "longDescription": "Bilgi Kasası'ndaki kullanıcı adı ve parolayı masaüstü programlarına (RDP, FileZilla, WinSCP, veritabanı araçları) yazar. Tarayıcılarda doldurmayı mevcut Chrome eklentisi yapar.",
+        "macOS": {
+            "minimumSystemVersion": "10.15",
+            "entitlements": "Bogahost.entitlements"
+        },
+        "windows": {
+            "wix": {
+                "language": [
+                    "tr-TR"
+                ]
+            },
+            "nsis": {
+                "installMode": "currentUser",
+                "languages": [
+                    "Turkish",
+                    "English"
+                ]
+            }
+        }
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGMkVFQ0U5Q0M4RkI4RkQKUldUOXVJL002ZXd1WDlpbGtZWmpXajY2UjZla3I3M2RMdzl0eGZQem1qamc2Y0N2WmNSeHN3ZjEK",
+            "endpoints": [
+                "https://native.bogahost.com/updates/kasa/{{target}}/{{arch}}/latest.json",
+                "https://native.bogahost.com/updates/kasa/latest.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
+    }
+}

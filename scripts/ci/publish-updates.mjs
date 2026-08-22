@@ -40,8 +40,8 @@ const VERSION = arg('version').replace(/^v/, '');
 const PLATFORM = arg('platform');
 const NOTES = arg('notes', `Bogahost masaüstü sürüm ${VERSION}.`);
 const BASE_URL = arg('base-url', 'https://native.bogahost.com').replace(/\/+$/, '');
-const APPS = ['finans', 'dcim', 'chat', 'task', 'muh'];
-const APP_LABELS = { finans: 'Finans', dcim: 'DCIM', chat: 'Chat', task: 'Görevler', muh: 'Muhasebe' };
+const APPS = ['finans', 'dcim', 'chat', 'task', 'muh', 'kasa'];
+const APP_LABELS = { finans: 'Finans', dcim: 'DCIM', chat: 'Chat', task: 'Görevler', muh: 'Muhasebe', kasa: 'Kasa' };
 
 if (!VERSION) throw new Error('--version zorunlu');
 if (!['windows', 'macos', 'android'].includes(PLATFORM)) {

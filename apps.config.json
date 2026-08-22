@@ -1,62 +1,78 @@
 {
-  "$comment": "Bogahost native shell tanımları. Her uygulama CANLI URL'yi yükleyen bir WebView kabuğudur — backend/frontend koduna dokunulmaz. CI bu tanımlardan platform binary'leri üretir.",
-  "vendor": "Bogahost",
-  "version": "1.10.0",
-  "apps": [
-    {
-      "key": "finans",
-      "appId": "com.bogahost.finans",
-      "name": "Bogahost Finans",
-      "shortName": "Finans",
-      "url": "https://finans.bogahost.com/admin",
-      "hostname": "finans.bogahost.com",
-      "themeColor": "#5443D2",
-      "backgroundColor": "#0e1015",
-      "iconSource": "assets/icons/icon-source-finans.png"
-    },
-    {
-      "key": "dcim",
-      "appId": "com.bogahost.dcim",
-      "name": "Bogahost DCIM",
-      "shortName": "DCIM",
-      "url": "https://dcim.bogahost.com/admin",
-      "hostname": "dcim.bogahost.com",
-      "themeColor": "#5443D2",
-      "backgroundColor": "#0e1015",
-      "iconSource": "assets/icons/icon-source-dcim.png"
-    },
-    {
-      "key": "chat",
-      "appId": "com.bogahost.chat",
-      "name": "Bogahost Chat",
-      "shortName": "Chat",
-      "url": "https://chat.bogahost.com/admin",
-      "hostname": "chat.bogahost.com",
-      "themeColor": "#5443D2",
-      "backgroundColor": "#0e1015",
-      "iconSource": "assets/icons/icon-source-chat.png"
-    },
-    {
-      "key": "task",
-      "appId": "com.bogahost.task",
-      "name": "Bogahost Görevler",
-      "shortName": "Görevler",
-      "url": "https://task.bogahost.com/admin",
-      "hostname": "task.bogahost.com",
-      "themeColor": "#5443D2",
-      "backgroundColor": "#0e1015",
-      "iconSource": "assets/icons/icon-source-task.png"
-    },
-    {
-      "key": "muh",
-      "appId": "com.bogahost.muh",
-      "name": "Bogahost Muhasebe Arşivi",
-      "shortName": "Muhasebe",
-      "url": "https://muh.bogahost.com/admin",
-      "hostname": "muh.bogahost.com",
-      "themeColor": "#5443D2",
-      "backgroundColor": "#0e1015",
-      "iconSource": "assets/icons/icon-source-muh.png"
-    }
-  ]
+    "$comment": "Bogahost native shell tanımları. Her uygulama CANLI URL'yi yükleyen bir WebView kabuğudur — backend/frontend koduna dokunulmaz. CI bu tanımlardan platform binary'leri üretir.",
+    "vendor": "Bogahost",
+    "version": "1.10.0",
+    "apps": [
+        {
+            "key": "finans",
+            "appId": "com.bogahost.finans",
+            "name": "Bogahost Finans",
+            "shortName": "Finans",
+            "url": "https://finans.bogahost.com/admin",
+            "hostname": "finans.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-finans.png"
+        },
+        {
+            "key": "dcim",
+            "appId": "com.bogahost.dcim",
+            "name": "Bogahost DCIM",
+            "shortName": "DCIM",
+            "url": "https://dcim.bogahost.com/admin",
+            "hostname": "dcim.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-dcim.png"
+        },
+        {
+            "key": "chat",
+            "appId": "com.bogahost.chat",
+            "name": "Bogahost Chat",
+            "shortName": "Chat",
+            "url": "https://chat.bogahost.com/admin",
+            "hostname": "chat.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-chat.png"
+        },
+        {
+            "key": "task",
+            "appId": "com.bogahost.task",
+            "name": "Bogahost Görevler",
+            "shortName": "Görevler",
+            "url": "https://task.bogahost.com/admin",
+            "hostname": "task.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-task.png"
+        },
+        {
+            "key": "muh",
+            "appId": "com.bogahost.muh",
+            "name": "Bogahost Muhasebe Arşivi",
+            "shortName": "Muhasebe",
+            "url": "https://muh.bogahost.com/admin",
+            "hostname": "muh.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-muh.png"
+        },
+        {
+            "key": "kasa",
+            "appId": "com.bogahost.kasa",
+            "name": "Bogahost Kasa",
+            "shortName": "Kasa",
+            "": "DIGERLERINDEN FARKLI: canli URL yukleyen bir kabuk DEGIL. Arayuzu yereldir; isi isletim sistemi duzeyinde yapar (kuresel kisayol, ondeki pencereyi okuma, baska programa tus gonderme). Bu yuzden url alani yoktur.",
+            "yerel": true,
+            "hostname": "dcim.bogahost.com",
+            "themeColor": "#5443D2",
+            "backgroundColor": "#0e1015",
+            "iconSource": "assets/icons/icon-source-dcim.png",
+            "platformlar": [
+                "windows",
+                "macos"
+            ]
+        }
+    ]
 }
