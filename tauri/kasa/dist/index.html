@@ -1,148 +1,284 @@
-<!doctype html>
-<html lang="tr">
-<head>
+<!-- Bogahost Kasa — yerel arayüz.
+     Uzak sayfa yüklenmez; CSP dış kaynağa izin vermez. Bu yüzden yazı tipi
+     sistem yığınından, ikonlar satır içi SVG'den gelir. -->
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bogahost Kasa</title>
 <style>
-  /* Panel ve diğer uygulamalarla aynı kimlik: mor aksan, koyu/açık uyumlu. */
+  /* Açık tema tam tanımlı; koyu tema YALNIZ değişkenleri yeniden yazar.
+     Bir rengin tek tanımı medya sorgusunun içinde kalırsa diğer temada
+     kaybolur — bu yüzden bileşenler hep değişken üzerinden boyanır. */
   :root{
-    --mor:#5443D2; --mor2:#6d5ce6;
-    --zemin:#f5f6fa; --kart:#ffffff; --cizgi:#e6e8ee;
-    --metin:#1f2430; --solgun:#6b7280; --sonuk:#98a0ad;
-    --yesil:#12b76a; --kirmizi:#e5484d; --sari:#f5a524;
+    --zemin:#f6f5fb; --kart:#ffffff; --kart2:#fbfaff;
+    --metin:#1b1a24; --sonuk:#6d6a80; --cizgi:#e4e1f0;
+    --vurgu:#5443D2; --vurgu2:#6f61e8; --vurgu-yumusak:rgba(84,67,210,.10);
+    --iyi:#1f9d63; --iyi-yumusak:rgba(31,157,99,.12);
+    --uyari:#b4700d; --uyari-yumusak:rgba(180,112,13,.12);
+    --hata:#c2334d; --hata-yumusak:rgba(194,51,77,.12);
+    --golge:0 1px 2px rgba(24,20,50,.06), 0 8px 24px rgba(24,20,50,.06);
   }
-  :root:not([data-theme="light"]) { }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --zemin:#13131c; --kart:#1e1e2b; --cizgi:#313143;
-      --metin:#e8eaf0; --solgun:#c7cad3; --sonuk:#9aa0ad;
+      --zemin:#101017; --kart:#181823; --kart2:#1f1f2c;
+      --metin:#eceaf5; --sonuk:#9a96ad; --cizgi:#2b2b3c;
+      --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.14);
+      --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.14);
+      --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.14);
+      --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.14);
+      --golge:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
     }
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--zemin);color:var(--metin);
-       font:14px/1.5 "Segoe UI",-apple-system,system-ui,sans-serif;
-       height:100vh;display:flex;flex-direction:column}
-  .ust{padding:14px 16px 10px;border-bottom:1px solid var(--cizgi);background:var(--kart)}
-  .marka{font-size:16px;font-weight:700}
-  .ipucu{margin-top:2px;font-size:12px;color:var(--sonuk)}
-  .hedef{margin:10px 16px 0;padding:10px 12px;border-radius:10px;
-         background:var(--kart);border:1px solid var(--cizgi);font-size:13px}
-  .hedef.bos{color:var(--sonuk)}
-  .hedefKutu{margin:10px 16px 0;display:flex;gap:8px;align-items:stretch}
-  .hedefKutu .hedef{margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .hedefSec{flex:1;min-width:0;padding:9px 10px;border:1px solid var(--cizgi);border-radius:10px;
-            background:var(--kart);color:var(--metin);font-size:13px;outline:none}
-  .tazele{padding:0 12px;border:1px solid var(--cizgi);border-radius:10px;background:var(--kart);
-          color:var(--metin);font-size:14px;cursor:pointer;line-height:1}
-  .tazele:hover{border-color:var(--vurgu)}
-  .ara{margin:10px 16px;padding:9px 12px;border:1px solid var(--cizgi);border-radius:9px;
-       background:var(--kart);color:var(--metin);font-size:14px;outline:none}
-  .ara:focus{border-color:var(--mor)}
-  .liste{flex:1;overflow:auto;margin:0 16px;border:1px solid var(--cizgi);
-         border-radius:10px;background:var(--kart)}
-  .satir{padding:10px 12px;border-bottom:1px solid var(--cizgi);cursor:pointer}
-  .satir:last-child{border-bottom:0}
-  .satir:hover{background:rgba(84,67,210,.06)}
-  .satir.secili{background:rgba(84,67,210,.12);box-shadow:inset 3px 0 0 var(--mor)}
-  .satir .ad{font-weight:600}
-  .satir .alt{font-size:12px;color:var(--sonuk);margin-top:1px}
-  .dugmeler{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;align-items:center}
-  button{padding:9px 14px;border:1px solid var(--cizgi);border-radius:9px;
-         background:var(--kart);color:var(--metin);font-size:13.5px;cursor:pointer}
-  button:hover{border-color:var(--mor)}
-  button.ana{background:var(--mor);border-color:var(--mor);color:#fff;font-weight:600}
-  button.ana:hover{background:var(--mor2)}
-  button:disabled{opacity:.5;cursor:default}
-  label.onay{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--solgun)}
-  .durum{padding:8px 16px 12px;font-size:12.5px;color:var(--sonuk);min-height:32px}
-  .durum.hata{color:var(--kirmizi)}
-  .durum.iyi{color:var(--yesil)}
-  /* Giriş ekranı */
-  .giris{flex:1;display:flex;align-items:center;justify-content:center;padding:20px}
-  .giris .kutu{width:100%;max-width:340px}
-  .giris h2{margin:0 0 4px;font-size:20px}
-  .giris p{margin:0 0 18px;color:var(--sonuk);font-size:13px}
-  .giris input{width:100%;padding:10px 12px;margin-bottom:10px;border:1px solid var(--cizgi);
-               border-radius:9px;background:var(--kart);color:var(--metin);font-size:14px;outline:none}
-  .giris input:focus{border-color:var(--mor)}
-  .giris button{width:100%;margin-top:6px}
-  .gizli{display:none !important}
-</style>
-</head>
-<body>
+  :root[data-theme="dark"]{
+    --zemin:#101017; --kart:#181823; --kart2:#1f1f2c;
+    --metin:#eceaf5; --sonuk:#9a96ad; --cizgi:#2b2b3c;
+    --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.14);
+    --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.14);
+    --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.14);
+    --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.14);
+    --golge:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
 
-<!-- GİRİŞ -->
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden;
+       background:var(--zemin);color:var(--metin);
+       font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  .gizli{display:none !important}
+  button{font:inherit;cursor:pointer}
+  input,select{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--vurgu);outline-offset:2px}
+
+  /* ── Giriş ───────────────────────────────────────────────────────── */
+  .giris{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;
+         background:
+           radial-gradient(900px 420px at 50% -10%, var(--vurgu-yumusak), transparent 70%),
+           var(--zemin)}
+  .gkart{width:100%;max-width:340px;background:var(--kart);border:1px solid var(--cizgi);
+         border-radius:16px;padding:26px 24px;box-shadow:var(--golge)}
+  .amblem{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
+          background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));margin-bottom:14px}
+  .amblem svg{width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2;
+              stroke-linecap:round;stroke-linejoin:round}
+  .gbaslik{font-size:19px;font-weight:700;letter-spacing:-.2px}
+  .galt{margin:4px 0 20px;font-size:13px;color:var(--sonuk)}
+  .alan{margin-bottom:10px}
+  .etiket{display:block;font-size:11px;font-weight:600;letter-spacing:.4px;
+          text-transform:uppercase;color:var(--sonuk);margin-bottom:5px}
+  input[type=text],input[type=password],input.metin{
+      width:100%;padding:10px 12px;border:1px solid var(--cizgi);border-radius:10px;
+      background:var(--kart2);outline:none;transition:border-color .12s,box-shadow .12s}
+  input.metin:focus{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
+  .kod{letter-spacing:.42em;text-align:center;font-size:17px;font-weight:600}
+  .ana{width:100%;margin-top:6px;padding:11px 14px;border:0;border-radius:10px;color:#fff;
+       background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));font-weight:600}
+  .ana:disabled{opacity:.55;cursor:default}
+  .ikincil{padding:9px 12px;border:1px solid var(--cizgi);border-radius:10px;
+           background:var(--kart);color:var(--metin)}
+  .ikincil:hover{border-color:var(--vurgu)}
+  .not{margin-top:12px;font-size:12px;color:var(--sonuk);text-align:center}
+
+  /* ── Üst çubuk ───────────────────────────────────────────────────── */
+  .ust{display:flex;align-items:center;gap:10px;padding:11px 14px;
+       background:var(--kart);border-bottom:1px solid var(--cizgi)}
+  .rozet{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex:none;
+         background:linear-gradient(160deg,var(--vurgu),var(--vurgu2))}
+  .rozet svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2.2;
+             stroke-linecap:round;stroke-linejoin:round}
+  .marka{font-weight:700;font-size:14px;letter-spacing:-.1px}
+  .bosluk{flex:1}
+  .ikon{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;
+        border-radius:8px;background:none;color:var(--sonuk)}
+  .ikon:hover{background:var(--kart2);border-color:var(--cizgi);color:var(--metin)}
+  .ikon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;
+            stroke-linecap:round;stroke-linejoin:round}
+
+  /* ── Hedef şeridi ────────────────────────────────────────────────── */
+  .hedefSerit{display:flex;align-items:center;gap:9px;padding:9px 14px;
+              background:var(--kart2);border-bottom:1px solid var(--cizgi);font-size:12.5px}
+  .nokta{width:7px;height:7px;border-radius:50%;background:var(--sonuk);flex:none}
+  .hedefSerit.canli .nokta{background:var(--iyi);box-shadow:0 0 0 3px var(--iyi-yumusak)}
+  .hedefAd{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hedefUrl{color:var(--sonuk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+            font-variant-numeric:tabular-nums}
+  .ayrac{color:var(--cizgi)}
+
+  /* ── Eşleşme afişi ───────────────────────────────────────────────── */
+  .afis{display:flex;align-items:center;gap:10px;margin:10px 14px 0;padding:10px 12px;
+        border:1px solid var(--iyi);background:var(--iyi-yumusak);border-radius:12px}
+  .afisMetin{flex:1;min-width:0;font-size:13px}
+  .afisMetin b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .afisMetin span{color:var(--sonuk);font-size:12px}
+  .afisDugme{padding:8px 14px;border:0;border-radius:9px;background:var(--iyi);
+             color:#fff;font-weight:700}
+
+  /* ── Arama + liste ───────────────────────────────────────────────── */
+  .araKutu{position:relative;margin:10px 14px}
+  .araKutu svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+               width:15px;height:15px;stroke:var(--sonuk);fill:none;stroke-width:2}
+  .araKutu input{padding-left:33px}
+  .liste{flex:1;overflow-y:auto;padding:0 14px 6px;min-height:0}
+  .satir{display:flex;align-items:center;gap:10px;padding:9px 10px;margin-bottom:5px;
+         border:1px solid transparent;border-radius:11px;cursor:pointer}
+  .satir:hover{background:var(--kart2)}
+  .satir.secili{background:var(--vurgu-yumusak);border-color:var(--vurgu)}
+  .avatar{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;
+          font-size:12px;font-weight:700;color:#fff;letter-spacing:.2px}
+  .satirMetin{flex:1;min-width:0}
+  .ad{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .alt{font-size:12px;color:var(--sonuk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .etiketMini{font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:2px 7px;border-radius:20px;
+              background:var(--iyi-yumusak);color:var(--iyi);flex:none}
+  .bosDurum{padding:34px 20px;text-align:center;color:var(--sonuk);font-size:13px}
+
+  /* ── Alt çubuk ───────────────────────────────────────────────────── */
+  .alt-cubuk{padding:10px 14px;border-top:1px solid var(--cizgi);background:var(--kart)}
+  .sira{display:flex;gap:8px}
+  .sira .ana{margin-top:0;flex:1}
+  .secenekler{display:flex;gap:14px;margin-top:9px;font-size:12px;color:var(--sonuk)}
+  .onay{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+  .onay input{accent-color:var(--vurgu);margin:0}
+  .durum{margin-top:9px;font-size:12px;color:var(--sonuk);min-height:16px;
+         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .durum.iyi{color:var(--iyi)} .durum.hata{color:var(--hata)} .durum.uyari{color:var(--uyari)}
+</style>
+
+<!-- ── Giriş ekranı ──────────────────────────────────────────────────── -->
 <div class="giris" id="girisEkrani">
-  <div class="kutu">
-    <h2>Bilgi Kasası</h2>
-    <p>Panel hesabınızla giriş yapın</p>
-    <input id="kullanici" placeholder="Kullanıcı adı / e-posta" autocomplete="off">
-    <input id="sifre" type="password" placeholder="Şifre">
-    <input id="kod" placeholder="6 haneli doğrulama kodu" class="gizli" inputmode="numeric" maxlength="8">
-    <button class="ana" id="girisDugme">Giriş Yap</button>
-    <div class="durum" id="girisDurum"></div>
+  <div class="gkart">
+    <div class="amblem">
+      <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+    </div>
+    <div class="gbaslik">Bogahost Kasa</div>
+    <div class="galt" id="girisAlt">Panel hesabınızla girin.</div>
+
+    <div class="alan" id="alanKullanici">
+      <label class="etiket" for="kullanici">Kullanıcı adı</label>
+      <input class="metin" type="text" id="kullanici" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="alan" id="alanSifre">
+      <label class="etiket" for="sifre">Şifre</label>
+      <input class="metin" type="password" id="sifre">
+    </div>
+    <div class="alan gizli" id="alanKod">
+      <label class="etiket" for="kod">Doğrulama kodu</label>
+      <input class="metin kod" type="text" id="kod" inputmode="numeric" maxlength="6" autocomplete="off">
+    </div>
+
+    <button class="ana" id="girisDugme">Giriş yap</button>
+    <div class="durum" id="girisDurum" style="text-align:center"></div>
+    <div class="not">Kasa erişimi iki adımlı doğrulama gerektirir.</div>
   </div>
 </div>
 
-<!-- KASA -->
+<!-- ── Kasa ekranı ───────────────────────────────────────────────────── -->
 <div id="kasaEkrani" class="gizli" style="flex:1;display:flex;flex-direction:column;min-height:0">
   <div class="ust">
-    <div class="marka">Bogahost Kasa</div>
-    <div class="ipucu" id="kisayolIpucu">Kısayol: Ctrl + Alt + K — doldurmak istediğiniz pencere öndeyken basın.</div>
+    <div class="rozet">
+      <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+    </div>
+    <div class="marka">Kasa</div>
+    <div class="bosluk"></div>
+    <button class="ikon" id="tazeleDugme" title="Kayıtları ve hedefi yenile">
+      <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
+    </button>
+    <button class="ikon" id="cikisDugme" title="Oturumu kapat">
+      <svg viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h10"/></svg>
+    </button>
   </div>
-  <div class="hedefKutu">
-    <select class="hedefSec" id="hedefSec" title="Yazılacak programı seçin"></select>
-    <button class="tazele" id="tazeleHedef" title="Açık programları yeniden tara">⟳</button>
+
+  <div class="hedefSerit" id="hedefSerit">
+    <span class="nokta"></span>
+    <span class="hedefAd" id="hedefAd">Hedef bekleniyor…</span>
+    <span class="ayrac" id="hedefAyrac"></span>
+    <span class="hedefUrl" id="hedefUrl"></span>
   </div>
-  <div class="hedef bos" id="hedef">Hedef pencere seçilmedi.</div>
-  <input class="ara" id="ara" placeholder="Ara: etiket, kullanıcı adı, alan adı…">
+
+  <div class="afis gizli" id="afis">
+    <div class="afisMetin">
+      <b id="afisAd"></b>
+      <span id="afisAlt"></span>
+    </div>
+    <button class="afisDugme" id="afisDoldur">Doldur</button>
+  </div>
+
+  <div class="araKutu">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+    <input class="metin" type="text" id="ara" placeholder="Ara — etiket, kullanıcı adı, alan adı">
+  </div>
+
   <div class="liste" id="liste"></div>
-  <div class="dugmeler">
-    <button class="ana" id="doldurDugme">Seçileni Doldur</button>
-    <button id="kadiKopya">Kullanıcı adını kopyala</button>
-    <button id="sifreKopya">Şifreyi kopyala</button>
-    <label class="onay"><input type="checkbox" id="enterBas"> Sonunda Enter</label>
+
+  <div class="alt-cubuk">
+    <div class="sira">
+      <button class="ana" id="doldurDugme">Doldur</button>
+      <button class="ikincil" id="kadiKopya" title="Kullanıcı adını kopyala">Kullanıcı</button>
+      <button class="ikincil" id="sifreKopya" title="Şifreyi kopyala">Şifre</button>
+    </div>
+    <div class="secenekler">
+      <label class="onay"><input type="checkbox" id="enterBas"> Sonunda Enter</label>
+      <label class="onay"><input type="checkbox" id="otoDoldur"> Eşleşince kendiliğinden doldur</label>
+    </div>
+    <div class="durum" id="durum"></div>
   </div>
-  <div class="durum" id="durum"></div>
 </div>
 
 <script>
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const bildirim = window.__TAURI__.notification;
+const pencereApi = window.__TAURI__.window;
 
 const $ = (id) => document.getElementById(id);
-let kayitlar = [], secili = null, bilet = false, hedefKimlik = '', esleseninAdresi = '';
 
+let kayitlar = [], secili = null, adimIki = false;
+let sonAdres = '', sonBildirilen = '', eslesme = null, dolduruluyor = false;
+
+/* Renk, etikete göre sabit üretiliyor: aynı kayıt her açılışta aynı rengi alsın
+   diye rastgele değil, adın kendisinden türetiliyor. */
+function renk(ad) {
+  let h = 0;
+  for (let i = 0; i < ad.length; i++) h = (h * 31 + ad.charCodeAt(i)) % 360;
+  return `hsl(${h} 52% 46%)`;
+}
+function basHarf(ad) {
+  const p = ad.trim().split(/\s+/);
+  return ((p[0]?.[0] || '?') + (p[1]?.[0] || '')).toUpperCase();
+}
 function durumYaz(el, metin, tur) {
   el.className = 'durum' + (tur ? ' ' + tur : '');
   el.textContent = metin || '';
 }
+function alan(u) {
+  try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return (u || '').slice(0, 40); }
+}
 
-// ── Giriş ────────────────────────────────────────────────────────────────
+/* ── Giriş ─────────────────────────────────────────────────────────── */
 $('girisDugme').onclick = async () => {
   const d = $('girisDurum'), b = $('girisDugme');
   b.disabled = true;
   try {
-    if (!bilet) {
+    if (!adimIki) {
       durumYaz(d, 'Bağlanılıyor…');
       const s = await invoke('giris_yap', {
         kullanici: $('kullanici').value.trim(), sifre: $('sifre').value
       });
       if (!s.tamam) {
         durumYaz(d, s.kurulum_gerekli
-          ? 'Kasa için iki adımlı doğrulama zorunlu. Kurmak için: dcim.bogahost.com → Yönetim → İki Adımlı Doğrulama (/admin/twofactor)'
+          ? 'İki adımlı doğrulama kurulu değil. dcim.bogahost.com → Yönetim → İki Adımlı Doğrulama'
           : (s.hata || 'Giriş yapılamadı.'), 'hata');
         return;
       }
-      // İkinci adım: şifreyi ekranda tutma
-      bilet = true;
-      $('sifre').value = ''; $('sifre').classList.add('gizli');
-      $('kod').classList.remove('gizli'); $('kod').focus();
-      b.textContent = 'Doğrula';
-      durumYaz(d, 'Doğrulama uygulamanızdaki 6 haneli kodu girin.');
+      adimIki = true;
+      $('sifre').value = '';
+      $('alanKullanici').classList.add('gizli');
+      $('alanSifre').classList.add('gizli');
+      $('alanKod').classList.remove('gizli');
+      $('girisAlt').textContent = (s.kullanici ? s.kullanici + ' — ' : '') + 'doğrulama kodunu girin.';
+      $('girisDugme').textContent = 'Doğrula';
+      $('kod').focus();
+      durumYaz(d, '');
       return;
     }
-
     durumYaz(d, 'Doğrulanıyor…');
     const s = await invoke('kod_dogrula', { kod: $('kod').value.trim() });
     if (!s.tamam) { durumYaz(d, s.hata || 'Kod doğrulanamadı.', 'hata'); return; }
@@ -151,221 +287,255 @@ $('girisDugme').onclick = async () => {
     durumYaz(d, 'Hata: ' + e, 'hata');
   } finally { b.disabled = false; }
 };
-$('kod').addEventListener('keydown', e => { if (e.key === 'Enter') $('girisDugme').click(); });
-$('sifre').addEventListener('keydown', e => { if (e.key === 'Enter') $('girisDugme').click(); });
+['sifre', 'kod', 'kullanici'].forEach(id =>
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('girisDugme').click(); }));
+$('kod').addEventListener('input', e => {
+  e.target.value = e.target.value.replace(/\D/g, '');
+  if (e.target.value.length === 6) $('girisDugme').click();
+});
 
-// ── Kasa ─────────────────────────────────────────────────────────────────
+/* ── Kasa ──────────────────────────────────────────────────────────── */
 async function kasayiAc() {
   $('girisEkrani').classList.add('gizli');
   $('kasaEkrani').classList.remove('gizli');
-  if (navigator.platform.toLowerCase().includes('mac')) {
-    $('kisayolIpucu').textContent = 'Programı yukarıdan seçin — ya da hedef pencere öndeyken ⌘ + Alt + K.';
-    const iz = await izinleriSor();
-    if (iz && !iz.erisilebilirlik) {
-      durumYaz($('durum'),
-        'macOS Erişilebilirlik izni yok — doldurma çalışmaz: Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik → Bogahost Kasa', 'hata');
+
+  $('enterBas').checked = yerelOku('kasaEnter') === '1';
+  $('otoDoldur').checked = yerelOku('kasaOto') === '1';
+
+  const mac = navigator.platform.toLowerCase().includes('mac');
+  if (mac) {
+    const iz = await invoke('izinler').catch(() => null);
+    if (iz && !iz.otomasyon) {
+      $('hedefAd').textContent = 'Otomasyon izni yok — hedef okunamıyor';
+      durumYaz($('durum'), 'Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Bogahost Kasa → System Events', 'hata');
+    } else if (iz && !iz.erisilebilirlik) {
+      durumYaz($('durum'), 'Erişilebilirlik izni yok — doldurma çalışmaz. Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik', 'hata');
     }
-  } else {
-    $('kisayolIpucu').textContent = 'Programı yukarıdan seçin — ya da hedef pencere öndeyken Ctrl + Alt + K.';
   }
-  await pencereleriTara(true);
   try { hedefYaz(await invoke('hedef')); } catch (e) {}
   await yenile();
 }
+
+function yerelOku(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function yerelYaz(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
 async function yenile() {
   try {
     kayitlar = await invoke('kayitlar');
     ciz();
     durumYaz($('durum'), kayitlar.length
-      ? kayitlar.length + ' kayıt — size ait olanlar ve ekiple paylaşılanlar'
-      : 'Kasanızda kayıt yok. Panelden ekleyin ya da bir yöneticiden kaydı ekiple paylaşmasını isteyin.',
-      kayitlar.length ? '' : 'hata');
+      ? kayitlar.length + ' kayıt'
+      : 'Kasanızda kayıt yok — panelden ekleyin.', kayitlar.length ? '' : 'uyari');
   } catch (e) { durumYaz($('durum'), 'Liste alınamadı: ' + e, 'hata'); }
 }
 
-function ciz() {
+function suzulmus() {
   const s = $('ara').value.trim().toLowerCase();
-  const gorunen = s
-    ? kayitlar.filter(k => ((k.label || '') + ' ' + (k.username || '') + ' ' +
-        (k.domain || '') + ' ' + (k.category || '')).toLowerCase().includes(s))
-    : kayitlar;
+  if (!s) return kayitlar;
+  return kayitlar.filter(k => ((k.label || '') + ' ' + (k.username || '') + ' ' +
+    (k.domain || '') + ' ' + (k.category || '')).toLowerCase().includes(s));
+}
+
+function ciz() {
+  const gorunen = suzulmus();
+  if (!secili || !gorunen.some(k => k.id === secili.id)) secili = gorunen[0] || null;
 
   const l = $('liste');
   l.innerHTML = '';
+  if (!gorunen.length) {
+    const b = document.createElement('div');
+    b.className = 'bosDurum';
+    b.textContent = kayitlar.length ? 'Aramaya uyan kayıt yok.' : 'Kasanızda henüz kayıt yok.';
+    l.appendChild(b);
+    return;
+  }
+
   gorunen.forEach(k => {
+    const ad = k.label || '(adsız)';
     const d = document.createElement('div');
     d.className = 'satir' + (secili && secili.id === k.id ? ' secili' : '');
-    const ad = document.createElement('div'); ad.className = 'ad'; ad.textContent = k.label || '(adsız)';
-    const alt = document.createElement('div'); alt.className = 'alt';
-    alt.textContent = [k.username, k.domain].filter(Boolean).join('  ·  ') || '—';
-    d.append(ad, alt);
+
+    const av = document.createElement('div');
+    av.className = 'avatar';
+    av.style.background = renk(ad);
+    av.textContent = basHarf(ad);
+
+    const m = document.createElement('div');
+    m.className = 'satirMetin';
+    const a1 = document.createElement('div'); a1.className = 'ad'; a1.textContent = ad;
+    const a2 = document.createElement('div'); a2.className = 'alt';
+    a2.textContent = [k.username, k.domain].filter(Boolean).join('  ·  ') || '—';
+    m.append(a1, a2);
+
+    d.append(av, m);
+    if (eslesme && eslesme.id === k.id) {
+      const e = document.createElement('span');
+      e.className = 'etiketMini'; e.textContent = 'EŞLEŞTİ';
+      d.appendChild(e);
+    }
     d.onclick = () => { secili = k; ciz(); };
     d.ondblclick = () => $('doldurDugme').click();
     l.appendChild(d);
   });
-  // İlk kaydı kendiliğinden seç — ama SEÇİMİ GÖRÜNÜR KIL. Önceki halde
-  // atama listeyi çizdikten sonra yapılıyordu, yani vurgu hiç basılmıyordu
-  // ve kullanıcıya "hiçbir şey seçili değil" gibi görünüyordu.
-  if (!secili && gorunen.length) { secili = gorunen[0]; ciz(); return; }
-  // Seçili kayıt filtrenin dışında kaldıysa seçimi bırakma — kullanıcı
-  // aramayı temizleyince geri gelsin.
-  if (secili && !gorunen.some(k => k.id === secili.id) && !s) { secili = gorunen[0] || null; }
+
+  const s = l.querySelector('.satir.secili');
+  if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });
 }
 $('ara').addEventListener('input', ciz);
 
-$('hedefSec').addEventListener('change', async (e) => {
-  const k = e.target.value;
-  if (!k) { hedefKimlik = ''; hedefYaz(null); return; }
-  try {
-    const h = await invoke('hedef_sec', { kimlik: k });
-    if (h) hedefYaz(h);
-    else { durumYaz($('durum'), 'O pencere artık açık değil — listeyi tazeleyin.', 'hata'); await pencereleriTara(true); }
-  } catch (err) { durumYaz($('durum'), 'Hedef seçilemedi: ' + err, 'hata'); }
+/* Klavye: liste her zaman ok tuşlarıyla gezilebilir olmalı — fare gerekmesin. */
+document.addEventListener('keydown', (e) => {
+  if ($('kasaEkrani').classList.contains('gizli')) return;
+  const g = suzulmus();
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!g.length) return;
+    e.preventDefault();
+    const i = Math.max(0, g.findIndex(k => secili && k.id === secili.id));
+    secili = g[Math.min(g.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+    ciz();
+  } else if (e.key === 'Enter' && document.activeElement !== $('ara')) {
+    $('doldurDugme').click();
+  } else if (e.key === 'Escape') {
+    if ($('ara').value) { $('ara').value = ''; ciz(); }
+  } else if (e.key === '/' && document.activeElement !== $('ara')) {
+    e.preventDefault(); $('ara').focus();
+  }
 });
-$('tazeleHedef').addEventListener('click', () => pencereleriTara(false));
 
-// Kısayola basıldığında hedef pencere değişir
+/* ── Hedef ve otomatik eşleşme ─────────────────────────────────────── */
 listen('hedef-degisti', async (o) => {
-  const h = o.payload;
-  hedefYaz(h);
-  await otomatikEslestir(h);
+  hedefYaz(o.payload);
+  await otomatikEslestir(o.payload);
 });
-listen('pano-temizlendi', () => durumYaz($('durum'), 'Pano temizlendi.'));
 
 function hedefYaz(h) {
-  const el = $('hedef');
+  const serit = $('hedefSerit');
   if (!h || !h.program) {
-    el.className = 'hedef bos';
-    el.textContent = 'Hedef seçilmedi — yukarıdan bir program seçin.';
+    serit.className = 'hedefSerit';
+    $('hedefAd').textContent = 'Hedef bekleniyor — bir programa geçin';
+    $('hedefAyrac').textContent = '';
+    $('hedefUrl').textContent = '';
     return;
   }
-  hedefKimlik = h.kimlik || '';
-  if ($('hedefSec').value !== hedefKimlik) $('hedefSec').value = hedefKimlik;
-  el.className = 'hedef';
-  const b = (h.baslik || '').trim();
-  el.textContent = b && b !== h.program
-    ? `Hedef: ${h.program}  ·  ${b.slice(0, 60)}`
-    : `Hedef: ${h.program}`;
-}
-
-/** Açık programları tara ve seçiciyi doldur.
- *  Hedefi yalnızca kısayolla yakalayabilmek yetmiyordu: kullanıcı uygulamayı
- *  doğrudan açtığında ekranda seçilecek hiçbir şey olmuyordu. */
-async function pencereleriTara(sessiz) {
-  const sec = $('hedefSec');
-  let liste = [];
-  try { liste = await invoke('pencereler'); } catch (e) { liste = []; }
-
-  sec.innerHTML = '';
-  const bos = document.createElement('option');
-  bos.value = ''; bos.textContent = liste.length ? '— yazılacak programı seçin —' : '— açık program bulunamadı —';
-  sec.appendChild(bos);
-
-  liste.forEach(h => {
-    const o = document.createElement('option');
-    o.value = h.kimlik;
+  serit.className = 'hedefSerit canli';
+  $('hedefAd').textContent = h.program;
+  if (h.url) { $('hedefAyrac').textContent = '·'; $('hedefUrl').textContent = alan(h.url); }
+  else {
     const b = (h.baslik || '').trim();
-    o.textContent = b && b !== h.program ? `${h.program} — ${b.slice(0, 50)}` : h.program;
-    sec.appendChild(o);
-  });
-  if (hedefKimlik) sec.value = hedefKimlik;
-
-  if (!liste.length && !sessiz) {
-    const iz = await izinleriSor();
-    if (iz && !iz.otomasyon) {
-      durumYaz($('durum'), 'Program listesi okunamadı: macOS Otomasyon izni gerekiyor. Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Bogahost Kasa → System Events', 'hata');
-    }
+    $('hedefAyrac').textContent = b && b !== h.program ? '·' : '';
+    $('hedefUrl').textContent = b && b !== h.program ? b.slice(0, 44) : '';
   }
-  return liste;
 }
 
-async function izinleriSor() {
-  try { return await invoke('izinler'); } catch (e) { return null; }
+/* Adres değişince eşleşen kaydı KENDİLİĞİNDEN bul.
+   Eşleştirmeyi sunucudaki /vault/api/match ucu yapıyor — tarayıcı eklentisiyle
+   aynı sınır-güvenli kural ("ornek.com" kaydı "kotuornek.com" ile eşleşmez). */
+async function otomatikEslestir(h) {
+  if (!h || !h.url) { afisGizle(); sonAdres = ''; return; }
+  if (h.url === sonAdres) return;
+  sonAdres = h.url;
+
+  let bulunan = [];
+  try { bulunan = await invoke('eslesenler', { url: h.url }); } catch (e) { return; }
+  if (!bulunan.length) {
+    afisGizle();
+    durumYaz($('durum'), alan(h.url) + ' için kayıt yok.');
+    return;
+  }
+
+  eslesme = bulunan[0];
+  secili = eslesme;
+  if (!kayitlar.some(k => k.id === eslesme.id)) await yenile(); else ciz();
+
+  $('afisAd').textContent = eslesme.label || '(adsız)';
+  $('afisAlt').textContent = [eslesme.username, alan(h.url)].filter(Boolean).join('  ·  ')
+    + (bulunan.length > 1 ? `  ·  +${bulunan.length - 1} eşleşme` : '');
+  $('afis').classList.remove('gizli');
+
+  const gorunur = await pencereGorunur();
+  if ($('otoDoldur').checked && !gorunur) { await doldur(true); return; }
+  if (!gorunur) bildir(eslesme.label, alan(h.url));
 }
 
-/** Panoya yaz: önce Tauri eklentisi (izin verilmiş), olmazsa tarayıcı API'si.
- *  navigator.clipboard bazı WebView sürümlerinde pencere odakta değilken
- *  sessizce reddediyor; eklenti yolu bundan etkilenmiyor. */
+function afisGizle() { $('afis').classList.add('gizli'); eslesme = null; }
+
+async function pencereGorunur() {
+  try {
+    const p = pencereApi.getCurrentWindow();
+    return (await p.isVisible()) && (await p.isFocused());
+  } catch (e) { return true; }   // bilemiyorsak rahatsız etme
+}
+
+/* Pencere arkadayken kullanıcı eşleşmeyi göremez; sistem bildirimi bunu duyurur.
+   Aynı adres için ikinci kez bildirilmez — sekme değiştikçe bildirim yağmuru olmasın. */
+async function bildir(etiket, host) {
+  if (sonBildirilen === host) return;
+  sonBildirilen = host;
+  try {
+    let izin = await bildirim.isPermissionGranted();
+    if (!izin) izin = (await bildirim.requestPermission()) === 'granted';
+    if (!izin) return;
+    bildirim.sendNotification({
+      title: 'Kasa — ' + host,
+      body: `"${etiket}" hazır. Doldurmak için kısayola basın.`
+    });
+  } catch (e) {}
+}
+
+/* ── Eylemler ──────────────────────────────────────────────────────── */
+async function doldur(otomatik) {
+  if (dolduruluyor) return;
+  if (!secili) { durumYaz($('durum'), 'Önce bir kayıt seçin.', 'hata'); return; }
+  dolduruluyor = true;
+  $('doldurDugme').disabled = true;
+  durumYaz($('durum'), otomatik ? 'Kendiliğinden dolduruluyor…' : 'Şifre alınıyor…');
+  try {
+    const s = await invoke('doldur', { id: secili.id, enterBas: $('enterBas').checked });
+    durumYaz($('durum'), s.mesaj, s.tamam ? 'iyi' : 'hata');
+  } catch (e) {
+    durumYaz($('durum'), 'Hata: ' + e, 'hata');
+  } finally { dolduruluyor = false; $('doldurDugme').disabled = false; }
+}
+$('doldurDugme').onclick = () => doldur(false);
+$('afisDoldur').onclick = () => doldur(false);
+
 async function panoyaYaz(metin) {
   const t = window.__TAURI__ && window.__TAURI__.clipboardManager;
   if (t && t.writeText) { await t.writeText(metin); return; }
   await navigator.clipboard.writeText(metin);
 }
 
-/** Hedef bir tarayıcıysa açık sekmenin adresine göre kaydı KENDİLİĞİNDEN seçer.
- *
- *  Eşleştirmeyi sunucudaki /vault/api/match ucu yapar — tarayıcı eklentisiyle
- *  aynı sınır-güvenli kural ("ornek.com" kaydı "kotuornek.com" ile eşleşmez).
- *  Kullanıcının listeden elle seçmesi artık istisna; kural bu. */
-async function otomatikEslestir(h) {
-  if (!h || !h.url) { esleseninAdresi = ''; return; }
-  if (h.url === esleseninAdresi) return;          // aynı sekme, tekrar sorma
-  esleseninAdresi = h.url;
-
-  let bulunan = [];
-  try { bulunan = await invoke('eslesenler', { url: h.url }); } catch (e) { return; }
-  if (!bulunan.length) {
-    durumYaz($('durum'), `Bu adres için kayıt yok: ${adres(h.url)}`);
-    return;
-  }
-
-  // Sunucu en iyi eşleşmeyi başa koyuyor.
-  secili = bulunan[0];
-  // Eşleşen kayıt listede yoksa (arama kutusu filtreliyorsa) filtreyi temizle.
-  if (!kayitlar.some(k => k.id === secili.id)) { await yenile(); }
-  else { ciz(); }
-  listeyeKaydir();
-
-  durumYaz($('durum'),
-    bulunan.length > 1
-      ? `${adres(h.url)} → "${secili.label}" seçildi (${bulunan.length} eşleşme)`
-      : `${adres(h.url)} → "${secili.label}" seçildi`, 'iyi');
-}
-
-/** Adresin yalnız alan adı kısmı — durum satırında tam URL göstermek gürültü. */
-function adres(u) {
-  try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u.slice(0, 40); }
-}
-
-/** Otomatik seçilen kayıt ekranın dışında kalmasın. */
-function listeyeKaydir() {
-  const el = $('liste').querySelector('.satir.secili');
-  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
-}
-
-// ── Eylemler ─────────────────────────────────────────────────────────────
-$('doldurDugme').onclick = async () => {
-  if (!secili) { durumYaz($('durum'), 'Önce bir kayıt seçin.', 'hata'); return; }
-  durumYaz($('durum'), 'Şifre alınıyor…');
-  try {
-    const s = await invoke('doldur', { id: secili.id, enterBas: $('enterBas').checked });
-    durumYaz($('durum'), s.mesaj, s.tamam ? 'iyi' : 'hata');
-  } catch (e) { durumYaz($('durum'), 'Hata: ' + e, 'hata'); }
-};
-
 $('kadiKopya').onclick = async () => {
   if (!secili) return;
   try {
-    const k = await invoke('kullanici_adi', { id: secili.id });
-    await panoyaYaz(k);
+    await panoyaYaz(await invoke('kullanici_adi', { id: secili.id }));
     durumYaz($('durum'), 'Kullanıcı adı kopyalandı.', 'iyi');
   } catch (e) { durumYaz($('durum'), 'Kopyalanamadı: ' + e, 'hata'); }
 };
-
 $('sifreKopya').onclick = async () => {
   if (!secili) return;
   try {
     const sn = await invoke('panoya_sifre', { id: secili.id });
-    durumYaz($('durum'), `Şifre panoya kopyalandı — ${sn} sn sonra silinecek.`, 'iyi');
+    durumYaz($('durum'), `Şifre kopyalandı — ${sn} sn sonra panodan silinecek.`, 'iyi');
   } catch (e) { durumYaz($('durum'), 'Kopyalanamadı: ' + e, 'hata'); }
 };
+listen('pano-temizlendi', () => durumYaz($('durum'), 'Pano temizlendi.'));
 
-// ── Açılış ───────────────────────────────────────────────────────────────
+$('tazeleDugme').onclick = async () => {
+  sonAdres = '';
+  try { const h = await invoke('hedef'); hedefYaz(h); await otomatikEslestir(h); } catch (e) {}
+  await yenile();
+};
+$('cikisDugme').onclick = async () => {
+  await invoke('oturumu_kapat').catch(() => {});
+  location.reload();
+};
+$('enterBas').addEventListener('change', e => yerelYaz('kasaEnter', e.target.checked ? '1' : '0'));
+$('otoDoldur').addEventListener('change', e => yerelYaz('kasaOto', e.target.checked ? '1' : '0'));
+
+/* ── Açılış ────────────────────────────────────────────────────────── */
 (async () => {
   try { if (await invoke('oturum_var')) { await kasayiAc(); return; } } catch (e) {}
   $('kullanici').focus();
 })();
 </script>
-</body>
-</html>
