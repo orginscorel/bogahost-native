@@ -155,6 +155,19 @@
   .durum{margin-top:9px;font-size:12px;color:var(--sonuk);min-height:16px;
          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .durum.iyi{color:var(--iyi)} .durum.hata{color:var(--hata)} .durum.uyari{color:var(--uyari)}
+
+  /* ── Kayıt formu ─────────────────────────────────────────────────── */
+  .katman{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
+          padding:18px;background:rgba(12,10,28,.55);backdrop-filter:blur(2px)}
+  .formKart{width:100%;max-width:420px;max-height:100%;display:flex;flex-direction:column;
+            background:var(--kart);border:1px solid var(--cizgi);border-radius:16px;
+            box-shadow:var(--golge);overflow:hidden}
+  .formBaslik{display:flex;align-items:center;justify-content:space-between;gap:8px;
+              padding:13px 14px;border-bottom:1px solid var(--cizgi);font-weight:700;font-size:14px}
+  .formGovde{padding:14px;overflow-y:auto;min-height:0}
+  .formAlt{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--cizgi)}
+  .formAlt .ana{flex:1}
+  .ikili{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 </style>
 
 <!-- Güncelleme şeridi — giriş ekranında da görünür, çünkü kullanıcı
@@ -205,6 +218,9 @@
     </div>
     <div class="marka">Kasa</div>
     <div class="bosluk"></div>
+    <button class="ikon" id="yeniDugme" title="Yeni kayıt ekle">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+    </button>
     <button class="ikon" id="tazeleDugme" title="Kayıtları ve hedefi yenile">
       <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
     </button>
@@ -236,6 +252,14 @@
     <button class="afisDugme" id="afisDoldur">Doldur</button>
   </div>
 
+  <div class="guncel gizli" id="politikaSerit" style="background:var(--uyari-yumusak);border-color:var(--uyari);align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div><b>Tarayıcı koruması kurulu değil</b></div>
+      <div style="opacity:.85;margin-top:2px">Chrome parolayı kendi kasasına kaydedebilir. Kurulum yöneticinizin şifresini <b>işletim sistemine</b> soracak.</div>
+    </div>
+    <button class="guncelDugme" id="politikaKur" style="background:var(--uyari)">Kur</button>
+  </div>
+
   <div class="araKutu">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
     <input class="metin" type="text" id="ara" placeholder="Ara — etiket, kullanıcı adı, alan adı">
@@ -248,6 +272,8 @@
       <button class="ana" id="doldurDugme">Doldur</button>
       <button class="ikincil" id="kadiKopya" title="Kullanıcı adını kopyala">Kullanıcı</button>
       <button class="ikincil" id="sifreKopya" title="Şifreyi kopyala">Şifre</button>
+      <button class="ikincil" id="duzenleDugme" title="Kaydı düzenle">Düzenle</button>
+      <button class="ikincil" id="silDugme" title="Kaydı sil">Sil</button>
     </div>
     <div class="secenekler">
       <label class="onay"><input type="checkbox" id="enterBas"> Sonunda Enter</label>
@@ -255,6 +281,57 @@
     </div>
     <div class="durum" id="durum"></div>
     <div class="durum" id="kisayolIpucu" style="opacity:.75"></div>
+  </div>
+</div>
+
+<!-- Kayıt formu — kasa ekranının üstünde açılan katman -->
+<div class="katman gizli" id="formKatman">
+  <div class="formKart">
+    <div class="formBaslik">
+      <span id="formBaslikMetin">Yeni kayıt</span>
+      <button class="ikon" id="formKapat" title="Kapat">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="formGovde">
+      <div class="alan">
+        <label class="etiket" for="fEtiket">Etiket</label>
+        <input class="metin" type="text" id="fEtiket" placeholder="ör. cPanel — sunucu1" spellcheck="false">
+      </div>
+      <div class="alan">
+        <label class="etiket" for="fUrl">Adres</label>
+        <input class="metin" type="text" id="fUrl" placeholder="https://ornek.com/giris" spellcheck="false">
+      </div>
+      <div class="ikili">
+        <div class="alan">
+          <label class="etiket" for="fKullanici">Kullanıcı adı</label>
+          <input class="metin" type="text" id="fKullanici" spellcheck="false">
+        </div>
+        <div class="alan">
+          <label class="etiket" for="fSifre">Şifre</label>
+          <input class="metin" type="password" id="fSifre" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="ikili">
+        <div class="alan">
+          <label class="etiket" for="fKategori">Kategori</label>
+          <input class="metin" type="text" id="fKategori" placeholder="isteğe bağlı" spellcheck="false">
+        </div>
+        <div class="alan">
+          <label class="etiket" for="fIp">IP</label>
+          <input class="metin" type="text" id="fIp" placeholder="isteğe bağlı" spellcheck="false">
+        </div>
+      </div>
+      <div class="alan">
+        <label class="etiket" for="fNot">Not</label>
+        <input class="metin" type="text" id="fNot" placeholder="isteğe bağlı">
+      </div>
+      <div class="durum" id="formDurum"></div>
+    </div>
+    <div class="formAlt">
+      <button class="ana" id="formKaydet" style="margin-top:0">Kaydet</button>
+      <button class="ikincil" id="formVazgec">Vazgeç</button>
+    </div>
   </div>
 </div>
 
@@ -354,6 +431,7 @@ async function kasayiAc() {
     }
   }
   try { hedefYaz(await invoke('hedef')); } catch (e) {}
+  await politikaDenetle();
   await yenile();
 }
 
@@ -435,6 +513,14 @@ function ciz() {
   const acik = !secili || secili.gosterilebilir !== false;
   $('kadiKopya').disabled = !acik;
   $('sifreKopya').disabled = !acik;
+
+  // Düzenleme/silme YALNIZ kendi kaydında. Sunucu zaten reddediyor; düğmeyi
+  // kapatmak kullanıcıyı boşuna denemekten kurtarır.
+  const benim = !!(secili && secili.benim);
+  $('duzenleDugme').disabled = !benim;
+  $('silDugme').disabled = !benim;
+  $('duzenleDugme').title = benim ? 'Kaydı düzenle' : 'Bu kayıt size ait değil';
+  $('silDugme').title = benim ? 'Kaydı sil' : 'Bu kayıt size ait değil';
   $('kadiKopya').title = acik ? 'Kullanıcı adını kopyala' : 'Gizli kayıt — kopyalanamaz';
   $('sifreKopya').title = acik ? 'Şifreyi kopyala' : 'Gizli kayıt — kopyalanamaz';
 
@@ -679,6 +765,106 @@ $('guncelAra').onclick = async () => {
   catch (e) { durumGuncelYaz('Denetlenemedi: ' + e); }
   finally { denetleniyor = false; d.textContent = eski; }
 };
+
+/* ── Tarayıcı koruması ────────────────────────────────────────────────
+   Politika yönetici hakkı ister; kullanıcıya "şu betiği Terminal'de çalıştır"
+   demek pratikte hiç kurulmaması demekti. Uygulama durumu açılışta okuyor
+   (bunun için yetki gerekmiyor) ve eksikse tek düğme gösteriyor. */
+async function politikaDenetle() {
+  let d = null;
+  try { d = await invoke('politika_durum'); } catch (e) { return; }
+  if (!d || !d.kurulabilir) return;
+  $('politikaSerit').classList.toggle('gizli', !!(d.kasa_kapali && d.eklenti_zorunlu));
+}
+
+$('politikaKur').onclick = async () => {
+  const b = $('politikaKur');
+  b.disabled = true; b.textContent = 'Kuruluyor…';
+  try {
+    const d = await invoke('politika_kur');
+    if (d && d.kasa_kapali && d.eklenti_zorunlu) {
+      $('politikaSerit').classList.add('gizli');
+      durumYaz($('durum'), 'Tarayıcı koruması kuruldu. Chrome’u tamamen kapatıp açın.', 'iyi');
+    } else {
+      durumYaz($('durum'), 'Politika yazıldı ama Chrome henüz okumadı — tarayıcıyı tamamen kapatıp açın.', 'uyari');
+    }
+  } catch (e) {
+    durumYaz($('durum'), 'Kurulamadı: ' + e, 'hata');
+  } finally { b.disabled = false; b.textContent = 'Kur'; }
+};
+
+/* ── Kayıt formu ──────────────────────────────────────────────────────
+   Sunucu kuralı: herkes kendi eklediğini düzenler/siler. Yöneticinin
+   eklediğinde düğmeler kapalı — sunucu zaten reddediyor, çalışmayacak düğme
+   göstermek kullanıcıyı yanıltır. */
+let formId = null;
+
+function formAc(kayit) {
+  formId = kayit ? kayit.id : null;
+  $('formBaslikMetin').textContent = kayit ? 'Kaydı düzenle' : 'Yeni kayıt';
+  $('fEtiket').value = kayit ? (kayit.label || '') : '';
+  $('fUrl').value = kayit ? (kayit.url || '') : '';
+  $('fKullanici').value = kayit ? (kayit.username || '') : '';
+  $('fSifre').value = '';
+  $('fSifre').placeholder = kayit ? '(boş bırakılırsa değişmez)' : '';
+  $('fKategori').value = kayit ? (kayit.category || '') : '';
+  $('fIp').value = kayit ? (kayit.ip || '') : '';
+  $('fNot').value = '';
+  durumYaz($('formDurum'), '');
+  $('formKatman').classList.remove('gizli');
+  $('fEtiket').focus();
+}
+function formKapat() { $('formKatman').classList.add('gizli'); formId = null; }
+
+$('yeniDugme').onclick = () => formAc(null);
+$('formKapat').onclick = formKapat;
+$('formVazgec').onclick = formKapat;
+
+$('formKaydet').onclick = async () => {
+  const etiket = $('fEtiket').value.trim();
+  if (!etiket) { durumYaz($('formDurum'), 'Etiket zorunlu.', 'hata'); $('fEtiket').focus(); return; }
+
+  const veri = {
+    label: etiket,
+    url: $('fUrl').value.trim() || null,
+    username: $('fKullanici').value.trim() || null,
+    category: $('fKategori').value.trim() || null,
+    ip: $('fIp').value.trim() || null,
+    notes: $('fNot').value.trim() || null,
+  };
+  // Düzenlemede boş şifre "değiştirme" demektir; alanı hiç göndermiyoruz.
+  const s = $('fSifre').value;
+  if (s || !formId) veri.password = s || null;
+
+  const b = $('formKaydet');
+  b.disabled = true;
+  try {
+    if (formId) await invoke('kayit_guncelle', { id: formId, veri });
+    else await invoke('kayit_ekle', { veri });
+    formKapat();
+    await yenile();
+    durumYaz($('durum'), formId ? 'Kayıt güncellendi.' : 'Kayıt eklendi.', 'iyi');
+  } catch (e) {
+    durumYaz($('formDurum'), String(e), 'hata');
+  } finally { b.disabled = false; }
+};
+
+$('duzenleDugme').onclick = () => { if (secili) formAc(secili); };
+
+$('silDugme').onclick = async () => {
+  if (!secili) return;
+  if (!confirm(`"${secili.label}" silinsin mi? Bu geri alınamaz.`)) return;
+  try {
+    await invoke('kayit_sil', { id: secili.id });
+    secili = null;
+    await yenile();
+    durumYaz($('durum'), 'Kayıt silindi.', 'iyi');
+  } catch (e) { durumYaz($('durum'), String(e), 'hata'); }
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('formKatman').classList.contains('gizli')) formKapat();
+});
 
 /* ── Açılış ────────────────────────────────────────────────────────── */
 (async () => {

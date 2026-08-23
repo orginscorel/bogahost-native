@@ -290,3 +290,58 @@ pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
         j["password"].as_str().unwrap_or("").to_string(),
     ))
 }
+
+// ── Kayıt yönetimi ─────────────────────────────────────────────────────────
+//
+// Sahiplik GÖVDEDEN OKUNMAZ: sunucu kaydı her zaman jetonun sahibine yazar,
+// yani başkası adına kayıt açılamaz. Yöneticinin eklediği kayıtta düzenleme ve
+// silme sunucuda 403 ile reddedilir — istemci gizlemesine güvenilmez.
+
+/// Sunucudan gelen hata metnini olduğu gibi taşır. "Bir şeyler ters gitti"
+/// demek yerine sebebi göstermek kullanıcıyı çözüme götürür.
+fn yaniti_coz(y: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
+    let kod = y.status();
+    let j: serde_json::Value = y.json().map_err(|e| format!("Yanit okunamadi: {e}"))?;
+    if j["ok"].as_bool() != Some(true) {
+        return Err(j["error"]
+            .as_str()
+            .unwrap_or(&format!("HTTP {}", kod.as_u16()))
+            .to_string());
+    }
+    Ok(j)
+}
+
+pub fn kayit_ekle(durum: &Durum, veri: serde_json::Value) -> Result<i64, String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .post(format!("{SUNUCU}/vault/api/items"))
+        .bearer_auth(t)
+        .json(&veri)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    let j = yaniti_coz(y)?;
+    Ok(j["id"].as_i64().unwrap_or(0))
+}
+
+pub fn kayit_guncelle(durum: &Durum, id: i64, veri: serde_json::Value) -> Result<(), String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .put(format!("{SUNUCU}/vault/api/items/{id}"))
+        .bearer_auth(t)
+        .json(&veri)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    yaniti_coz(y)?;
+    Ok(())
+}
+
+pub fn kayit_sil(durum: &Durum, id: i64) -> Result<(), String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .delete(format!("{SUNUCU}/vault/api/items/{id}"))
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    yaniti_coz(y)?;
+    Ok(())
+}

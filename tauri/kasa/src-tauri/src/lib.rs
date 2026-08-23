@@ -23,6 +23,7 @@
 mod alan;
 mod guncelleme;
 mod kasa;
+mod politika;
 mod pencere;
 
 use kasa::{Durum, GirisSonuc, Kayit};
@@ -190,6 +191,47 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     }
 }
 
+// ── Tarayıcı koruması ──────────────────────────────────────────────────────
+
+/// Politikanın durumu — açılışta okunur, yönetici hakkı İSTEMEZ.
+#[tauri::command(async)]
+fn politika_durum() -> politika::Durum {
+    politika::durum()
+}
+
+/// Politikayı kur — işletim sisteminin kendi yönetici penceresi çıkar.
+/// Kullanıcı parolasını bize değil işletim sistemine verir.
+#[tauri::command(async)]
+fn politika_kur() -> Result<politika::Durum, String> {
+    politika::kur()?;
+    Ok(politika::durum())
+}
+
+// ── Kayıt yönetimi ─────────────────────────────────────────────────────────
+//
+// Sunucu kuralı: herkes KENDİ eklediğini ekler, düzenler, siler; başkasının
+// (yöneticinin) eklediğine dokunamaz. Karar sunucuda verilir; buradaki
+// düğmeleri gizlemek yalnızca boşuna denemeyi önler.
+
+#[tauri::command(async)]
+fn kayit_ekle(uygulama: tauri::AppHandle, veri: serde_json::Value) -> Result<i64, String> {
+    kasa::kayit_ekle(&uygulama.state::<Durum>(), veri)
+}
+
+#[tauri::command(async)]
+fn kayit_guncelle(
+    uygulama: tauri::AppHandle,
+    id: i64,
+    veri: serde_json::Value,
+) -> Result<(), String> {
+    kasa::kayit_guncelle(&uygulama.state::<Durum>(), id, veri)
+}
+
+#[tauri::command(async)]
+fn kayit_sil(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
+    kasa::kayit_sil(&uygulama.state::<Durum>(), id)
+}
+
 // ── Otomatik güncelleme ────────────────────────────────────────────────────
 
 /// "Güncellemeleri denetle" — kullanıcı istediğinde. Arka plan turu sessizdir;
@@ -321,7 +363,9 @@ pub fn run() {
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
             doldur, kullanici_adi, panoya_sifre,
-            guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac
+            guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
+            politika_durum, politika_kur,
+            kayit_ekle, kayit_guncelle, kayit_sil
         ])
         .setup(|uygulama| {
             // Kayıtlı oturumu belleğe al (geçerliliği arayüz açılışında sorulur)
