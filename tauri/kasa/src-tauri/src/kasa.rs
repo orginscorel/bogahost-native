@@ -28,6 +28,16 @@ pub struct Kayit {
     pub username: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
+    /// Gizli kayıt: paylaşılan kişi DOLDURABİLİR ama göremez/kopyalayamaz.
+    #[serde(default)]
+    pub gizli: bool,
+    /// Bu kullanıcı için görüntüleme/kopyalama açık mı (sahibi her zaman açık).
+    #[serde(default = "varsayilan_dogru")]
+    pub gosterilebilir: bool,
+}
+
+fn varsayilan_dogru() -> bool {
+    true
 }
 
 #[derive(Default)]
@@ -224,6 +234,36 @@ pub fn eslesenler(durum: &Durum, url: &str) -> Result<Vec<Kayit>, String> {
         }
     }
     Ok(cikti)
+}
+
+/// DOLDURMAK İÇİN getirir — görüntülemeden AYRI uç.
+///
+/// NEDEN AYRI: gizli kayıtlarda `/reveal` kapalı (sunucu 403 döner), `/fill`
+/// açık. Böylece "göster/kopyala" ile "hedefe yaz" birbirinden ayrılıyor:
+/// personele bilginin kendisi verilmeden o bilgiyle iş yaptırılabiliyor.
+/// Her çağrı sunucuda ayrı bir eylem olarak denetime yazılır.
+pub fn doldurmak_icin_ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .post(format!("{SUNUCU}/vault/api/fill/{id}"))
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+
+    let durum_kodu = y.status();
+    let j: serde_json::Value = y.json().map_err(|e| format!("Yanit okunamadi: {e}"))?;
+
+    if j["ok"].as_bool() != Some(true) {
+        return Err(j["error"]
+            .as_str()
+            .unwrap_or(&format!("HTTP {}", durum_kodu.as_u16()))
+            .to_string());
+    }
+
+    Ok((
+        j["username"].as_str().unwrap_or("").to_string(),
+        j["password"].as_str().unwrap_or("").to_string(),
+    ))
 }
 
 /// Parolayı TEK SEFERLİK getirir. Çağıran kullanır ve bırakır; hiçbir yerde saklanmaz.

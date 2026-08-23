@@ -69,3 +69,48 @@ npm install
 npm run tauri:build:win   # MSI + NSIS
 npm run tauri:build:mac   # DMG + .app
 ```
+
+## Gizli kayıtlar — "doldurabilsin ama görmesin"
+
+Bir kayıt panelde **Gizli** işaretlenirse, paylaşıldığı kişide:
+
+- şifre ve kullanıcı adı **ekranda gösterilmez**,
+- **panoya kopyalanamaz** (düğmeler kapalı, sunucu da reddeder),
+- yalnızca hedef pencereye **yazılabilir**, ve her yazım denetime düşer.
+
+Kaydın **sahibi** her zaman görür — kendi bilgisini göremeyen bir tasarım işe yaramaz.
+
+Teknik ayrım: görüntüleme `/vault/api/reveal` ucundan, doldurma `/vault/api/fill`
+ucundan geçer. Gizli kayıtta ilki 403 döner, ikincisi çalışır.
+
+### Dürüst sınır
+
+Bilgiyi hedefe **yazabilen** bir istemci, o bilgiyi **elde etmiştir**. Bu tasarım
+kimlik bilgisinin uygulama ekranında görünmemesini ve panoya düşmemesini garanti
+eder; uygulamayı tersine çeviren birine karşı koruma sağlamaz. Asıl caydırıcı,
+her kullanımın kim/ne/ne zaman olarak iz bırakmasıdır.
+
+Bir de şu var: parola hedef programa yazıldıktan sonra o programın denetimindedir.
+Tarayıcıda bir parola alanı geliştirici araçlarıyla düz metne çevrilebilir. Bunu
+uygulama tarafından engellemek mümkün değil.
+
+## Tarayıcının parolayı KENDİ kasasına kaydetmesini engelleme
+
+Doldurma bittiğinde tarayıcı "Şifreyi kaydedeyim mi?" diye sorabilir; kabul
+edilirse parola tarayıcının kasasına, oradan da kullanıcının hesabına ve tüm
+cihazlarına eşitlenir. **Bunu uygulama engelleyemez** — karar tarayıcıya aittir.
+
+Engellemenin desteklenen tek yolu **yönetilen politikadır**. `politika/` altında
+hazır dosyalar var:
+
+| Dosya | Ne yapar |
+|---|---|
+| `politika/macos-chrome-edge.sh` | `sudo bash ...` — Chrome/Edge/Brave parola kasasını kapatır (`/Library/Managed Preferences`). Kullanıcı ayarlardan geri açamaz. |
+| `politika/windows-chrome-edge.reg` | Yönetici olarak birleştirin — aynı politikayı `HKLM\SOFTWARE\Policies` altına yazar. |
+
+Uygulandıktan sonra tarayıcıyı tamamen kapatıp açın; `chrome://policy` adresinde
+`PasswordManagerEnabled = false` görünmeli.
+
+**Ayrıca:** Kasa varsayılan olarak doldurma sonrası **Enter'a basmaz**. Kaydetme
+balonunu tetikleyen şey formun gönderilmesidir; göndermeyi kullanıcıya bırakmak
+balonun çıkma olasılığını da azaltır.

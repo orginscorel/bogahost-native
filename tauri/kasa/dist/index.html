@@ -74,6 +74,8 @@
   .ana:disabled{opacity:.55;cursor:default}
   .ikincil{padding:9px 12px;border:1px solid var(--cizgi);border-radius:10px;
            background:var(--kart);color:var(--metin)}
+  .ikincil:disabled{opacity:.45;cursor:default}
+  .ikincil:disabled:hover{border-color:var(--cizgi)}
   .ikincil:hover{border-color:var(--vurgu)}
   .not{margin-top:12px;font-size:12px;color:var(--sonuk);text-align:center}
 
@@ -137,6 +139,8 @@
   .satirMetin{flex:1;min-width:0}
   .ad{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .alt{font-size:12px;color:var(--sonuk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gizliMini{font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:2px 7px;border-radius:20px;
+             background:var(--uyari-yumusak);color:var(--uyari);flex:none}
   .etiketMini{font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:2px 7px;border-radius:20px;
               background:var(--iyi-yumusak);color:var(--iyi);flex:none}
   .bosDurum{padding:34px 20px;text-align:center;color:var(--sonuk);font-size:13px}
@@ -403,15 +407,34 @@ function ciz() {
     m.append(a1, a2);
 
     d.append(av, m);
+    if (k.gosterilebilir === false) {
+      const g = document.createElement('span');
+      g.className = 'gizliMini'; g.textContent = 'GİZLİ';
+      g.title = 'Bu kayıt görüntülenemez veya kopyalanamaz — yalnızca doldurulabilir.';
+      d.appendChild(g);
+    }
     if (eslesme && eslesme.id === k.id) {
       const e = document.createElement('span');
       e.className = 'etiketMini'; e.textContent = 'EŞLEŞTİ';
       d.appendChild(e);
     }
-    d.onclick = () => { secili = k; ciz(); };
+    d.onclick = () => {
+      secili = k; ciz();
+      if (k.gosterilebilir === false) {
+        durumYaz($('durum'), 'Gizli kayıt: görüntülenemez ve kopyalanamaz — yalnızca doldurulabilir.', 'uyari');
+      }
+    };
     d.ondblclick = () => $('doldurDugme').click();
     l.appendChild(d);
   });
+
+  // Gizli kayıtta kopyalama düğmeleri kapatılır. Sunucu zaten reddeder;
+  // çalışmayacak bir düğme göstermek kullanıcıyı yanıltır.
+  const acik = !secili || secili.gosterilebilir !== false;
+  $('kadiKopya').disabled = !acik;
+  $('sifreKopya').disabled = !acik;
+  $('kadiKopya').title = acik ? 'Kullanıcı adını kopyala' : 'Gizli kayıt — kopyalanamaz';
+  $('sifreKopya').title = acik ? 'Şifreyi kopyala' : 'Gizli kayıt — kopyalanamaz';
 
   const s = l.querySelector('.satir.secili');
   if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });

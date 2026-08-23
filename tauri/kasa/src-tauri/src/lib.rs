@@ -137,7 +137,9 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         };
     }
 
-    let (kullanici, sifre) = match kasa::ac(&uygulama.state::<Durum>(), id) {
+    // Doldurma /fill ucundan geçer: gizli kayıtta görüntüleme kapalı olsa
+    // bile yazma çalışır ve her yazım denetime düşer.
+    let (kullanici, sifre) = match kasa::doldurmak_icin_ac(&uygulama.state::<Durum>(), id) {
         Ok(v) => v,
         Err(e) => return DoldurSonuc { tamam: false, mesaj: format!("Alınamadı: {e}") },
     };
@@ -408,7 +410,7 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
     }
 
     let kayit = &eslesenler[0];
-    let (kullanici, sifre) = match kasa::ac(&durum, kayit.id) {
+    let (kullanici, sifre) = match kasa::doldurmak_icin_ac(&durum, kayit.id) {
         Ok(v) => v,
         Err(_) => {
             pencereyi_ac("");
