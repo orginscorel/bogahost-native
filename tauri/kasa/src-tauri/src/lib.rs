@@ -320,6 +320,7 @@ pub fn run() {
             kisayol_kur(uygulama.handle())?;
             hedef_izle(uygulama.handle());
             guncelleme::zamanla(uygulama.handle());
+            izin_izle(uygulama.handle());
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -437,6 +438,27 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
             let _ = uygulama.emit("kisayol-notu", format!("yazma-hatasi:{e}"));
         }
     }
+}
+
+/// Erişilebilirlik iznini arka planda izler ve DEĞİŞTİĞİNDE arayüze haber verir.
+///
+/// NEDEN GEREKLİ: izin Sistem Ayarları'ndan veriliyor, uygulamanın dışında.
+/// Yalnızca açılışta baksaydık, kullanıcı izni verdikten sonra da ekranda
+/// "izin yok" yazmaya devam ederdi ve uygulamayı kapatıp açması gerekirdi.
+fn izin_izle(uygulama: &tauri::AppHandle) {
+    let u = uygulama.clone();
+    std::thread::spawn(move || {
+        let mut onceki = pencere::erisilebilirlik_izni_var();
+        let _ = u.emit("izin-durumu", onceki);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let simdi = pencere::erisilebilirlik_izni_var();
+            if simdi != onceki {
+                onceki = simdi;
+                let _ = u.emit("izin-durumu", simdi);
+            }
+        }
+    });
 }
 
 /// Kısa sistem bildirimi — pencere açmadığımız için tek geri bildirim bu.

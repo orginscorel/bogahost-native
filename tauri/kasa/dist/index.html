@@ -220,9 +220,11 @@
     <span class="hedefUrl" id="hedefUrl"></span>
   </div>
 
-  <div class="guncel gizli" id="izinSerit" style="background:var(--hata-yumusak);border-color:var(--hata)">
-    <span>Erişilebilirlik izni yok — <b>doldurma çalışmaz</b>.</span>
-    <span class="bosluk"></span>
+  <div class="guncel gizli" id="izinSerit" style="background:var(--hata-yumusak);border-color:var(--hata);align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div><b>Erişilebilirlik izni yok</b> — doldurma çalışmaz.</div>
+      <div style="opacity:.85;margin-top:2px" id="izinNot"></div>
+    </div>
     <button class="guncelDugme" id="izinAc" style="background:var(--hata)">Ayarları aç</button>
   </div>
 
@@ -345,7 +347,7 @@ async function kasayiAc() {
     const iz = await invoke('izinler').catch(() => null);
     // Erişilebilirlik olmadan hiçbir şey yazılamaz; bu yüzden şeritle,
     // tek tıkla ayarlara götüren bir düğmeyle gösteriliyor.
-    if (iz && !iz.erisilebilirlik) $('izinSerit').classList.remove('gizli');
+    if (iz) izinYaz(iz.erisilebilirlik);
     if (iz && !iz.otomasyon) {
       $('hedefAd').textContent = 'Otomasyon izni yok — hedef okunamıyor';
       durumYaz($('durum'), 'Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Bogahost Kasa → System Events', 'hata');
@@ -591,6 +593,21 @@ $('cikisDugme').onclick = async () => {
 $('enterBas').addEventListener('change', e => yerelYaz('kasaEnter', e.target.checked ? '1' : '0'));
 $('otoDoldur').addEventListener('change', e => yerelYaz('kasaOto', e.target.checked ? '1' : '0'));
 
+/* ── Erişilebilirlik izni ────────────────────────────────────────────
+   İzin uygulamanın DIŞINDAN, Sistem Ayarları'ndan veriliyor. Rust tarafı
+   3 saniyede bir bakıp değişince haber veriyor; böylece izni verdikten sonra
+   uygulamayı kapatıp açmak gerekmiyor. */
+listen('izin-durumu', (o) => izinYaz(!!o.payload));
+
+function izinYaz(varMi) {
+  const serit = $('izinSerit');
+  if (varMi) { serit.classList.add('gizli'); return; }
+  $('izinNot').textContent = navigator.platform.toLowerCase().includes('mac')
+    ? 'Listede görünse bile geçerli olmayabilir: uygulama imzasız olduğu için her güncelleme sonrası kimliği değişir. Listeden “−” ile kaldırıp “+” ile yeniden ekleyin.'
+    : '';
+  serit.classList.remove('gizli');
+}
+
 /* ── Kısayol geri bildirimi ────────────────────────────────────────────
    Kısayol artık pencere açmadan dolduruyor; pencere açıldıysa BİR NEDENİ
    vardır ve kullanıcı onu görmeli. */
@@ -602,7 +619,7 @@ listen('kisayol-notu', (o) => {
   const n = String(o.payload || '');
   const el = $('kasaEkrani').classList.contains('gizli') ? $('girisDurum') : $('durum');
   if (n === 'izin-yok') {
-    $('izinSerit').classList.remove('gizli');
+    izinYaz(false);
     durumYaz(el, 'Erişilebilirlik izni verilmeden hiçbir şey yazılamaz.', 'hata');
   } else if (n === 'eslesme-yok') {
     durumYaz(el, 'Bu adres için kayıt yok — listeden seçip Doldur diyebilirsiniz.', 'uyari');

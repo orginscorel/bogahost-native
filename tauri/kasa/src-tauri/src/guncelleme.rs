@@ -136,6 +136,20 @@ pub async fn denetle(uygulama: tauri::AppHandle, elle_istendi: bool) -> Durum {
     if sonuc.var || elle_istendi {
         let _ = uygulama.emit("guncelleme-durumu", sonuc.clone());
     }
+
+    // Pencere kapalıyken şeridi kimse görmez; bildirim tek geri bildirimdir.
+    // Bildirime tıklamak uygulamayı öne getirir, şerit oradadır.
+    if sonuc.var && !elle_istendi {
+        if let Some(v) = sonuc.surum.clone() {
+            use tauri_plugin_notification::NotificationExt;
+            let _ = uygulama
+                .notification()
+                .builder()
+                .title("Bogahost Kasa güncellemesi")
+                .body(format!("Sürüm {v} indirildi. Uygulamayı açıp \"Şimdi güncelle\" deyin."))
+                .show();
+        }
+    }
     sonuc
 }
 
