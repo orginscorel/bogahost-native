@@ -20,6 +20,7 @@
 //! ömrü karışır. `AppHandle` 'static ve klonlanabilir olduğu için durum gövde
 //! İÇİNDE `uygulama.state::<Durum>()` ile alınır — ödünç, gövdeden dışarı çıkmaz.
 
+mod guncelleme;
 mod kasa;
 mod pencere;
 
@@ -174,6 +175,21 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     }
 }
 
+// ── Otomatik güncelleme ────────────────────────────────────────────────────
+
+/// "Güncellemeleri denetle" — kullanıcı istediğinde. Arka plan turu sessizdir;
+/// burada "güncel" sonucu da arayüze bildirilir.
+#[tauri::command]
+async fn guncelleme_ara(uygulama: tauri::AppHandle) -> guncelleme::Durum {
+    guncelleme::denetle(uygulama, true).await
+}
+
+/// İndirilmiş sürümü uygula. Başarılıysa uygulama yeniden başlar.
+#[tauri::command(async)]
+fn guncelleme_uygula(uygulama: tauri::AppHandle) -> Result<(), String> {
+    guncelleme::uygula(&uygulama)
+}
+
 /// Adrese göre eşleşen kayıtlar — arayüz bunu otomatik seçim için kullanır.
 #[tauri::command(async)]
 fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, String> {
@@ -283,7 +299,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
-            doldur, kullanici_adi, panoya_sifre
+            doldur, kullanici_adi, panoya_sifre,
+            guncelleme_ara, guncelleme_uygula
         ])
         .setup(|uygulama| {
             // Kayıtlı oturumu belleğe al (geçerliliği arayüz açılışında sorulur)
@@ -294,6 +311,7 @@ pub fn run() {
 
             kisayol_kur(uygulama.handle())?;
             hedef_izle(uygulama.handle());
+            guncelleme::zamanla(uygulama.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

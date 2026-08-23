@@ -77,6 +77,17 @@
   .ikincil:hover{border-color:var(--vurgu)}
   .not{margin-top:12px;font-size:12px;color:var(--sonuk);text-align:center}
 
+  /* ── Güncelleme şeridi ───────────────────────────────────────────── */
+  .guncel{display:flex;align-items:center;gap:10px;padding:9px 14px;
+          background:var(--vurgu-yumusak);border-bottom:1px solid var(--vurgu);font-size:12.5px}
+  .guncel b{font-weight:600}
+  .guncel .bosluk{flex:1}
+  .guncelDugme{padding:6px 12px;border:0;border-radius:8px;color:#fff;font-weight:600;font-size:12px;
+               background:linear-gradient(160deg,var(--vurgu),var(--vurgu2))}
+  .guncelDugme:disabled{opacity:.6;cursor:default}
+  .surumSatir{margin-top:14px;text-align:center;font-size:11px;color:var(--sonuk)}
+  .surumSatir button{background:none;border:0;color:var(--vurgu);font-size:11px;padding:0;text-decoration:underline}
+
   /* ── Üst çubuk ───────────────────────────────────────────────────── */
   .ust{display:flex;align-items:center;gap:10px;padding:11px 14px;
        background:var(--kart);border-bottom:1px solid var(--cizgi)}
@@ -142,6 +153,14 @@
   .durum.iyi{color:var(--iyi)} .durum.hata{color:var(--hata)} .durum.uyari{color:var(--uyari)}
 </style>
 
+<!-- Güncelleme şeridi — giriş ekranında da görünür, çünkü kullanıcı
+     giremediğinde de güncelleme alabilmeli. -->
+<div class="guncel gizli" id="guncelSerit">
+  <span>Yeni sürüm hazır: <b id="guncelSurum"></b></span>
+  <span class="bosluk"></span>
+  <button class="guncelDugme" id="guncelUygula">Şimdi güncelle</button>
+</div>
+
 <!-- ── Giriş ekranı ──────────────────────────────────────────────────── -->
 <div class="giris" id="girisEkrani">
   <div class="gkart">
@@ -167,6 +186,10 @@
     <button class="ana" id="girisDugme">Giriş yap</button>
     <div class="durum" id="girisDurum" style="text-align:center"></div>
     <div class="not">Kasa erişimi iki adımlı doğrulama gerektirir.</div>
+    <div class="surumSatir">
+      <span id="surumMetin">Bogahost Kasa</span> ·
+      <button id="guncelAra">güncellemeleri denetle</button>
+    </div>
   </div>
 </div>
 
@@ -232,6 +255,7 @@ const $ = (id) => document.getElementById(id);
 
 let kayitlar = [], secili = null, adimIki = false;
 let sonAdres = '', sonBildirilen = '', eslesme = null, dolduruluyor = false;
+let denetleniyor = false;
 
 /* Renk, etikete göre sabit üretiliyor: aynı kayıt her açılışta aynı rengi alsın
    diye rastgele değil, adın kendisinden türetiliyor. */
@@ -533,8 +557,58 @@ $('cikisDugme').onclick = async () => {
 $('enterBas').addEventListener('change', e => yerelYaz('kasaEnter', e.target.checked ? '1' : '0'));
 $('otoDoldur').addEventListener('change', e => yerelYaz('kasaOto', e.target.checked ? '1' : '0'));
 
+/* ── Otomatik güncelleme ───────────────────────────────────────────────
+   Arka plan turu açılıştan 6 sn sonra başlar ve 6 saatte bir tekrarlar;
+   burada yalnızca sonucu gösteriyoruz. Yeniden başlatma HİÇBİR zaman
+   kendiliğinden olmuyor — kullanıcı parola yazarken uygulama kapanmasın. */
+listen('guncelleme-durumu', (o) => guncellemeYaz(o.payload));
+
+function guncellemeYaz(g) {
+  const serit = $('guncelSerit');
+  if (!g || !g.var) {
+    serit.classList.add('gizli');
+    if (denetleniyor) durumGuncelYaz('Güncel sürümü kullanıyorsunuz.');
+    return;
+  }
+  $('guncelSurum').textContent = g.surum || '';
+  $('guncelUygula').textContent = g.elle ? 'İndirme sayfasını aç' : 'Şimdi güncelle';
+  serit.classList.remove('gizli');
+}
+
+function durumGuncelYaz(m) {
+  const el = $('kasaEkrani').classList.contains('gizli') ? $('girisDurum') : $('durum');
+  durumYaz(el, m);
+}
+
+$('guncelUygula').onclick = async () => {
+  const b = $('guncelUygula');
+  b.disabled = true; b.textContent = 'Uygulanıyor…';
+  try {
+    await invoke('guncelleme_uygula');
+    // Windows'ta bu satıra gelinmez: kurulum süreci sonlandırır.
+    b.textContent = 'Yeniden başlatılıyor…';
+  } catch (e) {
+    b.disabled = false; b.textContent = 'Şimdi güncelle';
+    durumGuncelYaz('Güncellenemedi: ' + e);
+  }
+};
+
+$('guncelAra').onclick = async () => {
+  if (denetleniyor) return;
+  denetleniyor = true;
+  const d = $('guncelAra'), eski = d.textContent;
+  d.textContent = 'denetleniyor…';
+  try { guncellemeYaz(await invoke('guncelleme_ara')); }
+  catch (e) { durumGuncelYaz('Denetlenemedi: ' + e); }
+  finally { denetleniyor = false; d.textContent = eski; }
+};
+
 /* ── Açılış ────────────────────────────────────────────────────────── */
 (async () => {
+  try {
+    const v = await window.__TAURI__.app.getVersion();
+    $('surumMetin').textContent = 'Bogahost Kasa ' + v;
+  } catch (e) {}
   try { if (await invoke('oturum_var')) { await kasayiAc(); return; } } catch (e) {}
   $('kullanici').focus();
 })();
