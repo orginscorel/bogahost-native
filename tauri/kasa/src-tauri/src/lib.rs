@@ -304,7 +304,36 @@ fn yaz(kullanici: &str, sifre: &str, enter_bas: bool) -> Result<(), String> {
     if !kullanici.is_empty() {
         e.text(kullanici).map_err(|x| x.to_string())?;
         e.key(Key::Tab, Direction::Click).map_err(|x| x.to_string())?;
-        std::thread::sleep(std::time::Duration::from_millis(70));
+        // Odak değişiminin oturması için bekle; hemen okumak eski alanı verir.
+        std::thread::sleep(std::time::Duration::from_millis(140));
+
+        // TAB'IN NEREYE GİTTİĞİNİ VARSAYMA — DOĞRULA.
+        //
+        // Buradaki sessiz kabul şuydu: "kullanıcı adından sonra Tab parola
+        // alanına gider". Birçok sayfada gitmiyor — sıradaki odaklanabilir öğe
+        // bir arama kutusu, bir bağlantı ya da bir düğme olabiliyor ve PAROLA
+        // ORAYA yazılıyordu. Bildirilen durum tam olarak buydu: giriş yapıldı,
+        // sonraki ekrandaki arama kutusuna parola gitti.
+        //
+        // Tespit edilemiyorsa (Windows / izin yok) eski davranışa düşülür;
+        // engellemek, çalışan bir akışı hiç çalıştırmamaktan iyi değil.
+        match alan::odakli_alan() {
+            alan::Uygun::Bos => {}
+            alan::Uygun::Bilinmiyor => {}
+            alan::Uygun::Dolu => {
+                return Err(
+                    "Kullanıcı adı yazıldı ama sonraki alan boş değil; parola yazılmadı. \
+                     Parola alanına tıklayıp tekrar deneyin."
+                        .into(),
+                )
+            }
+            alan::Uygun::AlanDegil(rol) => {
+                return Err(format!(
+                    "Kullanıcı adı yazıldı ama Tab bir metin alanına gitmedi ({rol}); \
+                     parola yazılmadı. Parola alanına tıklayıp tekrar deneyin."
+                ))
+            }
+        }
     }
     if !sifre.is_empty() {
         e.text(sifre).map_err(|x| x.to_string())?;
@@ -461,6 +490,15 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
         }
     };
 
+    // YOL DENETİMİ: alan adı eşleşmesi tek başına yetmez. Kayıt bir giriş
+    // sayfası adresi taşıyorsa, o sitenin BAŞKA sayfalarında kendiliğinden
+    // doldurmak yanlış — bildirilen durumda giriş sonrası arama kutusuna
+    // yazılmasının sebebi buydu.
+    let eslesenler: Vec<_> = eslesenler
+        .into_iter()
+        .filter(|k| yol_uyar(&k.url, &url))
+        .collect();
+
     // Tek aday yoksa karar kullanıcınındır.
     if eslesenler.len() != 1 {
         pencereyi_ac(if eslesenler.is_empty() { "eslesme-yok" } else { "coklu-eslesme" });
@@ -525,6 +563,39 @@ fn izin_izle(uygulama: &tauri::AppHandle) {
             }
         }
     });
+}
+
+/// Adresin yol kısmı: `https://a.com/giris/?x=1#y` → `/giris`
+///
+/// Tam URL ayrıştırıcı eklemek yerine elle kesiliyor: yalnız yol lazım ve
+/// karşılaştırma sonundaki `/`, sorgu ve çapa yok sayılarak yapılıyor.
+fn yol_al(u: &str) -> String {
+    let s = u.split("://").nth(1).unwrap_or(u);
+    let p = match s.find('/') {
+        Some(i) => &s[i..],
+        None => "",
+    };
+    let p = p.split(['?', '#']).next().unwrap_or("");
+    p.trim_end_matches('/').to_string()
+}
+
+/// Kaydın adresi hedef adresle YOL DÜZEYİNDE uyuşuyor mu?
+///
+/// NEDEN GEREKLİ: eşleştirme alan adı düzeyinde yapılıyor; `ornek.com/giris`
+/// kaydı `ornek.com/panel/arama` ile de eşleşiyordu. Giriş yapıldıktan sonra
+/// adres değişip yeni yol parçaları eklenince kayıt hâlâ "eşleşti" sayılıyor
+/// ve oradaki alanlara yazılıyordu.
+///
+/// Kayıtta yol yoksa (yalnız alan adı girilmişse) alan adı eşleşmesi yeterli
+/// sayılır — kullanıcı bilerek geniş bırakmıştır.
+fn yol_uyar(kayit_url: &Option<String>, hedef_url: &str) -> bool {
+    let Some(k) = kayit_url else { return true };
+    let kayit_yol = yol_al(k);
+    if kayit_yol.is_empty() {
+        return true;
+    }
+    let hedef_yol = yol_al(hedef_url);
+    hedef_yol == kayit_yol || hedef_yol.starts_with(&format!("{kayit_yol}/"))
 }
 
 /// Kısa sistem bildirimi — pencere açmadığımız için tek geri bildirim bu.

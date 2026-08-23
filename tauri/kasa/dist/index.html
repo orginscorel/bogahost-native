@@ -345,6 +345,8 @@ const $ = (id) => document.getElementById(id);
 
 let kayitlar = [], secili = null, adimIki = false;
 let sonAdres = '', sonBildirilen = '', eslesme = null, dolduruluyor = false;
+// Kendiliğinden doldurmanın SON yapıldığı alan adı — aynı sitede tekrarı önler.
+let otoDoldurulanHost = '';
 let denetleniyor = false;
 
 /* Renk, etikete göre sabit üretiliyor: aynı kayıt her açılışta aynı rengi alsın
@@ -362,6 +364,27 @@ function durumYaz(el, metin, tur) {
   el.className = 'durum' + (tur ? ' ' + tur : '');
   el.textContent = metin || '';
 }
+/** Kaydın adresi hedef adresle YOL DÜZEYİNDE uyuşuyor mu?
+ *
+ *  Eşleştirmeyi sunucu ALAN ADI düzeyinde yapıyor: "ornek.com/giris" kaydı
+ *  "ornek.com/panel/arama" ile de eşleşiyor. Giriş yapıldıktan sonra adres
+ *  değişip yeni yol parçaları eklenince kayıt hâlâ eşleşmiş sayılıyor ve
+ *  oradaki alanlara yazılıyordu. Kendiliğinden doldurma artık yolu da soruyor.
+ *
+ *  Kayıtta yol yoksa (yalnız alan adı girilmişse) alan adı eşleşmesi yeterli —
+ *  kullanıcı orayı bilerek geniş bırakmıştır. */
+function yolUyar(kayitUrl, hedefUrl) {
+  if (!kayitUrl) return true;
+  try {
+    const k = new URL(kayitUrl), h = new URL(hedefUrl);
+    if (k.hostname.replace(/^www\./, '') !== h.hostname.replace(/^www\./, '')) return false;
+    const ky = k.pathname.replace(/\/+$/, '');
+    if (!ky) return true;
+    const hy = h.pathname.replace(/\/+$/, '');
+    return hy === ky || hy.startsWith(ky + '/');
+  } catch (e) { return false; }
+}
+
 function alan(u) {
   try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return (u || '').slice(0, 40); }
 }
@@ -599,8 +622,22 @@ async function otomatikEslestir(h) {
   $('afis').classList.remove('gizli');
 
   const gorunur = await pencereGorunur();
-  if ($('otoDoldur').checked && !gorunur) { await doldur(true); return; }
-  if (!gorunur) bildir(eslesme.label, alan(h.url));
+  const host = alan(h.url);
+
+  // AYNI SİTEDE BİR KEZ. Giriş yapıldıktan sonra adres değişiyor (/panel,
+  // /dashboard…) ama alan adı aynı kalıyor; eski hâlde bu "yeni eşleşme"
+  // sayılıp KENDİLİĞİNDEN tekrar doldurulmaya çalışılıyordu ve imleç neredeyse
+  // oraya — bildirilen örnekte giriş sonrası arama kutusuna — yazıyordu.
+  // Kullanıcı kısayola basarsa yine doldurur; engellenen yalnızca kendiliğinden
+  // tekrar.
+  // Kendiliğinden doldurma için ALAN ADI YETMEZ, yol da uymalı.
+  if ($('otoDoldur').checked && !gorunur && host !== otoDoldurulanHost
+      && yolUyar(eslesme.url, h.url)) {
+    otoDoldurulanHost = host;
+    await doldur(true);
+    return;
+  }
+  if (!gorunur) bildir(eslesme.label, host);
 }
 
 function afisGizle() { $('afis').classList.add('gizli'); eslesme = null; }
