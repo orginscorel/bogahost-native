@@ -1,18 +1,22 @@
 #!/bin/bash
-# Bogahost Kasa — tarayıcı parola kasasını KAPAT (macOS).
+# Bogahost Kasa — Chrome yönetilen politikası (macOS).
 #
-# NEDEN GEREKLİ: Kasa uygulaması kimlik bilgisini hedef pencereye yazar. Yazma
-# bittiğinde tarayıcı kendi "Şifreyi kaydedeyim mi?" balonunu gösterebilir ve
-# kabul edilirse parola tarayıcının kasasına, oradan da kullanıcının Google/
-# Microsoft hesabına ve tüm cihazlarına eşitlenir. Bunu uygulama tarafından
-# engellemek MÜMKÜN DEĞİL — karar tarayıcının kendisine ait.
+# İKİ İŞ YAPAR:
+#   1) Tarayıcının KENDİ parola kasasını kapatır. Doldurma bittiğinde çıkan
+#      "Şifreyi kaydedeyim mi?" balonu bir daha hiç çıkmaz. Kullanıcı bunu
+#      tarayıcı ayarlarından GERİ AÇAMAZ.
+#   2) Bogahost Kasa eklentisini ZORUNLU kurar. Kullanıcı silse bile Chrome
+#      update.xml'i periyodik okuyup yeniden kurar; kaldırma düğmesi pasif olur.
 #
-# Engellemenin desteklenen tek yolu YÖNETİLEN POLİTİKADIR. Aşağıdaki ayarlar
-# /Library/Managed Preferences altına yazılır; kullanıcı tarayıcı ayarlarından
-# GERİ AÇAMAZ.
+# NEDEN POLİTİKA: bunların ikisi de tarayıcının kararıdır. Bir masaüstü
+# uygulaması dışarıdan ne parola kasasını kapatabilir ne de eklenti kurabilir —
+# desteklenen tek yol yönetilen politikadır.
 #
 # Kullanım:  sudo bash macos-chrome-edge.sh
 set -euo pipefail
+
+EKLENTI_ID="nfoohkianbefpbobbbgfikiiicnghjeh"
+GUNCELLEME="https://native.bogahost.com/eklenti/update.xml"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Bu betik yönetici hakkı ister:  sudo bash $0" >&2
@@ -23,22 +27,25 @@ DIZIN="/Library/Managed Preferences"
 mkdir -p "$DIZIN"
 
 yaz() {
-  local plist="$1" ad="$2"
-  # PasswordManagerEnabled=false → "Şifreyi kaydet" balonu HİÇ çıkmaz.
-  # AutofillAddressEnabled / AutofillCreditCardEnabled → diğer otomatik
-  #   doldurma depoları da kapanır; amaç hiçbir şeyin saklanmaması.
+  local plist="$1" ad="$2" eklenti="$3"
   defaults write "$plist" PasswordManagerEnabled -bool false
   defaults write "$plist" AutofillAddressEnabled -bool false
   defaults write "$plist" AutofillCreditCardEnabled -bool false
+  if [ "$eklenti" = "evet" ]; then
+    defaults write "$plist" ExtensionInstallForcelist -array "${EKLENTI_ID};${GUNCELLEME}"
+    # Kendi barındırdığımız .crx'in kurulabilmesi için kaynak izni.
+    defaults write "$plist" ExtensionInstallSources -array "https://native.bogahost.com/*"
+  fi
   chmod 644 "$plist.plist" 2>/dev/null || true
   echo "  ✓ $ad"
 }
 
-echo "Tarayıcı parola kasaları kapatılıyor:"
-yaz "$DIZIN/com.google.Chrome"    "Google Chrome"
-yaz "$DIZIN/com.microsoft.Edge"   "Microsoft Edge"
-yaz "$DIZIN/com.brave.Browser"    "Brave"
+echo "Politika uygulanıyor:"
+yaz "$DIZIN/com.google.Chrome"  "Google Chrome (parola kasası kapalı + eklenti zorunlu)" evet
+yaz "$DIZIN/com.microsoft.Edge" "Microsoft Edge (parola kasası kapalı)"                  hayir
+yaz "$DIZIN/com.brave.Browser"  "Brave (parola kasası kapalı)"                           hayir
 
 echo
-echo "Bitti. Açık tarayıcıları TAMAMEN kapatıp yeniden açın."
-echo "Doğrulama: chrome://policy adresinde PasswordManagerEnabled = false görünmeli."
+echo "Bitti. Chrome'u TAMAMEN kapatıp (Cmd+Q) yeniden açın."
+echo "Doğrulama: chrome://policy → PasswordManagerEnabled=false ve"
+echo "           ExtensionInstallForcelist içinde ${EKLENTI_ID} görünmeli."

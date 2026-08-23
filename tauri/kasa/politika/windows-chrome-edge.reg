@@ -1,22 +1,29 @@
 Windows Registry Editor Version 5.00
 
-; Bogahost Kasa — tarayıcı parola kasasını KAPAT (Windows).
+; Bogahost Kasa — Chrome yönetilen politikası (Windows).
 ;
-; NEDEN GEREKLİ: Kasa kimlik bilgisini hedef pencereye yazar. Tarayıcı bunun
-; ardından "Şifreyi kaydedeyim mi?" diye sorabilir; kabul edilirse parola
-; tarayıcının kasasına ve oradan kullanıcının hesabına eşitlenir. Uygulama
-; tarafından engellenemez — karar tarayıcıya aittir.
+; İKİ İŞ YAPAR:
+;   1) Tarayıcının kendi parola kasasını kapatır ("Şifreyi kaydedeyim mi?"
+;      balonu çıkmaz, kullanıcı ayarlardan geri açamaz).
+;   2) Bogahost Kasa eklentisini zorunlu kurar; kullanıcı silse bile Chrome
+;      update.xml'i okuyup yeniden kurar, kaldırma düğmesi pasif olur.
 ;
-; Engellemenin desteklenen tek yolu politikadır. Bu anahtarlar yazıldıktan
-; sonra kullanıcı tarayıcı ayarlarından GERİ AÇAMAZ.
+; NEDEN POLİTİKA: ikisi de tarayıcının kararıdır; masaüstü uygulaması
+; dışarıdan ne parola kasasını kapatabilir ne de eklenti kurabilir.
 ;
-; Kurulum: dosyaya sağ tık > Birleştir (yönetici gerekir), sonra tarayıcıyı
-; tamamen kapatıp açın. Doğrulama: chrome://policy
+; Kurulum: sağ tık > Birleştir (yönetici), sonra tarayıcıyı TAMAMEN kapatıp
+; açın. Doğrulama: chrome://policy
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome]
 "PasswordManagerEnabled"=dword:00000000
 "AutofillAddressEnabled"=dword:00000000
 "AutofillCreditCardEnabled"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
+"1"="nfoohkianbefpbobbbgfikiiicnghjeh;https://native.bogahost.com/eklenti/update.xml"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallSources]
+"1"="https://native.bogahost.com/*"
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge]
 "PasswordManagerEnabled"=dword:00000000
