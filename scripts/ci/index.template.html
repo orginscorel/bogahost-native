@@ -520,6 +520,10 @@ a:focus-visible,button:focus-visible{
       + (apk ? dlButton(OS.droid, apk, app.name, lead === "droid") : dlMissing(OS.droid))
       + '</div>';
 
+    /* Uygulamanin kendi surumu — dosyalardan okunur, hepsi ayni olmak zorunda degil. */
+    var surum = "";
+    for (var si = 0; si < files.length; si++){ if(files[si].surum){ surum = files[si].surum; break; } }
+
     var plats = [];
     if(dmg) plats.push("macOS");
     if(exe || msi) plats.push("Windows");
@@ -530,7 +534,8 @@ a:focus-visible,button:focus-visible{
       +   '<img class="app-icon" src="' + esc(app.icon) + '" width="84" height="84" alt="" loading="lazy" decoding="async"'
       +     ' onerror="this.onerror=null;this.outerHTML=\'<span class=&quot;app-icon-fb&quot; aria-hidden=&quot;true&quot;></span>\'">'
       +   '<div class="app-title"><h3>' + esc(app.name) + '</h3>'
-      +     '<div class="app-plat">' + esc(plats.length ? plats.join(" · ") : "paket yok") + '</div></div>'
+      +     '<div class="app-plat">' + esc(plats.length ? plats.join(" · ") : "paket yok")
+      +       (surum ? ' · v' + esc(surum) : "") + '</div></div>'
       + '</div>'
       + '<p class="app-desc">' + esc(app.desc) + '</p>'
       + '<div class="dl">' + rows + '</div>'
@@ -553,6 +558,7 @@ a:focus-visible,button:focus-visible{
       html += cardHtml(app, files);
     });
 
+    /* Tek bir genel sürüm yok; bu alan EN YENİ yayınlanan sürümü gösterir. */
     setText("mVersion", data && data.version ? data.version : "—");
     setText("mDate", data && data.updated ? trDate(data.updated) : "—");
     setText("mCount", shown ? shown + " uygulama" : "—");

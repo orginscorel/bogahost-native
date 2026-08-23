@@ -36,13 +36,75 @@ permissions:
   contents: read
 
 jobs:
+  # Hangi uygulamalar derlenecek?
+  #
+  # NEDEN: her itmede altı uygulamayı birden derlemek hem uzun sürüyor hem de
+  # yanlış — toplu yayın yapmıyoruz. Burada git farkına bakılıp yalnızca
+  # DEĞİŞEN uygulamalar matrise konuyor.
+  #
+  # Ortak dosyalar (scripts/, apps.config.json, kök package.json, akışın
+  # kendisi) değiştiyse hepsi derlenir; o değişiklik hepsini etkiler.
+  # Elle tetikleme ve sürüm etiketi de her zaman hepsini derler.
+  degisenler:
+    name: Değişenleri belirle
+    runs-on: ubuntu-latest
+    outputs:
+      liste: ${{ steps.hesapla.outputs.liste }}
+      var: ${{ steps.hesapla.outputs.var }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Hesapla
+        id: hesapla
+        shell: bash
+        run: |
+          TUM='["finans","dcim","chat","task","muh","kasa"]'
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+          || [ "${{ github.event_name }}" = "workflow_call" ] \
+          || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "Elle tetikleme / sürüm etiketi → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # İlk itme veya tek commit'lik geçmişte kıyas yapılamaz → hepsi
+          if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
+            echo "Kıyaslanacak önceki commit yok → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          FARK=$(git diff --name-only HEAD~1 HEAD)
+          echo "Değişen dosyalar:"; echo "$FARK" | sed 's/^/  /'
+
+          if echo "$FARK" | grep -qE '^(scripts/|apps\.config\.json|package\.json|\.github/workflows/)'; then
+            echo "Ortak dosya değişti → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          SECIM=""
+          for A in finans dcim chat task muh kasa; do
+            if echo "$FARK" | grep -q "^tauri/$A/"; then SECIM="$SECIM \"$A\""; fi
+          done
+          SECIM=$(echo $SECIM | tr ' ' ',')
+
+          if [ -z "$SECIM" ]; then
+            echo "::notice title=Derleme yok::Hiçbir uygulama klasörü değişmedi; masaüstü derlemesi atlandı."
+            echo "liste=[]" >> "$GITHUB_OUTPUT"; echo "var=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Derlenecek: [$SECIM]"
+            echo "liste=[$SECIM]" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"
+          fi
   build-windows:
     name: Windows · ${{ matrix.app }}
+    needs: degisenler
+    if: needs.degisenler.outputs.var == '1'
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        app: [finans, dcim, chat, task, muh, kasa]
+        app: ${{ fromJson(needs.degisenler.outputs.liste) }}
 
     steps:
       - name: Checkout
@@ -185,8 +247,10 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-windows:
     name: Yayınla · Windows
-    needs: build-windows
-    if: always()
+    needs: [degisenler, build-windows]
+    # always(): bir uygulamanin derlemesi dusse bile digerleri yayina girsin.
+    # var kontrolu: hicbir sey derlenmediyse bosuna FTP trafigi olmasin.
+    if: always() && needs.degisenler.outputs.var == '1'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -154,6 +154,7 @@ function publishFile(app, srcPath, targetName, { platformKey = null, label = nul
 
   (downloadEntries[app] ??= []).push({
     platform: platformKey ?? PLATFORM,
+    surum: VERSION,
     label: label ?? targetName,
     file: targetName,
     url: `${BASE_URL}/downloads/${targetName}`,
@@ -293,10 +294,12 @@ const state = await fetchJson('updates/downloads.json');
 if (state === null) {
   warn('updates/downloads.json okunamadi — index.html YENIDEN URETILMEDI (sunucudaki kopya korunuyor).');
 } else {
-  const apps = state.version === VERSION ? (state.apps ?? {}) : {};
+  const apps = state.apps ?? {};
   for (const app of APPS) {
     const fresh = downloadEntries[app] ?? [];
     if (!fresh.length) continue;
+    // Bu uygulamanin BU platformdaki eski kayitlari yenileriyle degisir;
+    // diger platformlari ve diger uygulamalar oldugu gibi kalir.
     const others = (apps[app] ?? []).filter((e) => !platformGroup(e.platform, PLATFORM));
     apps[app] = [...others, ...fresh];
   }
