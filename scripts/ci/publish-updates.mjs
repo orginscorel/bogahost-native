@@ -47,15 +47,20 @@ const PLATFORM = arg('platform');
  * GERCEK 1.10.3 paketinin uzerine yazdi ve guncelleyici yeni surumu hic
  * gormedi. Kaynak artik uygulamanin kendi tauri.conf.json'i.
  */
+const KOK = resolve(HERE, '..', '..');
+const surumOnbellek = new Map();
+
 function appVersion(app) {
-  const p = join(ROOT, 'tauri', app, 'src-tauri', 'tauri.conf.json');
+  if (surumOnbellek.has(app)) return surumOnbellek.get(app);
+  let v = VERSION;
   try {
-    const v = readJson(p).version;
-    if (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)) return v;
+    const j = JSON.parse(readFileSync(join(KOK, 'tauri', app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
+    if (typeof j.version === 'string' && /^\d+\.\d+\.\d+$/.test(j.version)) v = j.version;
   } catch {
     /* dosya yoksa genel surume dus */
   }
-  return VERSION;
+  surumOnbellek.set(app, v);
+  return v;
 }
 
 const NOTES = arg('notes', `Bogahost masaüstü sürüm ${VERSION}.`);
