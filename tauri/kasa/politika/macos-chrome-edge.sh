@@ -45,6 +45,10 @@ yaz "$DIZIN/com.google.Chrome"  "Google Chrome (parola kasası kapalı + eklenti
 yaz "$DIZIN/com.microsoft.Edge" "Microsoft Edge (parola kasası kapalı)"                  hayir
 yaz "$DIZIN/com.brave.Browser"  "Brave (parola kasası kapalı)"                           hayir
 
+# macOS yönetilen tercihleri ÖNBELLEKLER; cfprefsd yeniden başlatılmazsa
+# politika saatler sonra devreye girebilir ya da hiç girmez.
+killall cfprefsd 2>/dev/null || true
+
 echo
 echo "Bitti. Chrome'u TAMAMEN kapatıp (Cmd+Q) yeniden açın."
 echo "Doğrulama: chrome://policy → PasswordManagerEnabled=false ve"

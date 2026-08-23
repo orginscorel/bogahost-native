@@ -625,6 +625,8 @@ listen('kisayol-notu', (o) => {
     durumYaz(el, 'Bu adres için kayıt yok — listeden seçip Doldur diyebilirsiniz.', 'uyari');
   } else if (n === 'coklu-eslesme') {
     durumYaz(el, 'Birden fazla kayıt eşleşti — hangisi olduğunu seçin.', 'uyari');
+  } else if (n.startsWith('alan:')) {
+    durumYaz(el, n.slice(5), 'uyari');
   } else if (n.startsWith('yazma-hatasi:')) {
     durumYaz(el, 'Yazılamadı: ' + n.slice(13), 'hata');
   }

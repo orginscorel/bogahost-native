@@ -20,6 +20,7 @@
 //! ömrü karışır. `AppHandle` 'static ve klonlanabilir olduğu için durum gövde
 //! İÇİNDE `uygulama.state::<Durum>()` ile alınır — ödünç, gövdeden dışarı çıkmaz.
 
+mod alan;
 mod guncelleme;
 mod kasa;
 mod pencere;
@@ -158,6 +159,18 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         let _ = p.hide();
     }
     std::thread::sleep(std::time::Duration::from_millis(140));
+
+    // ALAN DENETİMİ — yazmadan önce.
+    // Klavye odakta ne varsa oraya yazar; adresi eşleşen bir sayfada odak
+    // arama kutusundaysa parola oraya gider. Dolu alanın üstüne yazmak da
+    // veri kaybıdır. Tespit edilemiyorsa (Windows / izin yok) engellemiyoruz.
+    let uygun = alan::odakli_alan();
+    if uygun == alan::Uygun::Dolu || matches!(uygun, alan::Uygun::AlanDegil(_)) {
+        if let Some(p) = &pencere_tauri {
+            let _ = p.show();
+        }
+        return DoldurSonuc { tamam: false, mesaj: alan::aciklama(&uygun) };
+    }
 
     let sonuc = yaz(&kullanici, &sifre, enter_bas);
 
@@ -423,6 +436,15 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
     if !h.kimlik.is_empty() {
         pencere::one_getir(&h.kimlik);
         std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
+    // Kısayol yolunda da aynı denetim: yanlış alana parola yazmaktansa
+    // pencereyi açıp nedenini söylemek doğru.
+    let uygun = alan::odakli_alan();
+    if uygun == alan::Uygun::Dolu || matches!(uygun, alan::Uygun::AlanDegil(_)) {
+        pencereyi_ac("");
+        let _ = uygulama.emit("kisayol-notu", format!("alan:{}", alan::aciklama(&uygun)));
+        return;
     }
 
     let sonuc = yaz(&kullanici, &sifre, false);

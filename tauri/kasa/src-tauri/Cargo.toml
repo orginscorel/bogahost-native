@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-kasa"
-version = "1.10.7"
+version = "1.10.8"
 description = "Bogahost Kasa — masaustu programlarina guvenli kimlik doldurma"
 authors = ["Bogahost"]
 edition = "2021"
@@ -36,6 +36,12 @@ enigo = "0.2"
 # Kendi sifrelememizi yazmak yerine isletim sisteminin kasasi kullanilir —
 # anahtar yonetimi, kullanici izolasyonu ve kilit ekrani korumasi hazir gelir.
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+# Odaktaki ALANI okumak icin macOS Erisilebilirlik API'si (AXUIElement).
+# Klavye simulasyonu odakta ne varsa oraya yazar; alanin ne oldugunu
+# bilmeden yazmak, arama kutusuna parola yazmak demek.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 
 # Odaktaki pencerenin basligi/programi — platforma ozel.
 [target.'cfg(windows)'.dependencies]
