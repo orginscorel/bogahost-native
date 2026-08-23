@@ -190,6 +190,12 @@ fn guncelleme_uygula(uygulama: tauri::AppHandle) -> Result<(), String> {
     guncelleme::uygula(&uygulama)
 }
 
+/// macOS Erişilebilirlik ayarlarını aç — kullanıcı menülerde dolaşmasın.
+#[tauri::command(async)]
+fn izin_ayarlarini_ac() {
+    pencere::erisilebilirlik_ayarlarini_ac();
+}
+
 /// Adrese göre eşleşen kayıtlar — arayüz bunu otomatik seçim için kullanır.
 #[tauri::command(async)]
 fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, String> {
@@ -300,7 +306,7 @@ pub fn run() {
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
             doldur, kullanici_adi, panoya_sifre,
-            guncelleme_ara, guncelleme_uygula
+            guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac
         ])
         .setup(|uygulama| {
             // Kayıtlı oturumu belleğe al (geçerliliği arayüz açılışında sorulur)
@@ -337,20 +343,104 @@ fn kisayol_kur(uygulama: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
         if olay.state() != ShortcutState::Pressed {
             return;
         }
+        // Hedef, kısayola basıldığı ANDA yakalanır — kendi penceremizi hiç
+        // göstermeden. Gösterseydik öndeki pencere biz olurduk.
         let h = pencere::ondeki();
         {
             let d = u.state::<HedefDurum>();
             *d.0.lock().unwrap() = h.clone();
         }
-        if let Some(p) = u.get_webview_window("main") {
+
+        // Ağ ve klavye işi olay işleyicisinde yapılmaz: bu işleyici ana olay
+        // döngüsünde çalışıyor, orada beklemek arayüzü dondurur.
+        let u2 = u.clone();
+        std::thread::spawn(move || kisayol_isle(u2, h));
+    })?;
+
+    Ok(())
+}
+
+/// Kısayolun asıl işi: MÜMKÜNSE HİÇ PENCERE AÇMADAN DOLDUR.
+///
+/// Kullanıcıdan gelen geri bildirim buydu: "doldur demek için uygulamaya girmek
+/// gerekiyor". Artık akış şu:
+///   • Hedefte bir adres var ve tek/net bir eşleşme bulunduysa → doğrudan yaz.
+///   • Eşleşme yok, birden fazla aday var ya da oturum yoksa → pencereyi aç,
+///     kullanıcı seçsin. Yanlış kayda parola yazmaktansa sormak doğru.
+fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
+    let pencereyi_ac = |neden: &str| {
+        if let Some(p) = uygulama.get_webview_window("main") {
             let _ = p.show();
             let _ = p.unminimize();
             let _ = p.set_focus();
         }
-        let _ = u.emit("hedef-degisti", h);
-    })?;
+        let _ = uygulama.emit("hedef-degisti", h.clone());
+        if !neden.is_empty() {
+            let _ = uygulama.emit("kisayol-notu", neden.to_string());
+        }
+    };
 
-    Ok(())
+    // Erişilebilirlik izni yoksa yazmak SESSİZCE başarısız olur; kullanıcıyı
+    // "dolduruldu" diye kandırmak yerine pencereyi açıp yolu gösteriyoruz.
+    if !pencere::erisilebilirlik_izni_var() {
+        pencereyi_ac("izin-yok");
+        return;
+    }
+
+    let Some(url) = h.url.clone() else {
+        pencereyi_ac("");
+        return;
+    };
+
+    let durum = uygulama.state::<Durum>();
+    let eslesenler = match kasa::eslesenler(&durum, &url) {
+        Ok(v) => v,
+        Err(_) => {
+            pencereyi_ac("");
+            return;
+        }
+    };
+
+    // Tek aday yoksa karar kullanıcınındır.
+    if eslesenler.len() != 1 {
+        pencereyi_ac(if eslesenler.is_empty() { "eslesme-yok" } else { "coklu-eslesme" });
+        return;
+    }
+
+    let kayit = &eslesenler[0];
+    let (kullanici, sifre) = match kasa::ac(&durum, kayit.id) {
+        Ok(v) => v,
+        Err(_) => {
+            pencereyi_ac("");
+            return;
+        }
+    };
+
+    // Hedef zaten önde (pencere açmadık), yine de emin olalım.
+    if !h.kimlik.is_empty() {
+        pencere::one_getir(&h.kimlik);
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
+    let sonuc = yaz(&kullanici, &sifre, false);
+    drop(sifre);
+
+    match sonuc {
+        Ok(()) => {
+            let _ = uygulama.emit("kisayol-dolduruldu", kayit.label.clone());
+            bildir(&uygulama, "Kasa", &format!("\"{}\" dolduruldu.", kayit.label));
+        }
+        Err(e) => {
+            pencereyi_ac("");
+            let _ = uygulama.emit("kisayol-notu", format!("yazma-hatasi:{e}"));
+        }
+    }
+}
+
+/// Kısa sistem bildirimi — pencere açmadığımız için tek geri bildirim bu.
+fn bildir(uygulama: &tauri::AppHandle, baslik: &str, govde: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = uygulama.notification().builder().title(baslik).body(govde).show();
 }
 
 /// Öndeki pencereyi arka planda izler ve KENDİMİZ DIŞINDAKİ son pencereyi

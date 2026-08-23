@@ -251,25 +251,37 @@ pub fn one_getir(kimlik: &str) -> bool { mac::one_getir(kimlik) }
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn one_getir(_kimlik: &str) -> bool { false }
 
-/// macOS'ta tuş göndermek "Erişilebilirlik" (Accessibility) izni ister; izin
-/// yoksa yazma SESSİZCE başarısız olur.
+/// macOS Erişilebilirlik (Accessibility) izni — BİZİM sürecimiz için.
 ///
-/// DİKKAT — İKİ AYRI İZİN VAR, KARIŞTIRILMAMALI:
-///   • Automation (Apple Events) → pencere adlarını okumak/öne getirmek için,
-///   • Accessibility            → başka programa tuş göndermek için.
-/// Birincisi verilmiş olsa bile ikincisi verilmemiş olabilir. Bu yüzden burada
-/// pencere adı sorulmaz; BOŞ bir keystroke denenir — hiçbir karakter yazmaz,
-/// ama izin yoksa hata döner. Gerçekte kullanılacak yeteneği ölçen tek yol bu.
+/// KÖK NEDEN, ÖNCEKİ HÂLİ NEDEN YANLIŞTI:
+/// Burada `osascript` ile boş bir keystroke deneniyordu. Ama osascript AYRI BİR
+/// SÜREÇTİR: o test, System Events'in izni olup olmadığını ölçer — Bogahost
+/// Kasa'nınkini değil. System Events'e izin çoğu makinede zaten verilmiş
+/// olduğundan kontrol "izin var" diyordu, oysa bizim sürecimizin izni yoktu.
+/// enigo'nun CGEvent çağrıları sessizce yutuluyor ve HATA DÖNDÜRMÜYOR; sonuç:
+/// uygulama "Dolduruldu" diyor, hedefe tek karakter yazılmıyor.
+///
+/// AXIsProcessTrusted ÇAĞIRAN SÜRECİ sorar; ölçmek istediğimiz tam olarak bu.
 #[cfg(target_os = "macos")]
 pub fn erisilebilirlik_izni_var() -> bool {
-    std::process::Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"System Events\" to keystroke \"\"")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // ApplicationServices/HIServices. Boolean = unsigned char, bu yüzden u8.
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> u8;
+    }
+    unsafe { AXIsProcessTrusted() != 0 }
 }
 
+/// Erişilebilirlik ayarlarını doğrudan aç — kullanıcıyı menülerde dolaştırma.
+#[cfg(target_os = "macos")]
+pub fn erisilebilirlik_ayarlarini_ac() {
+    let _ = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        .spawn();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn erisilebilirlik_ayarlarini_ac() {}
 #[cfg(not(target_os = "macos"))]
 pub fn erisilebilirlik_izni_var() -> bool {
     true

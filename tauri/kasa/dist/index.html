@@ -216,6 +216,12 @@
     <span class="hedefUrl" id="hedefUrl"></span>
   </div>
 
+  <div class="guncel gizli" id="izinSerit" style="background:var(--hata-yumusak);border-color:var(--hata)">
+    <span>Erişilebilirlik izni yok — <b>doldurma çalışmaz</b>.</span>
+    <span class="bosluk"></span>
+    <button class="guncelDugme" id="izinAc" style="background:var(--hata)">Ayarları aç</button>
+  </div>
+
   <div class="afis gizli" id="afis">
     <div class="afisMetin">
       <b id="afisAd"></b>
@@ -242,6 +248,7 @@
       <label class="onay"><input type="checkbox" id="otoDoldur"> Eşleşince kendiliğinden doldur</label>
     </div>
     <div class="durum" id="durum"></div>
+    <div class="durum" id="kisayolIpucu" style="opacity:.75"></div>
   </div>
 </div>
 
@@ -327,13 +334,17 @@ async function kasayiAc() {
   $('otoDoldur').checked = yerelOku('kasaOto') === '1';
 
   const mac = navigator.platform.toLowerCase().includes('mac');
+  $('kisayolIpucu').textContent = mac
+    ? '⌘ + Alt + K — hedef pencere öndeyken basın; pencere açmadan doldurur.'
+    : 'Ctrl + Alt + K — hedef pencere öndeyken basın; pencere açmadan doldurur.';
   if (mac) {
     const iz = await invoke('izinler').catch(() => null);
+    // Erişilebilirlik olmadan hiçbir şey yazılamaz; bu yüzden şeritle,
+    // tek tıkla ayarlara götüren bir düğmeyle gösteriliyor.
+    if (iz && !iz.erisilebilirlik) $('izinSerit').classList.remove('gizli');
     if (iz && !iz.otomasyon) {
       $('hedefAd').textContent = 'Otomasyon izni yok — hedef okunamıyor';
       durumYaz($('durum'), 'Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Bogahost Kasa → System Events', 'hata');
-    } else if (iz && !iz.erisilebilirlik) {
-      durumYaz($('durum'), 'Erişilebilirlik izni yok — doldurma çalışmaz. Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik', 'hata');
     }
   }
   try { hedefYaz(await invoke('hedef')); } catch (e) {}
@@ -556,6 +567,30 @@ $('cikisDugme').onclick = async () => {
 };
 $('enterBas').addEventListener('change', e => yerelYaz('kasaEnter', e.target.checked ? '1' : '0'));
 $('otoDoldur').addEventListener('change', e => yerelYaz('kasaOto', e.target.checked ? '1' : '0'));
+
+/* ── Kısayol geri bildirimi ────────────────────────────────────────────
+   Kısayol artık pencere açmadan dolduruyor; pencere açıldıysa BİR NEDENİ
+   vardır ve kullanıcı onu görmeli. */
+listen('kisayol-dolduruldu', (o) => {
+  durumYaz($('durum'), `"${o.payload}" dolduruldu.`, 'iyi');
+});
+
+listen('kisayol-notu', (o) => {
+  const n = String(o.payload || '');
+  const el = $('kasaEkrani').classList.contains('gizli') ? $('girisDurum') : $('durum');
+  if (n === 'izin-yok') {
+    $('izinSerit').classList.remove('gizli');
+    durumYaz(el, 'Erişilebilirlik izni verilmeden hiçbir şey yazılamaz.', 'hata');
+  } else if (n === 'eslesme-yok') {
+    durumYaz(el, 'Bu adres için kayıt yok — listeden seçip Doldur diyebilirsiniz.', 'uyari');
+  } else if (n === 'coklu-eslesme') {
+    durumYaz(el, 'Birden fazla kayıt eşleşti — hangisi olduğunu seçin.', 'uyari');
+  } else if (n.startsWith('yazma-hatasi:')) {
+    durumYaz(el, 'Yazılamadı: ' + n.slice(13), 'hata');
+  }
+});
+
+$('izinAc').onclick = () => invoke('izin_ayarlarini_ac').catch(() => {});
 
 /* ── Otomatik güncelleme ───────────────────────────────────────────────
    Arka plan turu açılıştan 6 sn sonra başlar ve 6 saatte bir tekrarlar;
