@@ -38,6 +38,26 @@ const ARTIFACTS = resolve(arg('artifacts', 'dist'));
 const OUT = resolve(arg('out', 'out'));
 const VERSION = arg('version').replace(/^v/, '');
 const PLATFORM = arg('platform');
+/**
+ * Uygulamanin KENDI surumu.
+ *
+ * NEDEN: `--version` tek bir genel numaraydi (kok package.json). Secmeli
+ * derlemeye gecince uygulamalar farkli surumlerde olabiliyor; tek numarayla
+ * adlandirmak, kasa'nin 1.10.4 ikilisini "kasa-1.10.3-..." adiyla yayinlayip
+ * GERCEK 1.10.3 paketinin uzerine yazdi ve guncelleyici yeni surumu hic
+ * gormedi. Kaynak artik uygulamanin kendi tauri.conf.json'i.
+ */
+function appVersion(app) {
+  const p = join(ROOT, 'tauri', app, 'src-tauri', 'tauri.conf.json');
+  try {
+    const v = readJson(p).version;
+    if (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)) return v;
+  } catch {
+    /* dosya yoksa genel surume dus */
+  }
+  return VERSION;
+}
+
 const NOTES = arg('notes', `Bogahost masaüstü sürüm ${VERSION}.`);
 const BASE_URL = arg('base-url', 'https://native.bogahost.com').replace(/\/+$/, '');
 const APPS = ['finans', 'dcim', 'chat', 'task', 'muh', 'kasa'];
@@ -154,7 +174,7 @@ function publishFile(app, srcPath, targetName, { platformKey = null, label = nul
 
   (downloadEntries[app] ??= []).push({
     platform: platformKey ?? PLATFORM,
-    surum: VERSION,
+    surum: appVersion(app),
     label: label ?? targetName,
     file: targetName,
     url: `${BASE_URL}/downloads/${targetName}`,
@@ -175,13 +195,13 @@ for (const app of APPS) {
 
     let winEntry = null;
     if (nsis) {
-      winEntry = publishFile(app, nsis, `${app}-${VERSION}-windows-x86_64-setup.exe`, {
+      winEntry = publishFile(app, nsis, `${app}-${appVersion(app)}-windows-x86_64-setup.exe`, {
         platformKey: 'windows-x86_64',
         label: 'Windows (.exe kurulum)',
       });
     }
     if (msi) {
-      const msiEntry = publishFile(app, msi, `${app}-${VERSION}-windows-x86_64.msi`, {
+      const msiEntry = publishFile(app, msi, `${app}-${appVersion(app)}-windows-x86_64.msi`, {
         platformKey: 'windows-x86_64',
         label: 'Windows (.msi)',
       });
@@ -202,14 +222,14 @@ for (const app of APPS) {
     const dmg = appFiles.find((f) => f.toLowerCase().endsWith('.dmg'));
 
     if (dmg) {
-      publishFile(app, dmg, `${app}-${VERSION}-macos.dmg`, {
+      publishFile(app, dmg, `${app}-${appVersion(app)}-macos.dmg`, {
         platformKey: 'darwin',
         label: archs.length > 1 ? 'macOS (.dmg, Universal)' : 'macOS (.dmg, Apple Silicon)',
       });
     }
 
     if (tar) {
-      const entry = publishFile(app, tar, `${app}-${VERSION}-darwin-${archs.join('-')}.app.tar.gz`, {
+      const entry = publishFile(app, tar, `${app}-${appVersion(app)}-darwin-${archs.join('-')}.app.tar.gz`, {
         platformKey: 'darwin-updater',
         label: 'macOS (otomatik güncelleme paketi)',
       });
@@ -228,7 +248,7 @@ for (const app of APPS) {
     // Android'de OTOMATIK guncelleme YOKTUR; yalnizca indirme linki yayinlanir.
     const apk = appFiles.find((f) => f.toLowerCase().endsWith('.apk'));
     if (apk) {
-      publishFile(app, apk, `${app}-${VERSION}-android.apk`, {
+      publishFile(app, apk, `${app}-${appVersion(app)}-android.apk`, {
         platformKey: 'android',
         label: 'Android (.apk)',
       });
@@ -240,8 +260,10 @@ for (const app of APPS) {
 // 3) Updater manifestleri
 // ---------------------------------------------------------------------------
 
-function manifest(platforms) {
-  return { version: VERSION, notes: NOTES, pub_date: PUB_DATE, platforms };
+function manifest(app, platforms) {
+  // Surum UYGULAMANIN kendi surumu; istemci bunu kendi surumuyle kiyasliyor.
+  const v = appVersion(app);
+  return { version: v, notes: `Bogahost ${app} ${v}.`, pub_date: PUB_DATE, platforms };
 }
 
 function writeJson(relPath, data) {
@@ -260,7 +282,7 @@ for (const app of APPS) {
   for (const key of keys) {
     const [target, arch] = key.split('-');
     const { url, signature } = platforms[key];
-    writeJson(`updates/${app}/${target}/${arch}/latest.json`, manifest({ [key]: { signature, url } }));
+    writeJson(`updates/${app}/${target}/${arch}/latest.json`, manifest(app, { [key]: { signature, url } }));
   }
 
   // 3b) YEDEK: birlesik dosya — yalnizca sunucudaki kopya OKUNABILDIYSE yazilir.
@@ -270,10 +292,10 @@ for (const app of APPS) {
     continue;
   }
   // Ayni surumse diger platformlarin kayitlarini KORU; yeni surumse sifirdan basla.
-  const keep = existing.version === VERSION ? (existing.platforms ?? {}) : {};
+  const keep = existing.version === appVersion(app) ? (existing.platforms ?? {}) : {};
   const merged = { ...keep };
   for (const key of keys) merged[key] = { signature: platforms[key].signature, url: platforms[key].url };
-  writeJson(`updates/${app}/latest.json`, manifest(merged));
+  writeJson(`updates/${app}/latest.json`, manifest(app, merged));
 }
 
 // ---------------------------------------------------------------------------
