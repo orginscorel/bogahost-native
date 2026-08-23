@@ -1,6 +1,6 @@
 [package]
 name = "bogahost-kasa"
-version = "1.10.11"
+version = "1.10.12"
 description = "Bogahost Kasa — masaustu programlarina guvenli kimlik doldurma"
 authors = ["Bogahost"]
 edition = "2021"

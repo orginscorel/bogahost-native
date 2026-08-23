@@ -3,15 +3,15 @@
 //! NEDEN GEREKLİ: doldurma klavye simülasyonuyla yapılıyor ve klavye, odakta ne
 //! varsa oraya yazar. Uygulamanın "burası kullanıcı adı alanı mı" diye bir
 //! kavramı yoktu; adresi eşleşen bir sayfada odak arama kutusundaysa parola
-//! arama kutusuna yazılıyordu. Üstelik alanda zaten veri varsa üstüne yazıyordu.
+//! arama kutusuna yazılıyordu.
 //!
 //! macOS'ta Erişilebilirlik API'si (AXUIElement) odaktaki öğenin ROLÜNÜ ve
-//! DEĞERİNİ verir. Zaten Erişilebilirlik izni almış durumdayız — yazmak için
-//! şart olan izin, okumak için de yeterli.
+//! DEĞERİNİ verir. Yazmak için zaten Erişilebilirlik izni alınmış durumdayız;
+//! okumak için ek izin gerekmiyor.
 //!
-//! Windows'ta karşılığı UI Automation'dır ve tek bir çağrıyla alınamıyor;
-//! orada tespit şimdilik yapılmıyor (`Uygun::Bilinmiyor` döner) ve davranış
-//! eskisi gibi kalır.
+//! Windows'ta karşılığı UI Automation'dır ve tek çağrıyla alınamıyor; orada
+//! tespit yapılmıyor (`Bilinmiyor` döner) ve davranış eskisi gibi kalır.
+//! Engellemek, çalışan bir akışı hiç çalıştırmamaktan iyi değil.
 
 /// Odaktaki alanın doldurmaya uygunluğu.
 #[derive(PartialEq, Debug)]
@@ -22,12 +22,22 @@ pub enum Uygun {
     Dolu,
     /// Metin alanı değil (düğme, bağlantı, sayfa gövdesi, liste…).
     AlanDegil(String),
-    /// Tespit edilemedi (izin yok, platform desteklemiyor) — engelleme.
+    /// Tespit edilemedi (izin yok, platform desteklemiyor).
     Bilinmiyor,
 }
 
+/// Parola alanının macOS'taki rolü. Giriş formunun en güvenilir işareti budur:
+/// arama kutusu, adres çubuğu, not alanı asla bu rolü taşımaz.
+pub const PAROLA_ROLU: &str = "AXSecureTextField";
+
+/// Metin kabul eden roller. AXComboBox ve AXTextArea da yazılabilir.
+const YAZILABILIR: [&str; 4] = ["AXTextField", PAROLA_ROLU, "AXTextArea", "AXComboBox"];
+
+// ── macOS ──────────────────────────────────────────────────────────────────
+
+/// Odaktaki öğenin (rol, değer) çifti — bütün okumalar buradan geçer.
 #[cfg(target_os = "macos")]
-pub fn odakli_alan() -> Uygun {
+fn odak_oku() -> Option<(String, Option<String>)> {
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
     use core_foundation::string::{CFString, CFStringRef};
 
@@ -46,7 +56,7 @@ pub fn odakli_alan() -> Uygun {
     unsafe {
         let sistem = AXUIElementCreateSystemWide();
         if sistem.is_null() {
-            return Uygun::Bilinmiyor;
+            return None;
         }
 
         let anahtar = CFString::new("AXFocusedUIElement");
@@ -54,18 +64,17 @@ pub fn odakli_alan() -> Uygun {
         let hata = AXUIElementCopyAttributeValue(sistem, anahtar.as_concrete_TypeRef(), &mut odak);
         CFRelease(sistem);
         if hata != 0 || odak.is_null() {
-            return Uygun::Bilinmiyor;
+            return None;
         }
 
-        // Bir metin özniteliğini güvenle okur.
-        //
-        // TİP KONTROLÜ ŞART: AXValue her zaman metin değildir (kaydırma çubuğunda
-        // sayı, onay kutusunda mantıksal değer döner). Tip bakmadan CFString
-        // sanmak tanımsız davranıştır.
+        // TİP KONTROLÜ ŞART: AXValue her zaman metin değildir (kaydırma
+        // çubuğunda sayı, onay kutusunda mantıksal değer döner). Tip bakmadan
+        // CFString saymak tanımsız davranıştır.
         let metin_oku = |ad: &str| -> Option<String> {
             let k = CFString::new(ad);
             let mut v: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyAttributeValue(odak, k.as_concrete_TypeRef(), &mut v) != 0 || v.is_null()
+            if AXUIElementCopyAttributeValue(odak, k.as_concrete_TypeRef(), &mut v) != 0
+                || v.is_null()
             {
                 return None;
             }
@@ -79,28 +88,43 @@ pub fn odakli_alan() -> Uygun {
         let rol = metin_oku("AXRole").unwrap_or_default();
         let deger = metin_oku("AXValue");
         CFRelease(odak);
-
-        // Yazılabilir roller. AXComboBox ve AXTextArea de metin kabul eder.
-        let yazilabilir = matches!(
-            rol.as_str(),
-            "AXTextField" | "AXSecureTextField" | "AXTextArea" | "AXComboBox"
-        );
-        if !yazilabilir {
-            return Uygun::AlanDegil(if rol.is_empty() { "bilinmeyen".into() } else { rol });
-        }
-
-        // AXSecureTextField (parola alanı) değerini vermez — None döner.
-        // Boş sayıp devam etmek doğru: parola alanına yazmak zaten amacımız.
-        match deger {
-            Some(d) if !d.trim().is_empty() => Uygun::Dolu,
-            _ => Uygun::Bos,
-        }
+        Some((rol, deger))
     }
 }
 
 #[cfg(not(target_os = "macos"))]
+fn odak_oku() -> Option<(String, Option<String>)> {
+    None
+}
+
+// ── Ortak yüzey ────────────────────────────────────────────────────────────
+
+/// Odaktaki öğenin rolü.
+pub fn odakli_rol() -> Option<String> {
+    odak_oku().map(|(rol, _)| rol)
+}
+
+/// Odakta bir PAROLA alanı var mı?
+pub fn parola_alani_mi() -> bool {
+    odakli_rol().map(|r| r == PAROLA_ROLU).unwrap_or(false)
+}
+
+/// Odaktaki alan doldurmaya uygun mu?
 pub fn odakli_alan() -> Uygun {
-    Uygun::Bilinmiyor
+    let Some((rol, deger)) = odak_oku() else {
+        return Uygun::Bilinmiyor;
+    };
+
+    if !YAZILABILIR.contains(&rol.as_str()) {
+        return Uygun::AlanDegil(if rol.is_empty() { "bilinmeyen".into() } else { rol });
+    }
+
+    // Parola alanı değerini VERMEZ (None döner) — boş saymak doğru, oraya
+    // yazmak zaten amacımız.
+    match deger {
+        Some(d) if !d.trim().is_empty() => Uygun::Dolu,
+        _ => Uygun::Bos,
+    }
 }
 
 /// Kullanıcıya gösterilecek açıklama.

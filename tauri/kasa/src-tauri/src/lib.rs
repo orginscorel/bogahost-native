@@ -173,6 +173,17 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         return DoldurSonuc { tamam: false, mesaj: alan::aciklama(&uygun) };
     }
 
+    // Giriş formu doğrulaması — bkz. giris_formu_mu().
+    if !giris_formu_mu() {
+        if let Some(p) = &pencere_tauri {
+            let _ = p.show();
+        }
+        return DoldurSonuc {
+            tamam: false,
+            mesaj: "Burada bir giriş formu görünmüyor (parola alanı yok). Kullanıcı adı alanına tıklayıp tekrar deneyin.".into(),
+        };
+    }
+
     let sonuc = yaz(&kullanici, &sifre, enter_bas);
 
     // Parola bellekten düşsün (Rust burada zaten bırakır; niyet açık olsun diye)
@@ -529,6 +540,18 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
         return;
     }
 
+    // GİRİŞ FORMU DOĞRULAMASI — hosting panellerinde yol eşleşmesi yetmiyor
+    // (cPanel :2083, WHM :2087, WHMCS /whmcs/login.php çoğu zaman kökte).
+    // Parola alanı yoksa burası giriş formu değildir; hiçbir şey yazmıyoruz.
+    if !giris_formu_mu() {
+        pencereyi_ac("");
+        let _ = uygulama.emit(
+            "kisayol-notu",
+            "alan:Burada bir giriş formu görünmüyor (parola alanı yok). Kullanıcı adı alanına tıklayıp tekrar deneyin.".to_string(),
+        );
+        return;
+    }
+
     let sonuc = yaz(&kullanici, &sifre, false);
     drop(sifre);
 
@@ -563,6 +586,49 @@ fn izin_izle(uygulama: &tauri::AppHandle) {
             }
         }
     });
+}
+
+/// Odaktaki yer gerçekten bir GİRİŞ FORMU mu?
+///
+/// NEDEN YOL EŞLEŞMESİ YETMİYOR: hosting panellerinde giriş çoğu zaman kökte
+/// ya da portta oluyor (cPanel :2083, WHM :2087, WHMCS /whmcs/login.php).
+/// Kayıtta yol yoksa aynı alan adının HER sayfası eşleşiyor; giriş sonrası
+/// sayfalar da dahil.
+///
+/// Bir giriş formunun en güvenilir işareti PAROLA ALANIDIR: arama kutusu,
+/// adres çubuğu, not alanı asla o rolü taşımaz.
+///   • Odak zaten parola alanındaysa → giriş formu.
+///   • Değilse bir kez Tab'a basılıp bakılır, sonra Shift+Tab ile GERİ dönülür.
+///     Bu yoklama HİÇBİR ŞEY YAZMAZ; yalnızca odak bir ileri bir geri gider.
+///
+/// Tespit edilemeyen platformda (Windows) `true` döner — engellemek, çalışan
+/// akışı hiç çalıştırmamaktan iyi değil.
+fn giris_formu_mu() -> bool {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+
+    if alan::odakli_rol().is_none() {
+        return true; // tespit yok → engelleme
+    }
+    if alan::parola_alani_mi() {
+        return true;
+    }
+
+    let Ok(mut e) = Enigo::new(&Settings::default()) else {
+        return true;
+    };
+    if e.key(Key::Tab, Direction::Click).is_err() {
+        return true;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(130));
+    let parola_var = alan::parola_alani_mi();
+
+    // Odağı bırakmadığımız yere geri koy — yoklama iz bırakmamalı.
+    let _ = e.key(Key::Shift, Direction::Press);
+    let _ = e.key(Key::Tab, Direction::Click);
+    let _ = e.key(Key::Shift, Direction::Release);
+    std::thread::sleep(std::time::Duration::from_millis(90));
+
+    parola_var
 }
 
 /// Adresin yol kısmı: `https://a.com/giris/?x=1#y` → `/giris`
