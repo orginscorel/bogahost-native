@@ -290,37 +290,29 @@ writeJson('latest.json', {
 // 5) downloads.json + index.html
 // ---------------------------------------------------------------------------
 
-const state = await fetchJson('updates/downloads.json');
-if (state === null) {
-  warn('updates/downloads.json okunamadi — index.html YENIDEN URETILMEDI (sunucudaki kopya korunuyor).');
-} else {
-  const apps = state.apps ?? {};
-  for (const app of APPS) {
-    const fresh = downloadEntries[app] ?? [];
-    if (!fresh.length) continue;
-    // Bu uygulamanin BU platformdaki eski kayitlari yenileriyle degisir;
-    // diger platformlari ve diger uygulamalar oldugu gibi kalir.
-    const others = (apps[app] ?? []).filter((e) => !platformGroup(e.platform, PLATFORM));
-    apps[app] = [...others, ...fresh];
-  }
-  const nextState = { version: VERSION, notes: NOTES, updated: PUB_DATE, apps };
-  writeJson('updates/downloads.json', nextState);
-  const indexHtml = renderIndex();
-  if (indexHtml) {
-    writeFileSync(join(OUT, 'index.html'), indexHtml, 'utf8');
-    console.log('  + index.html (sablondan)');
-  }
-}
+// PLATFORM BASINA AYRI DOSYA — bilerek.
+//
+// Windows ve macOS akislari birbirinden bagimsiz calisiyor. Ikisi de tek bir
+// downloads.json'i oku-birlestir-yaz yapinca, ayni dakikada bitenlerden sonraki
+// digerinin yazdigini eziyordu. Ortak yazilan dosya olmayinca yarisacak bir sey
+// de kalmiyor: her akis yalnizca kendi dosyasina dokunuyor, birlestirmeyi
+// indirme sayfasi yapiyor.
+const platformState = {
+  version: VERSION,
+  notes: NOTES,
+  updated: PUB_DATE,
+  apps: Object.fromEntries(
+    APPS.map((a) => [a, downloadEntries[a] ?? []]).filter(([, v]) => v.length)
+  ),
+};
+writeJson(`updates/downloads.${PLATFORM}.json`, platformState);
 
-/** Bir kaydin, su an yayinlanan platform grubuna ait olup olmadigi. */
-function platformGroup(entryPlatform, current) {
-  const p = String(entryPlatform ?? '');
-  if (current === 'windows') return p.startsWith('windows');
-  if (current === 'macos') return p.startsWith('darwin') || p.startsWith('macos');
-  if (current === 'android') return p.startsWith('android');
-  return false;
+// index.html sablondan aynen kopyalanir; icerik uretilmiyor, yarisi yok.
+const indexHtml = renderIndex();
+if (indexHtml) {
+  writeFileSync(join(OUT, 'index.html'), indexHtml, 'utf8');
+  console.log('  + index.html (sablondan)');
 }
-
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

@@ -567,8 +567,40 @@ a:focus-visible,button:focus-visible{
     list.innerHTML = html || '<li class="state">Şu anda yayımlanmış bir sürüm bulunamadı.</li>';
   }
 
-  fetch("/updates/downloads.json", { cache:"no-store", credentials:"same-origin" })
-    .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+  /* Platform basina AYRI dosya cekilip birlestiriliyor.
+     NEDEN: Windows ve macOS is akislari bagimsiz calisiyor. Tek bir
+     downloads.json'i ikisi de oku-birlestir-yaz yapinca, sonra biten digerinin
+     yazdigini eziyordu — bir surum yayinlanip indirme sayfasinda hic
+     gorunmeyebiliyordu. Artik her akis yalniz kendi dosyasini yaziyor.
+     Eski tek dosya, henuz yeni yayin yapilmamis kurulumlar icin yedek yol. */
+  var KAYNAKLAR = ["windows", "macos", "android"];
+
+  function birlestir(parcalar){
+    var apps = {}, surum = null, guncelleme = null;
+    parcalar.forEach(function(p){
+      if(!p || !p.apps) return;
+      /* En yeni yayin tarihi/sürümü ust bilgide gosterilir. */
+      if(!guncelleme || (p.updated && p.updated > guncelleme)){ guncelleme = p.updated; surum = p.version; }
+      Object.keys(p.apps).forEach(function(k){
+        apps[k] = (apps[k] || []).concat(p.apps[k] || []);
+      });
+    });
+    return { version: surum, updated: guncelleme, apps: apps };
+  }
+
+  function cek(yol){
+    return fetch(yol, { cache:"no-store", credentials:"same-origin" })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+  }
+
+  Promise.all(KAYNAKLAR.map(function(p){ return cek("/updates/downloads." + p + ".json"); }))
+    .then(function(parcalar){
+      var bos = parcalar.every(function(p){ return !p; });
+      /* Hicbir platform dosyasi yoksa eski tek dosyaya dus. */
+      return bos ? cek("/updates/downloads.json") : birlestir(parcalar);
+    })
+    .then(function(d){ if(!d) throw new Error("veri yok"); return d; })
     .then(render)
     .catch(function(){
       document.getElementById("apps").innerHTML =
