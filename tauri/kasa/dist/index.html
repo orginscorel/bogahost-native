@@ -789,7 +789,15 @@ $('politikaKur').onclick = async () => {
       durumYaz($('durum'), 'Politika yazıldı ama Chrome henüz okumadı — tarayıcıyı tamamen kapatıp açın.', 'uyari');
     }
   } catch (e) {
-    durumYaz($('durum'), 'Kurulamadı: ' + e, 'hata');
+    // Modern macOS elle yazılan yönetilen tercihi yok sayıyor; o durumda
+    // uygulama bir yapılandırma profili açıyor ve onay kullanıcıya kalıyor.
+    if (String(e).includes('PROFIL_ONAYI')) {
+      durumYaz($('durum'),
+        'Sistem Ayarları açıldı: Genel → VPN ve Cihaz Yönetimi (veya Profiller) → "Bogahost Kasa — Tarayıcı Koruması" → Yükle. Sonra Chrome’u tamamen kapatıp açın.',
+        'uyari');
+    } else {
+      durumYaz($('durum'), 'Kurulamadı: ' + e, 'hata');
+    }
   } finally { b.disabled = false; b.textContent = 'Kur'; }
 };
 
