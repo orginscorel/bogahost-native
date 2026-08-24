@@ -180,7 +180,14 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         std::thread::sleep(std::time::Duration::from_millis(240));
     }
 
-    let pencere_tauri = uygulama.get_webview_window("main");
+    // HANGİ PENCERE AÇIKSA O GİZLENİR.
+    // Doldurma hızlı erişim penceresinden de tetikleniyor; yalnızca ana
+    // pencereyi gizlemek, hızlı pencere ekranda kalıp odağı tutması ve
+    // tuşların oraya gitmesi demekti.
+    let pencere_tauri = uygulama
+        .get_webview_window("hizli")
+        .filter(|p| p.is_visible().unwrap_or(false))
+        .or_else(|| uygulama.get_webview_window("main"));
     if let Some(p) = &pencere_tauri {
         let _ = p.hide();
     }
@@ -504,11 +511,25 @@ fn kisayol_kur(uygulama: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
 ///   • Eşleşme yok, birden fazla aday var ya da oturum yoksa → pencereyi aç,
 ///     kullanıcı seçsin. Yanlış kayda parola yazmaktansa sormak doğru.
 fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
+    // HIZLI ERİŞİM PENCERESİ AÇILIR — ana uygulama DEĞİL.
+    //
+    // Ana pencere 620x560 ve tam bir uygulama; doldurmak için onu açmak akışı
+    // bozuyordu: hedeften uzaklaşıyor, ekranı kaplıyordu. Hızlı pencere küçük,
+    // çerçevesiz ve her zaman üstte — ↑/↓ ile seç, Enter ile doldur, kaybolur.
+    //
+    // Hızlı pencere bir sebeple yoksa ana pencereye düşülür; kullanıcı hiçbir
+    // geri bildirim almadan kalmasın.
     let pencereyi_ac = |neden: &str| {
-        if let Some(p) = uygulama.get_webview_window("main") {
+        let hedefe_gonder = |p: &tauri::WebviewWindow| {
             let _ = p.show();
             let _ = p.unminimize();
             let _ = p.set_focus();
+        };
+        if let Some(p) = uygulama.get_webview_window("hizli") {
+            hedefe_gonder(&p);
+            let _ = uygulama.emit("hizli-goster", ());
+        } else if let Some(p) = uygulama.get_webview_window("main") {
+            hedefe_gonder(&p);
         }
         let _ = uygulama.emit("hedef-degisti", h.clone());
         if !neden.is_empty() {

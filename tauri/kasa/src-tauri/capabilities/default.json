@@ -3,7 +3,8 @@
     "identifier": "default",
     "description": "Kasa arayüzünün izinleri — EN AZ YETKİ. Arayüz ağa çıkamaz, dosya sistemine erişemez; tüm hassas iş Rust tarafındaki komutlarla yapılır.",
     "windows": [
-        "main"
+        "main",
+        "hizli"
     ],
     "permissions": [
         "core:default",
@@ -20,6 +21,9 @@
         "core:window:allow-is-visible",
         "core:window:allow-is-focused",
         "core:window:allow-minimize",
-        "core:app:allow-version"
+        "core:app:allow-version",
+        "core:window:allow-close",
+        "core:window:allow-start-dragging",
+        "core:window:allow-set-always-on-top"
     ]
 }

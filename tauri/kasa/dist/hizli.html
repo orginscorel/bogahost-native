@@ -1,0 +1,252 @@
+<!-- Bogahost Kasa — HIZLI ERİŞİM.
+     Ana pencere tam bir uygulama (620x560); doldurmak için onu açmak zorunda
+     kalmak akışı bozuyordu: hedeften uzaklaşıyor, pencere ekranı kaplıyordu.
+     Bu pencere küçük, çerçevesiz ve her zaman üstte. Kısayola basınca beliriyor,
+     kayıt seçilip doldurulunca kayboluyor.
+
+     KLAVYEYLE BİTİYOR: ↑/↓ ile seç, Enter ile doldur, Esc ile kapat. Fareye
+     uzanmadan tek akışta bitmesi bu pencerenin bütün amacı. -->
+<meta charset="utf-8">
+<title>Kasa — Hızlı Erişim</title>
+<style>
+  :root{
+    --kart:#ffffff; --kart2:#f7f6fc; --kart3:#eeecf8;
+    --metin:#17162a; --sonuk:#5f5c78; --silik:#918ea8; --cizgi:#e4e1f1;
+    --vurgu:#5443D2; --vurgu2:#7a6cf0; --vurgu-yumusak:rgba(84,67,210,.10);
+    --iyi:#12905a; --uyari:#a9660a; --hata:#c02a45;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --kart:#17171f; --kart2:#1e1e29; --kart3:#262634;
+      --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#2b2a3a;
+      --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.16);
+      --iyi:#4ecb8d; --uyari:#e8b45c; --hata:#f0788f;
+    }
+  }
+  :root[data-theme="dark"]{
+    --kart:#17171f; --kart2:#1e1e29; --kart3:#262634;
+    --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#2b2a3a;
+    --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.16);
+    --iyi:#4ecb8d; --uyari:#e8b45c; --hata:#f0788f;
+  }
+
+  *{box-sizing:border-box}
+  /* Pencere saydam: köşeler gerçekten yuvarlak görünsün diye gövde boş bırakılıp
+     içerideki kabuk boyanıyor. */
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+            font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+            color:var(--metin);-webkit-font-smoothing:antialiased}
+  .kabuk{height:100%;display:flex;flex-direction:column;background:var(--kart);
+         border:1px solid var(--cizgi);border-radius:16px;overflow:hidden;
+         box-shadow:0 18px 48px rgba(12,8,32,.34)}
+
+  /* Üst şerit sürüklenebilir — çerçeve olmadığı için pencereyi taşımanın tek yolu. */
+  .ust{display:flex;align-items:center;gap:10px;padding:12px 14px;
+       border-bottom:1px solid var(--cizgi);background:var(--kart2);
+       -webkit-app-region:drag;user-select:none}
+  .nokta{width:8px;height:8px;border-radius:50%;background:var(--silik);flex:none}
+  .nokta.canli{background:var(--iyi);box-shadow:0 0 0 4px rgba(18,144,90,.16)}
+  .hedef{flex:1;min-width:0;font-size:12.5px}
+  .hedefAd{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hedefAlt{color:var(--silik);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kapat{-webkit-app-region:no-drag;width:26px;height:26px;display:grid;place-items:center;
+         border:0;border-radius:8px;background:none;color:var(--silik);cursor:pointer;flex:none}
+  .kapat:hover{background:var(--kart3);color:var(--metin)}
+  .kapat svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+
+  .araSatir{padding:12px 14px 8px}
+  .ara{width:100%;padding:11px 13px;border:1px solid var(--cizgi);border-radius:11px;
+       background:var(--kart2);color:inherit;font:inherit;outline:none}
+  .ara:focus{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
+
+  .liste{flex:1;overflow-y:auto;padding:0 10px 8px;min-height:0}
+  ::-webkit-scrollbar{width:8px}
+  ::-webkit-scrollbar-thumb{background:var(--cizgi);border-radius:8px}
+  .satir{display:flex;align-items:center;gap:11px;padding:9px 10px;margin-bottom:3px;
+         border:1px solid transparent;border-radius:11px;cursor:pointer}
+  .satir:hover{background:var(--kart2)}
+  .satir.secili{background:var(--vurgu-yumusak);border-color:var(--vurgu)}
+  .avatar{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;
+          font-size:11.5px;font-weight:700;color:#fff}
+  .metin{flex:1;min-width:0}
+  .ad{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .alt{font-size:11.5px;color:var(--silik);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rozet{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 7px;border-radius:20px;flex:none;
+         background:rgba(18,144,90,.14);color:var(--iyi)}
+  .bos{padding:30px 18px;text-align:center;color:var(--silik);font-size:12.5px}
+
+  .alt-cubuk{display:flex;align-items:center;gap:10px;padding:10px 14px;
+             border-top:1px solid var(--cizgi);background:var(--kart2)}
+  .ipucu{flex:1;font-size:11px;color:var(--silik)}
+  .ipucu kbd{font:inherit;background:var(--kart3);border:1px solid var(--cizgi);
+             border-radius:5px;padding:1px 5px;margin:0 1px}
+  .doldur{padding:9px 18px;border:0;border-radius:10px;color:#fff;font-weight:600;font-size:13px;
+          background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));cursor:pointer}
+  .doldur:disabled{opacity:.45;cursor:default}
+  .durum{padding:0 14px 10px;font-size:11.5px;color:var(--sonuk);min-height:0}
+  .durum.hata{color:var(--hata)} .durum.iyi{color:var(--iyi)} .durum.uyari{color:var(--uyari)}
+</style>
+
+<div class="kabuk">
+  <div class="ust">
+    <span class="nokta" id="nokta"></span>
+    <div class="hedef">
+      <div class="hedefAd" id="hedefAd">Hedef bekleniyor</div>
+      <div class="hedefAlt" id="hedefAlt"></div>
+    </div>
+    <button class="kapat" id="kapat" title="Kapat (Esc)">
+      <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
+
+  <div class="araSatir">
+    <input class="ara" type="text" id="ara" placeholder="Ara…" autocomplete="off" spellcheck="false">
+  </div>
+
+  <div class="liste" id="liste"></div>
+
+  <div class="durum" id="durum"></div>
+
+  <div class="alt-cubuk">
+    <div class="ipucu"><kbd>↑</kbd><kbd>↓</kbd> seç · <kbd>Enter</kbd> doldur · <kbd>Esc</kbd> kapat</div>
+    <button class="doldur" id="doldurDugme">Doldur</button>
+  </div>
+</div>
+
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const pencereApi = window.__TAURI__.window;
+
+const $ = (id) => document.getElementById(id);
+let kayitlar = [], gosterilen = [], secili = null, hedefSon = null, dolduruluyor = false;
+
+function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return `hsl(${h} 48% 45%)`; }
+function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]?.[0]||'?')+(p[1]?.[0]||'')).toUpperCase(); }
+function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+function alanAdi(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return (u||'').slice(0,40); } }
+function durumYaz(m,t){ const e=$('durum'); e.className='durum'+(t?' '+t:''); e.textContent=m||''; }
+
+/* Kaydın adresi hedefin adresiyle YOL DÜZEYİNDE uyuşuyor mu?
+   Sunucu alan adı düzeyinde eşleştiriyor; "ornek.com/giris" kaydı
+   "ornek.com/panel/arama" ile de eşleşir. Kayıtta yol yoksa alan adı yeter. */
+function yolUyar(kayitUrl, hedefUrl){
+  if(!kayitUrl) return true;
+  try{
+    const k=new URL(kayitUrl), h=new URL(hedefUrl);
+    if(k.hostname.replace(/^www\./,'')!==h.hostname.replace(/^www\./,'')) return false;
+    const ky=k.pathname.replace(/\/+$/,''); if(!ky) return true;
+    const hy=h.pathname.replace(/\/+$/,'');
+    return hy===ky || hy.startsWith(ky+'/');
+  }catch(e){ return false; }
+}
+
+async function kapat(){
+  try{ await pencereApi.getCurrentWindow().hide(); }catch(e){}
+}
+
+function hedefYaz(h){
+  hedefSon = h;
+  const n=$('nokta');
+  if(!h||!h.program){
+    n.className='nokta';
+    $('hedefAd').textContent='Hedef bekleniyor';
+    $('hedefAlt').textContent='Doldurulacak pencere öndeyken kısayola basın';
+    return;
+  }
+  n.className='nokta canli';
+  // Tarayıcıda sayfa içi doldurmayı eklenti yapıyor; burada yine de yazabiliriz
+  // çünkü kullanıcı açıkça Doldur diyor.
+  $('hedefAd').textContent = h.program;
+  $('hedefAlt').textContent = h.url ? alanAdi(h.url)
+    : ((h.baslik||'').trim()!==h.program ? (h.baslik||'').slice(0,48) : '');
+}
+
+function ciz(){
+  const s=$('ara').value.trim().toLowerCase();
+  let liste = kayitlar;
+
+  /* HEDEFE UYAN KAYITLAR ÖNE.
+     Pencere hedefin üstünde açıldığı için ilk satırın doğru kayıt olması
+     gerekiyor — kullanıcı çoğu zaman doğrudan Enter'a basacak. */
+  if(hedefSon && hedefSon.url){
+    const uyan = liste.filter(k=>k.url && yolUyar(k.url, hedefSon.url));
+    const digerleri = liste.filter(k=>!uyan.includes(k));
+    liste = [...uyan, ...digerleri];
+  }
+  if(s) liste = liste.filter(k=>
+    ((k.label||'')+' '+(k.username||'')+' '+(k.domain||'')+' '+(k.category||'')).toLowerCase().includes(s));
+
+  gosterilen = liste.slice(0, 40);
+  if(!secili || !gosterilen.some(k=>k.id===secili.id)) secili = gosterilen[0] || null;
+
+  const l=$('liste');
+  if(!gosterilen.length){
+    l.innerHTML='<div class="bos">'+(kayitlar.length?'Aramaya uyan kayıt yok.':'Kasanızda kayıt yok.')+'</div>';
+    $('doldurDugme').disabled=true;
+    return;
+  }
+  $('doldurDugme').disabled=false;
+
+  const uyanMi = k => hedefSon && hedefSon.url && k.url && yolUyar(k.url, hedefSon.url);
+  l.innerHTML = gosterilen.map(k=>{
+    const ad=k.label||'(adsız)';
+    return '<div class="satir'+(secili&&secili.id===k.id?' secili':'')+'" data-id="'+k.id+'">'
+      + '<div class="avatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</div>'
+      + '<div class="metin"><div class="ad">'+esc(ad)+'</div>'
+      + '<div class="alt">'+esc([k.username,k.domain].filter(Boolean).join('  ·  ')||'—')+'</div></div>'
+      + (uyanMi(k)?'<span class="rozet">EŞLEŞTİ</span>':'')
+      + '</div>';
+  }).join('');
+
+  l.querySelectorAll('[data-id]').forEach(el=>{
+    el.onclick=()=>{ secili=gosterilen.find(k=>k.id==el.dataset.id)||null; ciz(); };
+    el.ondblclick=doldur;
+  });
+  const sec=l.querySelector('.satir.secili');
+  if(sec&&sec.scrollIntoView) sec.scrollIntoView({block:'nearest'});
+}
+
+async function doldur(){
+  if(dolduruluyor||!secili) return;
+  dolduruluyor=true;
+  $('doldurDugme').disabled=true;
+  durumYaz('Şifre alınıyor…');
+  try{
+    const s=await invoke('doldur',{id:secili.id, enterBas:false});
+    if(s.tamam){ await kapat(); durumYaz(''); }
+    else durumYaz(s.mesaj,'hata');
+  }catch(e){ durumYaz('Hata: '+e,'hata'); }
+  finally{ dolduruluyor=false; $('doldurDugme').disabled=false; }
+}
+
+$('doldurDugme').onclick=doldur;
+$('kapat').onclick=kapat;
+$('ara').addEventListener('input', ciz);
+
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape'){ e.preventDefault(); kapat(); return; }
+  if(e.key==='Enter'){ e.preventDefault(); doldur(); return; }
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    if(!gosterilen.length) return;
+    e.preventDefault();
+    const i=Math.max(0,gosterilen.findIndex(k=>secili&&k.id===secili.id));
+    secili=gosterilen[Math.min(gosterilen.length-1,Math.max(0,i+(e.key==='ArrowDown'?1:-1)))];
+    ciz();
+  }
+});
+
+/* Pencere her göründüğünde tazelenir: hedef değişmiş, kayıt eklenmiş olabilir. */
+async function tazele(){
+  try{ hedefYaz(await invoke('hedef')); }catch(e){}
+  try{ kayitlar = await invoke('kayitlar'); }catch(e){ kayitlar=[]; }
+  $('ara').value=''; secili=null; durumYaz('');
+  ciz();
+  $('ara').focus();
+}
+
+listen('hizli-goster', tazele);
+listen('hedef-degisti', o=>{ hedefYaz(o.payload); ciz(); });
+
+// İlk yükleme
+tazele();
