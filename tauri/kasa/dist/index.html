@@ -46,7 +46,7 @@
   *{box-sizing:border-box}
   body{margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden;
        background:var(--zemin);color:var(--metin);
-       font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+       font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
        -webkit-font-smoothing:antialiased}
   .gizli{display:none !important}
   button{font:inherit;cursor:pointer;color:inherit}
@@ -132,7 +132,7 @@
   .ayrac{color:var(--cizgi)}
 
   .govde{flex:1;display:flex;min-height:0}
-  .sol{width:246px;flex:none;display:flex;flex-direction:column;min-height:0;
+  .sol{width:264px;flex:none;display:flex;flex-direction:column;min-height:0;
        border-right:1px solid var(--cizgi);background:var(--kart)}
   .sag{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
 
@@ -146,7 +146,7 @@
   .cip.secili{background:var(--vurgu-yumusak);border-color:var(--vurgu);color:var(--vurgu);font-weight:600}
 
   .liste{flex:1;overflow-y:auto;padding:0 8px 8px;min-height:0}
-  .satir{display:flex;align-items:center;gap:9px;padding:8px 9px;margin-bottom:3px;
+  .satir{display:flex;align-items:center;gap:10px;padding:10px 10px;margin-bottom:4px;
          border:1px solid transparent;border-radius:10px;cursor:pointer}
   .satir:hover{background:var(--kart2)}
   .satir.secili{background:var(--vurgu-yumusak);border-color:var(--vurgu)}
@@ -160,15 +160,35 @@
   .mini.eslesme{background:var(--iyi-yumusak);color:var(--iyi)}
   .bosDurum{padding:36px 18px;text-align:center;color:var(--silik);font-size:12.5px}
 
+  /* ── Genel bakış (KPI) ───────────────────────────────────────────── */
+  .kpiIzgara{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px;margin-bottom:18px}
+  .kpi{background:var(--kart);border:1px solid var(--cizgi);border-radius:14px;padding:14px 15px}
+  .kpiSayi{font-size:26px;font-weight:700;letter-spacing:-.6px;line-height:1.1;
+           font-variant-numeric:tabular-nums}
+  .kpiAd{font-size:11px;color:var(--silik);text-transform:uppercase;letter-spacing:.5px;
+         font-weight:600;margin-top:5px}
+  .kpiNot{font-size:11.5px;color:var(--sonuk);margin-top:3px}
+  .kpi.vurgulu .kpiSayi{color:var(--vurgu)}
+  .kpi.uyarili .kpiSayi{color:var(--uyari)}
+  .kpi.iyili .kpiSayi{color:var(--iyi)}
+  .bolumBaslik{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+               color:var(--silik);margin:4px 0 10px}
+  .dagilim{display:flex;flex-direction:column;gap:8px}
+  .dagilimSatir{display:flex;align-items:center;gap:10px;font-size:12.5px}
+  .dagilimAd{width:112px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dagilimCubuk{flex:1;height:7px;border-radius:6px;background:var(--kart3);overflow:hidden}
+  .dagilimCubuk i{display:block;height:100%;background:var(--vurgu)}
+  .dagilimSayi{width:26px;text-align:right;color:var(--sonuk);font-variant-numeric:tabular-nums}
+
   /* ── Detay ───────────────────────────────────────────────────────── */
-  .detay{flex:1;overflow-y:auto;padding:16px 18px;min-height:0}
+  .detay{flex:1;overflow-y:auto;padding:20px 22px;min-height:0}
   .dBaslik{display:flex;align-items:center;gap:11px;margin-bottom:16px}
   .dAvatar{width:42px;height:42px;border-radius:12px;flex:none;display:grid;place-items:center;
            font-size:15px;font-weight:700;color:#fff}
   .dAd{font-size:16px;font-weight:700;letter-spacing:-.2px}
   .dAlt{font-size:12px;color:var(--silik)}
   .kutu{background:var(--kart);border:1px solid var(--cizgi);border-radius:12px;margin-bottom:11px}
-  .satirDetay{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--cizgi)}
+  .satirDetay{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--cizgi)}
   .satirDetay:last-child{border-bottom:0}
   .sdEtiket{width:82px;flex:none;font-size:11px;color:var(--silik);text-transform:uppercase;
             letter-spacing:.4px;font-weight:600}
@@ -537,12 +557,62 @@ function ciz(){
   detayCiz();
 }
 
+/* GENEL BAKIŞ — kayıt seçili değilken.
+   Boş bir "soldan seçin" yazısı ekranın yarısını harcıyordu. Burada kasanın
+   durumu özetleniyor: kaç kayıt, kaçı doldurulabilir, kaçı size ait, kaçı
+   gizli. Sayılar zaten elimizdeki listeden çıkıyor; ek istek yok. */
+function genelBakisCiz(){
+  const t = kayitlar.length;
+  const doldurulabilir = kayitlar.filter(k=>k.url||k.ip).length;
+  const benim = kayitlar.filter(k=>k.benim).length;
+  const gizliler = kayitlar.filter(k=>k.gosterilebilir===false).length;
+  const adressiz = kayitlar.filter(k=>!k.url&&!k.domain).length;
+
+  const kat = {};
+  kayitlar.forEach(k=>{ const c=(k.category||'').trim()||'kategorisiz'; kat[c]=(kat[c]||0)+1; });
+  const sirali = Object.entries(kat).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const enBuyuk = sirali.length ? sirali[0][1] : 1;
+
+  const kpi = (sayi,ad,not,sinif)=>
+    '<div class="kpi '+(sinif||'')+'"><div class="kpiSayi">'+sayi+'</div>'
+    + '<div class="kpiAd">'+esc(ad)+'</div>'
+    + (not?'<div class="kpiNot">'+esc(not)+'</div>':'')+'</div>';
+
+  $('detay').innerHTML =
+    '<div class="bolumBaslik">Genel bakış</div>'
+    + '<div class="kpiIzgara">'
+    +   kpi(t,'Toplam kayıt', t?null:'panelden ya da + ile ekleyin','vurgulu')
+    +   kpi(doldurulabilir,'Doldurulabilir','adresi veya IP\'si olan','iyili')
+    +   kpi(benim,'Size ait','düzenleyip silebilirsiniz')
+    +   kpi(gizliler,'Gizli','görüntülenemez, doldurulur', gizliler?'uyarili':'')
+    + '</div>'
+    + (sirali.length
+        ? '<div class="bolumBaslik">Kategoriler</div><div class="dagilim">'
+          + sirali.map(([ad,n])=>
+              '<div class="dagilimSatir"><div class="dagilimAd">'+esc(ad)+'</div>'
+              + '<div class="dagilimCubuk"><i style="width:'+Math.round(n/enBuyuk*100)+'%"></i></div>'
+              + '<div class="dagilimSayi">'+n+'</div></div>').join('')
+          + '</div>'
+        : '')
+    + (adressiz
+        ? '<div class="kpiNot" style="margin-top:16px">'
+          + adressiz+' kaydın adresi yok — doldurma adres eşleşmesine dayandığı için '
+          + 'bu kayıtlar yalnızca elle kullanılabilir.</div>'
+        : '')
+    + '<div class="durum" id="durum" style="margin-top:16px"></div>'
+    + '<div class="durum" id="kisayolIpucu" style="opacity:.75"></div>';
+  ipucuYaz();
+}
+
 function detayCiz(){
   const d=$('detay');
-  if(!secili){ d.innerHTML='<div class="bosDurum">Soldan bir kayıt seçin.</div>'; return; }
+  if(!secili){ genelBakisCiz(); return; }
   const k=secili, ad=k.label||'(adsız)';
   const gorunur = k.gosterilebilir!==false;
   const benim = !!k.benim;
+  // Doldurulabilir kayıt = adresi ya da IP'si var. Bu kayıtlarda parola panoya
+  // alınmıyor; hedefe doğrudan yazılıyor. Kararı sunucu da uyguluyor.
+  const kopyalanamaz = !!(k.url || k.ip);
 
   d.innerHTML =
     '<div class="dBaslik">'
@@ -553,12 +623,21 @@ function detayCiz(){
     +   satirHtml('Kullanıcı', k.username||'—', 'mono')
     +   satirHtml('Adres', k.url||k.domain||'—')
     +   satirHtml('IP', k.ip||'—','mono')
-    +   satirHtml('Şifre', gorunur?'••••••••••':'gizli — yalnızca doldurulabilir','mono')
+    +   satirHtml('Şifre', !gorunur ? 'gizli — yalnızca doldurulabilir'
+          : (kopyalanamaz ? '•••••••••• — kopyalanamaz, doldurulur' : '••••••••••'), 'mono')
     + '</div>'
     + '<div class="eylemler">'
     +   '<button class="ana" id="dDoldur">Doldur</button>'
     +   '<button class="ikincil" id="dKadi"'+(gorunur?'':' disabled')+'>Kullanıcıyı kopyala</button>'
-    +   '<button class="ikincil" id="dSifre"'+(gorunur?'':' disabled')+'>Şifreyi kopyala</button>'
+    // ŞİFRE KOPYALAMA — doldurulabilir kayıtlarda KAPALI.
+    // Panoya alınan parola yapıştırıldığı yerde düz metin görünür ve pano
+    // başka programlarca okunabilir. Kaydın adresi/IP'si varsa parolayı hedefe
+    // doğrudan yazan güvenli bir yol zaten var; güvensizini sunmanın anlamı yok.
+    // Sunucu da aynı kuralı uyguluyor — düğmeyi gizlemek yalnızca boşuna
+    // denemeyi önlüyor.
+    +   '<button class="ikincil" id="dSifre"'+((gorunur&&!kopyalanamaz)?'':' disabled')
+    +     ' title="'+(kopyalanamaz?'Doldurulabilir kayıt — kopyalanamaz, Doldur kullanın':'Şifreyi kopyala')+'">'
+    +     'Şifreyi kopyala</button>'
     +   '<button class="ikincil" id="dDuzenle"'+(benim?'':' disabled')+'>Düzenle</button>'
     +   '<button class="ikincil" id="dSil"'+(benim?'':' disabled')+'>Sil</button>'
     + '</div>'

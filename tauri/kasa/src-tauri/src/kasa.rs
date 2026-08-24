@@ -339,11 +339,18 @@ pub fn doldurmak_icin_ac(durum: &Durum, id: i64) -> Result<(String, String), Str
     ))
 }
 
-/// Parolayı TEK SEFERLİK getirir. Çağıran kullanır ve bırakır; hiçbir yerde saklanmaz.
+/// GÖSTERME/KOPYALAMA amaçlı açar. Çağıran kullanır ve bırakır; saklanmaz.
+///
+/// `amac=goster` sunucuya niyeti bildirir. Adresi ya da IP'si olan kayıtlar
+/// DOLDURULABİLİR olduğu için sunucu kopyalamayı reddeder: parolayı hedefe
+/// doğrudan yazan bir yol dururken panoya almak, yapıştırıldığı her yerde düz
+/// metin göstermek demektir. Karar sunucuda verilir — istemcinin düğmeyi
+/// gizlemesine güvenilmez.
 pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
     let t = jeton_of(durum)?;
     let y = istemci()
         .post(format!("{SUNUCU}/vault/api/reveal/{id}"))
+        .query(&[("amac", "goster")])
         .bearer_auth(t)
         .send()
         .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
