@@ -66,11 +66,13 @@ const OLAY_BEKLEME_SN: u64 = 25;
 static SON_TEMAS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
 pub fn eklenti_bagli() -> bool {
-    SON_TEMAS
-        .lock()
-        .unwrap()
-        .map(|t| t.elapsed() < std::time::Duration::from_secs(150))
-        .unwrap_or(false)
+    // Kilidi ÖNCE bırakıyoruz: `guard.map(...)` deref üzerinden değer taşıma
+    // gerektiriyor ve okunması zor. Açıkça kopyalamak hem net hem güvenli.
+    let son = *SON_TEMAS.lock().unwrap();
+    match son {
+        Some(t) => t.elapsed() < std::time::Duration::from_secs(150),
+        None => false,
+    }
 }
 
 fn temas_kaydet() {

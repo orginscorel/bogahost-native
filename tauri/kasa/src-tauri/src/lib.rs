@@ -213,7 +213,13 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         kopru::olay_ekle(serde_json::json!({
             "tur": "doldur", "id": id, "url": url,
         }));
-        dolduruldu_isaretle(&url);
+
+        /* BURADA "DOLDURULDU" DEMİYORUZ.
+           İşi kuyruğa bırakmak, doldurulduğu anlamına gelmiyor: eklenti
+           sekmeyi bulamayabilir, sayfada alan olmayabilir. Burada
+           işaretleseydik iş başarısız olsa bile panel o sitede yirmi dakika
+           susardı. Damgayı eklenti GERÇEKTEN doldurduğunda köprü basıyor
+           (`doldur_cevabi`). */
 
         if let Some(p) = uygulama.get_webview_window("hizli") {
             let _ = p.hide();
