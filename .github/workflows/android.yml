@@ -38,6 +38,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # AYNI ANDA EN FAZLA İKİ İŞ.
+      # Beş Android işi paralel koşunca hepsi aynı çıkış IP'sinden Maven
+      # Central'a yükleniyor ve depo 429 (Too Many Requests) döndürüyordu.
+      # İkiye indirmek istek yoğunluğunu düşürüyor; toplam süre biraz uzuyor
+      # ama düşen derleme yeniden koşturmaktan ucuz.
+      max-parallel: 2
       matrix:
         app: [finans, dcim, chat, task, muh]
 
@@ -57,6 +63,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      # GRADLE ÖNBELLEĞİ — 429'un asıl panzehiri.
+      # Yeniden deneme geçici sınırı aşmayı sağlıyor ama asıl çözüm depoya
+      # HİÇ GİTMEMEK. Bağımlılıklar önbellekten gelince Maven Central'a atılan
+      # istek sayısı bir avuca iniyor; hız sınırı da doğal olarak tetiklenmiyor.
+      # Anahtar gradle dosyalarının özetinden türüyor: bağımlılık değişmedikçe
+      # aynı önbellek kullanılıyor.
+      - name: Gradle önbelleği
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ matrix.app }}-${{ hashFiles('capacitor/*/android/**/*.gradle*', 'capacitor/*/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ matrix.app }}-
+            gradle-${{ runner.os }}-
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -127,7 +150,30 @@ jobs:
         working-directory: capacitor/${{ matrix.app }}/android
         run: |
           chmod +x ./gradlew || true
-          ./gradlew --no-daemon assembleRelease bundleRelease
+
+          # NEDEN YENİDEN DENEME:
+          # Derlemeler "Could not resolve ... Received status code 429 from
+          # server: Too Many Requests" ile düşüyordu. Bu bir KOD HATASI DEĞİL —
+          # Maven Central'ın hız sınırı. Aynı anda koşan işler aynı çıkış
+          # IP'sinden aynı depoyu çekince sınır tetikleniyor ve rastgele bir iş
+          # kurban gidiyor.
+          #
+          # Üç deneme, artan bekleme. Kalıcı bir hata (derleme hatası, imza
+          # sorunu) üç denemede de aynı şekilde düşer; sadece geçici olan
+          # kurtulur. Bekleme süreleri sınırın sıfırlanmasına yetecek kadar.
+          for DENEME in 1 2 3; do
+            if ./gradlew --no-daemon assembleRelease bundleRelease; then
+              echo "Gradle $DENEME. denemede tamamlandı."
+              exit 0
+            fi
+            if [ "$DENEME" -lt 3 ]; then
+              BEKLE=$((DENEME * 45))
+              echo "::warning title=Gradle yeniden deneniyor::${DENEME}. deneme düştü, ${BEKLE} sn sonra tekrar."
+              sleep "$BEKLE"
+            fi
+          done
+          echo "::error title=Gradle::Üç denemede de tamamlanamadı."
+          exit 1
 
       - name: Collect artifacts
         id: collect
