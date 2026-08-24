@@ -805,10 +805,14 @@ function cizSistem(){
     h += kartHtml('uyari',iUyari,'Tarayıcı koruması eksik',
       (politikaDurum.kasa_kapali?'✓':'✕')+' tarayıcı parola kasası kapalı &nbsp;·&nbsp; '
       +(politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu kurulumda',
-      '<button class="ikincilDugme" id="sPolDenetle">Yeniden denetle</button><button id="sPolKur">Kur</button>');
+      '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>'
+      + '<button class="ikincilDugme" id="sPolDenetle">Yeniden denetle</button>'
+      + '<button id="sPolKur">Kur</button>');
   }
   if(!h){
-    h = kartHtml('iyi',iTik,'Her şey yolunda','İzinler verilmiş, tarayıcı koruması etkin, sürüm güncel.','');
+    h = kartHtml('iyi',iTik,'Her şey yolunda',
+      'İzinler verilmiş, tarayıcı koruması etkin, sürüm güncel.',
+      '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>');
   }
 
   h += '<div class="bolum" style="margin-top:22px">Uygulama</div>'
@@ -827,6 +831,7 @@ function cizSistem(){
   if($('sIzin')) $('sIzin').onclick=()=>invoke('izin_ayarlarini_ac').catch(()=>{});
   if($('sPolKur')) $('sPolKur').onclick=politikaKur;
   if($('sPolDenetle')) $('sPolDenetle').onclick=()=>politikaDenetle(false);
+  if($('sProfilSil')) $('sProfilSil').onclick=profilKaldir;
   $('sDenetle').onclick=()=>guncellemeAra($('durum'));
 }
 function kartHtml(sinif,ikon,baslik,metin,dugmeler){
@@ -997,6 +1002,25 @@ async function politikaDenetle(sessiz){
   if(!sessiz && politikaDurum && politikaDurum.kasa_kapali && politikaDurum.eklenti_zorunlu)
     durumYaz($('durum'),'Tarayıcı koruması etkin.','iyi');
 }
+/* PROFİLİ KALDIR — güncellemede eskisini elle silmek gerekmesin.
+   Aynı kimlikte bir profil yüklüyken yenisini açmak macOS'ta reddediliyor ya
+   da kullanıcıdan elle silmesini istiyor; Sistem Ayarları'nda o yeri bulmak
+   da kolay değil. Kur düğmesi zaten önce kaldırmayı deniyor, bu düğme ise
+   ayrıca elle temizlemek isteyen için. */
+async function profilKaldir(){
+  const b=$('sProfilSil');
+  if(!confirm('Yüklü tarayıcı koruması profili kaldırılsın mı? Chrome ayarları eski hâline döner.')) return;
+  if(b){ b.disabled=true; b.textContent='Kaldırılıyor…'; }
+  try{
+    politikaDurum = await invoke('politika_profil_kaldir');
+    uyariSayisiYaz(); cizSistem();
+    durumYaz($('durum'),'Profil kaldırıldı. Yeniden kurmak için “Kur” deyin.','iyi');
+  }catch(e){
+    cizSistem();
+    durumYaz($('durum'), String(e), 'uyari');
+  }
+}
+
 async function politikaKur(){
   const b=$('sPolKur'); if(b){ b.disabled=true; b.textContent='Kuruluyor…'; }
   try{

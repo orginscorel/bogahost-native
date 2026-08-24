@@ -224,6 +224,13 @@ fn politika_durum() -> politika::Durum {
     politika::durum()
 }
 
+/// Yüklü profili kaldır — güncellemede eskisini elle silmek gerekmesin.
+#[tauri::command(async)]
+fn politika_profil_kaldir() -> Result<politika::Durum, String> {
+    politika::profil_kaldir()?;
+    Ok(politika::durum())
+}
+
 /// Politikayı kur — işletim sisteminin kendi yönetici penceresi çıkar.
 /// Kullanıcı parolasını bize değil işletim sistemine verir.
 #[tauri::command(async)]
@@ -432,7 +439,7 @@ pub fn run() {
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
-            politika_durum, politika_kur,
+            politika_durum, politika_kur, politika_profil_kaldir,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])

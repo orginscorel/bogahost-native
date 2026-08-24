@@ -21,6 +21,8 @@ use serde::Serialize;
 const EKLENTI_ID: &str = "nfoohkianbefpbobbbgfikiiicnghjeh";
 const GUNCELLEME_URL: &str = "https://native.bogahost.com/eklenti/update.xml";
 const KAYNAK: &str = "https://native.bogahost.com/*";
+/// Profil kimliği — kaldırma bu kimlikle yapılıyor, profil metniyle AYNI olmalı.
+const PROFIL_KIMLIK: &str = "com.bogahost.kasa.tarayici";
 
 #[derive(Serialize, Clone, Default)]
 pub struct Durum {
@@ -144,6 +146,41 @@ fn profil_metni() -> String {
     )
 }
 
+/// Yüklü tarayıcı koruması profilini kaldırır.
+///
+/// NEDEN AYRI BİR EYLEM: aynı kimlikte bir profil yüklüyken yenisini açmak
+/// macOS'ta ya sessizce reddediliyor ya da kullanıcıdan elle silmesini
+/// istiyor. Sistem Ayarları'nda profil kaldırma yeri de kolay bulunmuyor.
+/// `profiles remove` yönetici hakkı ister; işletim sisteminin kendi kimlik
+/// penceresi çıkar, parola bize değil sisteme verilir.
+#[cfg(target_os = "macos")]
+pub fn profil_kaldir() -> Result<(), String> {
+    let betik = format!(
+        "do shell script \"/usr/bin/profiles remove -identifier {kimlik}\" with administrator privileges",
+        kimlik = PROFIL_KIMLIK
+    );
+    let c = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&betik)
+        .output()
+        .map_err(|e| format!("osascript çalıştırılamadı: {e}"))?;
+
+    if c.status.success() {
+        return Ok(());
+    }
+    let hata = String::from_utf8_lossy(&c.stderr);
+    if hata.contains("-128") {
+        return Err("İptal edildi.".into());
+    }
+    // Profil zaten yoksa `profiles remove` hata döner; bu bir sorun değil.
+    Err(format!("Kaldırılamadı (profil yüklü olmayabilir): {}", hata.trim()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn profil_kaldir() -> Result<(), String> {
+    Err("Bu platformda yapılandırma profili kullanılmıyor.".into())
+}
+
 #[cfg(target_os = "macos")]
 pub fn kur() -> Result<(), String> {
     use std::io::Write;
@@ -215,6 +252,19 @@ pub fn kur() -> Result<(), String> {
     f.write_all(profil_metni().as_bytes())
         .map_err(|e| format!("Profil yazılamadı: {e}"))?;
     drop(f);
+
+    // ESKİ PROFİLİ ÖNCE KALDIR.
+    //
+    // Aynı kimlikte bir profil yüklüyken yenisini açmak macOS'ta ya sessizce
+    // reddediliyor ya da kullanıcıdan elle silmesini istiyor — Sistem
+    // Ayarları'ndan profil kaldırmak da kolay bulunan bir yer değil.
+    // Kullanıcının bildirdiği durum tam olarak buydu: "güncelleme geldi ama
+    // eski profili kaldıramıyorum".
+    //
+    // Kaldırma BAŞARISIZ OLABİLİR (profil hiç yoktur, kullanıcı yönetici
+    // penceresini kapatır) ve bu ölümcül değil: yine de yeni profil açılır,
+    // en kötü ihtimalle kullanıcı elle siler.
+    let _ = profil_kaldir();
 
     let _ = std::process::Command::new("open").arg(&yol).spawn();
     // Ayarların Profiller bölümünü de aç ki kullanıcı aramasın.
