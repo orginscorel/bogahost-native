@@ -2,12 +2,18 @@
      Uzak sayfa yüklenmez; CSP dış kaynağa izin vermez. Yazı tipi sistem
      yığınından, ikonlar satır içi SVG'den gelir.
 
-     TASARIM — NEDEN BÖYLE:
-     Önceki düzen iki sütun + üst üste yığılan uyarı şeritleriydi. Şeritler her
-     açılışta ekranın üstünü yiyor, liste ile detay birbirine yapışıyordu.
-     Şimdi solda kalıcı bir GEZİNME RAYI var: Genel Bakış, Kayıtlar, Üreteç,
-     Sistem. Uyarılar kendi bölümüne taşındı ve rayda bir sayaç rozetiyle
-     duyuruluyor — ekranın üstünü işgal etmiyor, ama gözden de kaçmıyor. -->
+     TEK EKRAN — SOLDA MENÜ YOK.
+     Önceki sürümde solda dört bölümlü bir gezinme rayı vardı (Genel Bakış /
+     Kayıtlar / Üreteç / Sistem). Kalıcı olarak yer kaplıyordu ama uygulamanın
+     asıl işi tek: kaydı bul, doldur. Diğer üç bölüm günde belki bir kez
+     açılıyordu.
+
+     Şimdi ekran tek parça: arama + liste. Seçilen kayıt YERİNDE açılıyor,
+     başka bir panele gidilmiyor. İzinler, tarayıcı koruması, eklenti ve
+     güncelleme dişlinin arkasında — gerektiğinde açılıyor.
+
+     Doldurmanın kendisi zaten burada değil: kısayolla gelen küçük panelde
+     (hizli.html) ve tarayıcıda eklentide. Bu pencere kayıtları YÖNETMEK için. -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bogahost Kasa</title>
@@ -15,228 +21,205 @@
   /* Açık tema tam tanımlı; koyu tema YALNIZ değişkenleri yeniden yazar.
      Bir rengin tek tanımı medya sorgusunda kalırsa diğer temada kaybolur. */
   :root{
-    --zemin:#f4f3f9; --kart:#ffffff; --kart2:#faf9ff; --kart3:#eeecf8;
-    --metin:#17162a; --sonuk:#5f5c78; --silik:#918ea8; --cizgi:#e4e1f1;
-    --vurgu:#5443D2; --vurgu2:#7a6cf0; --vurgu-yumusak:rgba(84,67,210,.10);
-    --iyi:#12905a; --iyi-yumusak:rgba(18,144,90,.12);
-    --uyari:#a9660a; --uyari-yumusak:rgba(169,102,10,.12);
-    --hata:#c02a45; --hata-yumusak:rgba(192,42,69,.12);
-    --golge-s:0 1px 2px rgba(20,16,45,.06);
-    --golge:0 2px 4px rgba(20,16,45,.05), 0 12px 32px rgba(20,16,45,.08);
-    --ray:#1c1836; --ray-metin:#cfcbe8; --ray-secili:rgba(255,255,255,.10);
+    --zemin:#f5f4fa; --kart:#ffffff; --kart2:#f7f6fc; --kart3:#eeecf6;
+    --metin:#18172a; --sonuk:#5d5a75; --silik:#8f8ca6; --cizgi:#e6e3f0;
+    --vurgu:#5443D2; --vurgu2:#7a6cf0; --vurgu-yumusak:rgba(84,67,210,.09);
+    --iyi:#12905a; --iyi-yumusak:rgba(18,144,90,.11);
+    --uyari:#a9660a; --uyari-yumusak:rgba(169,102,10,.11);
+    --hata:#c02a45; --hata-yumusak:rgba(192,42,69,.11);
+    --golge-s:0 1px 2px rgba(20,16,45,.05);
+    --golge:0 4px 10px rgba(20,16,45,.06), 0 16px 40px rgba(20,16,45,.09);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --zemin:#0d0d14; --kart:#16161f; --kart2:#1c1c27; --kart3:#232331;
-      --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#292838;
-      --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.15);
-      --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.15);
-      --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.15);
-      --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.15);
+      --zemin:#0e0e15; --kart:#181820; --kart2:#1e1e29; --kart3:#262634;
+      --metin:#efeef7; --sonuk:#a4a2b6; --silik:#6f6d82; --cizgi:#2a2939;
+      --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.14);
+      --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.14);
+      --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.14);
+      --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.14);
       --golge-s:0 1px 2px rgba(0,0,0,.4);
-      --golge:0 2px 4px rgba(0,0,0,.4), 0 14px 36px rgba(0,0,0,.42);
-      --ray:#131320; --ray-metin:#b6b3ce; --ray-secili:rgba(255,255,255,.08);
+      --golge:0 4px 12px rgba(0,0,0,.4), 0 18px 44px rgba(0,0,0,.44);
     }
   }
   :root[data-theme="dark"]{
-    --zemin:#0d0d14; --kart:#16161f; --kart2:#1c1c27; --kart3:#232331;
-    --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#292838;
-    --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.15);
-    --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.15);
-    --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.15);
-    --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.15);
+    --zemin:#0e0e15; --kart:#181820; --kart2:#1e1e29; --kart3:#262634;
+    --metin:#efeef7; --sonuk:#a4a2b6; --silik:#6f6d82; --cizgi:#2a2939;
+    --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.14);
+    --iyi:#4ecb8d; --iyi-yumusak:rgba(78,203,141,.14);
+    --uyari:#e8b45c; --uyari-yumusak:rgba(232,180,92,.14);
+    --hata:#f0788f; --hata-yumusak:rgba(240,120,143,.14);
     --golge-s:0 1px 2px rgba(0,0,0,.4);
-    --golge:0 2px 4px rgba(0,0,0,.4), 0 14px 36px rgba(0,0,0,.42);
-    --ray:#131320; --ray-metin:#b6b3ce; --ray-secili:rgba(255,255,255,.08);
+    --golge:0 4px 12px rgba(0,0,0,.4), 0 18px 44px rgba(0,0,0,.44);
   }
 
   *{box-sizing:border-box}
-  body{margin:0;height:100vh;display:flex;overflow:hidden;
+  body{margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden;
        background:var(--zemin);color:var(--metin);
        font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
        -webkit-font-smoothing:antialiased}
   .gizli{display:none !important}
   button{font:inherit;cursor:pointer;color:inherit}
-  input,select,textarea{font:inherit;color:inherit}
+  input{font:inherit;color:inherit}
   :focus-visible{outline:2px solid var(--vurgu);outline-offset:2px}
-  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar{width:10px}
   ::-webkit-scrollbar-thumb{background:var(--cizgi);border-radius:8px}
   ::-webkit-scrollbar-thumb:hover{background:var(--silik)}
+  @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
 
-  /* ── Ortak ───────────────────────────────────────────────────────── */
   .metin{width:100%;padding:11px 13px;border:1px solid var(--cizgi);border-radius:11px;
          background:var(--kart2);outline:none;transition:border-color .15s,box-shadow .15s}
   .metin:focus{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
   .etiket{display:block;font-size:11px;font-weight:600;letter-spacing:.5px;
           text-transform:uppercase;color:var(--silik);margin-bottom:6px}
   .alan{margin-bottom:14px}
-  .ana{padding:11px 18px;border:0;border-radius:11px;color:#fff;font-weight:600;
-       background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));box-shadow:var(--golge-s);
-       transition:transform .1s,filter .15s}
+  .ana{padding:10px 17px;border:0;border-radius:11px;color:#fff;font-weight:600;
+       background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));
+       box-shadow:var(--golge-s);transition:filter .15s,transform .1s}
   .ana:hover:not(:disabled){filter:brightness(1.08)}
   .ana:active:not(:disabled){transform:translateY(1px)}
   .ana:disabled{opacity:.45;cursor:default}
-  .ikincil{padding:10px 15px;border:1px solid var(--cizgi);border-radius:11px;
-           background:var(--kart);transition:border-color .15s,background .15s}
+  .ikincil{padding:9px 14px;border:1px solid var(--cizgi);border-radius:11px;background:var(--kart);
+           transition:border-color .15s,background .15s}
   .ikincil:hover:not(:disabled){border-color:var(--vurgu);background:var(--kart2)}
   .ikincil:disabled{opacity:.4;cursor:default}
-  .ikon{width:32px;height:32px;display:grid;place-items:center;border:1px solid transparent;
+  .ikon{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;
         border-radius:10px;background:none;color:var(--sonuk);flex:none;transition:background .15s}
   .ikon:hover:not(:disabled){background:var(--kart3);color:var(--metin)}
-  .ikon:disabled{opacity:.3;cursor:default}
   .ikon svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;
             stroke-linecap:round;stroke-linejoin:round}
   .durum{font-size:12.5px;color:var(--sonuk);min-height:18px}
   .durum.iyi{color:var(--iyi)} .durum.hata{color:var(--hata)} .durum.uyari{color:var(--uyari)}
-
-  /* ── Gezinme rayı ────────────────────────────────────────────────── */
-  .ray{width:206px;flex:none;display:flex;flex-direction:column;background:var(--ray);color:var(--ray-metin)}
-  .rayUst{display:flex;align-items:center;gap:11px;padding:18px 16px 16px}
-  .amblem{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;
-          background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));box-shadow:0 4px 14px rgba(84,67,210,.4)}
-  .amblem svg{width:19px;height:19px;stroke:#fff;fill:none;stroke-width:2.2;
-              stroke-linecap:round;stroke-linejoin:round}
-  .rayMarka{font-weight:700;font-size:14.5px;color:#fff;letter-spacing:-.2px}
-  .rayKimlik{font-size:11.5px;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .rayMenu{flex:1;padding:6px 10px;overflow-y:auto}
-  .rayOge{display:flex;align-items:center;gap:11px;width:100%;padding:10px 12px;margin-bottom:3px;
-          border:0;border-radius:10px;background:none;color:var(--ray-metin);
-          font-size:13.5px;text-align:left;transition:background .15s,color .15s}
-  .rayOge:hover{background:var(--ray-secili);color:#fff}
-  .rayOge.secili{background:var(--ray-secili);color:#fff;font-weight:600}
-  .rayOge svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;
-              stroke-linecap:round;stroke-linejoin:round;flex:none}
-  .rayOge .say{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;border-radius:20px;
-               background:rgba(255,255,255,.14)}
-  .rayOge .say.uyari{background:var(--uyari);color:#231502}
-  .rayAlt{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;opacity:.6}
-  .rayAlt button{background:none;border:0;color:inherit;padding:0;text-decoration:underline;font-size:11px}
-
-  /* ── İçerik ──────────────────────────────────────────────────────── */
-  .icerik{flex:1;min-width:0;display:flex;flex-direction:column}
-  .basliksatir{display:flex;align-items:center;gap:12px;padding:18px 24px 14px}
-  .h1{font-size:20px;font-weight:700;letter-spacing:-.4px}
-  .h1alt{font-size:12.5px;color:var(--silik);margin-top:1px}
   .bosluk{flex:1}
-  .sayfa{flex:1;overflow-y:auto;padding:0 24px 24px;min-height:0}
-
-  /* ── KPI ─────────────────────────────────────────────────────────── */
-  .kpiIzgara{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin-bottom:22px}
-  .kpi{background:var(--kart);border:1px solid var(--cizgi);border-radius:16px;padding:16px 18px;
-       box-shadow:var(--golge-s);transition:transform .15s,box-shadow .15s}
-  .kpi:hover{transform:translateY(-2px);box-shadow:var(--golge)}
-  .kpiUst{display:flex;align-items:center;gap:8px;margin-bottom:9px}
-  .kpiUst svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;
+  .amblem{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:none;
+          background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));
+          box-shadow:0 3px 10px rgba(84,67,210,.32)}
+  .amblem svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.2;
               stroke-linecap:round;stroke-linejoin:round}
-  .kpiAd{font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:700}
-  .kpiSayi{font-size:30px;font-weight:700;letter-spacing:-1px;line-height:1;
-           font-variant-numeric:tabular-nums}
-  .kpiNot{font-size:11.5px;color:var(--silik);margin-top:6px}
-  .kpi.mor{color:var(--vurgu)} .kpi.yesil{color:var(--iyi)}
-  .kpi.sari{color:var(--uyari)} .kpi.kirmizi{color:var(--hata)}
-  .kpi .kpiSayi,.kpi .kpiNot{color:var(--metin)}
-  .kpi.sari .kpiSayi{color:var(--uyari)} .kpi.kirmizi .kpiSayi{color:var(--hata)}
 
-  .bolum{font-size:11.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
-         color:var(--silik);margin:0 0 12px}
-  .dagilim{background:var(--kart);border:1px solid var(--cizgi);border-radius:16px;
-           padding:16px 18px;box-shadow:var(--golge-s);margin-bottom:22px}
-  .dSatir{display:flex;align-items:center;gap:12px;font-size:13px;padding:5px 0}
-  .dAd{width:130px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .dCubuk{flex:1;height:8px;border-radius:6px;background:var(--kart3);overflow:hidden}
-  .dCubuk i{display:block;height:100%;border-radius:6px;
-            background:linear-gradient(90deg,var(--vurgu),var(--vurgu2));transition:width .3s}
-  .dSay{width:30px;text-align:right;color:var(--sonuk);font-variant-numeric:tabular-nums}
+  /* ── Açılış ekranı ───────────────────────────────────────────────────
+     Diğer Bogahost uygulamalarındaki gibi. Boş beyaz pencere yerine kimliği
+     olan bir bekleme: oturum denetimi ağa çıkıyor, o saniye açıkta kalmasın. */
+  .acilis{position:fixed;inset:0;z-index:120;display:flex;flex-direction:column;
+          align-items:center;justify-content:center;gap:16px;
+          background:radial-gradient(760px 420px at 50% 34%, var(--vurgu-yumusak), transparent 72%),var(--zemin);
+          transition:opacity .32s ease}
+  .acilis.cikiyor{opacity:0;pointer-events:none}
+  .acilis .amblem{width:64px;height:64px;border-radius:20px;animation:nefes 2s ease-in-out infinite}
+  .acilis .amblem svg{width:31px;height:31px}
+  @keyframes nefes{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  .acilisAd{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .acilisNot{font-size:12.5px;color:var(--silik);min-height:18px}
+  .cizgiYuk{width:132px;height:3px;border-radius:3px;background:var(--cizgi);overflow:hidden}
+  .cizgiYuk i{display:block;width:40%;height:100%;border-radius:3px;
+              background:linear-gradient(90deg,var(--vurgu),var(--vurgu2));
+              animation:kay 1.15s ease-in-out infinite}
+  @keyframes kay{0%{transform:translateX(-110%)}100%{transform:translateX(270%)}}
 
-  /* ── Kayıt listesi ───────────────────────────────────────────────── */
-  .kayitDuzen{display:flex;gap:18px;height:100%;min-height:0}
-  .kayitSol{width:320px;flex:none;display:flex;flex-direction:column;min-height:0}
-  .kayitSag{flex:1;min-width:0;overflow-y:auto}
-  .araKutu{position:relative;margin-bottom:10px}
-  .araKutu svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);
-               width:15px;height:15px;stroke:var(--silik);fill:none;stroke-width:2}
-  .araKutu input{padding-left:37px}
-  .cipler{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-  .cip{padding:4px 11px;border:1px solid var(--cizgi);border-radius:20px;background:var(--kart);
-       font-size:11.5px;color:var(--sonuk);transition:all .15s}
+  /* ── Üst çubuk ───────────────────────────────────────────────────── */
+  .ust{display:flex;align-items:center;gap:10px;padding:13px 18px;
+       background:var(--kart);border-bottom:1px solid var(--cizgi)}
+  .araSar{position:relative;flex:1;min-width:0;max-width:460px}
+  .araSar svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);
+              width:15px;height:15px;stroke:var(--silik);fill:none;stroke-width:2}
+  .araSar input{padding-left:37px}
+  .dislicSar{position:relative}
+  .rozetSay{position:absolute;top:-1px;right:-1px;font-size:10px;font-weight:700;
+            padding:1px 6px;border-radius:20px;background:var(--uyari);color:#fff;
+            pointer-events:none}
+
+  /* ── Kategori şeridi ─────────────────────────────────────────────── */
+  .cipler{display:flex;gap:7px;padding:12px 18px 2px;flex-wrap:wrap}
+  .cipler:empty{display:none}
+  .cip{padding:5px 13px;border:1px solid var(--cizgi);border-radius:20px;background:var(--kart);
+       font-size:12px;color:var(--sonuk);transition:all .15s}
   .cip:hover{border-color:var(--vurgu)}
   .cip.secili{background:var(--vurgu);border-color:var(--vurgu);color:#fff;font-weight:600}
-  .kartListe{flex:1;overflow-y:auto;min-height:0;padding-right:4px}
-  .kayitKart{display:flex;align-items:center;gap:12px;padding:13px 14px;margin-bottom:8px;
-             background:var(--kart);border:1px solid var(--cizgi);border-radius:14px;
-             cursor:pointer;box-shadow:var(--golge-s);transition:border-color .15s,transform .1s}
-  .kayitKart:hover{border-color:var(--vurgu2);transform:translateX(2px)}
-  .kayitKart.secili{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
-  .avatar{width:36px;height:36px;border-radius:11px;flex:none;display:grid;place-items:center;
-          font-size:13px;font-weight:700;color:#fff;letter-spacing:.3px}
-  .kMetin{flex:1;min-width:0}
-  .kAd{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .kAlt{font-size:12px;color:var(--silik);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-        margin-top:1px}
-  .rozetler{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
-  .mini{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 7px;border-radius:20px}
-  .mini.gizliR{background:var(--uyari-yumusak);color:var(--uyari)}
-  .mini.eslesmeR{background:var(--iyi-yumusak);color:var(--iyi)}
-  .gucNokta{display:flex;gap:2px}
-  .gucNokta i{width:5px;height:5px;border-radius:50%;background:var(--cizgi)}
-  .gucNokta.g0 i:nth-child(1){background:var(--hata)}
-  .gucNokta.g1 i:nth-child(-n+2){background:var(--uyari)}
-  .gucNokta.g2 i:nth-child(-n+3){background:var(--vurgu)}
-  .gucNokta.g3 i{background:var(--iyi)}
-  .bosDurum{padding:48px 24px;text-align:center;color:var(--silik);font-size:13px}
 
-  /* ── Detay ───────────────────────────────────────────────────────── */
-  .detayKart{background:var(--kart);border:1px solid var(--cizgi);border-radius:18px;
-             box-shadow:var(--golge);overflow:hidden}
-  .detayUst{display:flex;align-items:center;gap:14px;padding:20px 22px;
-            background:linear-gradient(160deg,var(--vurgu-yumusak),transparent)}
-  .dAvatar{width:52px;height:52px;border-radius:15px;flex:none;display:grid;place-items:center;
-           font-size:19px;font-weight:700;color:#fff;box-shadow:var(--golge-s)}
-  .dBaslikAd{font-size:19px;font-weight:700;letter-spacing:-.3px}
-  .dBaslikAlt{font-size:12.5px;color:var(--silik);margin-top:2px}
-  .sdSatir{display:flex;align-items:center;gap:14px;padding:13px 22px;border-top:1px solid var(--cizgi)}
-  .sdEt{width:104px;flex:none;font-size:11px;color:var(--silik);text-transform:uppercase;
-        letter-spacing:.5px;font-weight:700}
-  .sdDg{flex:1;min-width:0;font-size:13.5px;word-break:break-all}
-  .sdDg.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
-  .eylemler{display:flex;gap:9px;padding:16px 22px;border-top:1px solid var(--cizgi);flex-wrap:wrap}
+  /* ── Liste ───────────────────────────────────────────────────────── */
+  .liste{flex:1;overflow-y:auto;padding:12px 18px 20px;min-height:0}
+  .kayit{background:var(--kart);border:1px solid var(--cizgi);border-radius:15px;
+         margin-bottom:9px;box-shadow:var(--golge-s);overflow:hidden;
+         transition:border-color .15s,box-shadow .15s}
+  .kayit:hover{border-color:var(--vurgu2)}
+  .kayit.acik{border-color:var(--vurgu);box-shadow:var(--golge)}
+  .basSatir{display:flex;align-items:center;gap:13px;padding:13px 15px;cursor:pointer}
+  .avatar{width:38px;height:38px;border-radius:12px;flex:none;display:grid;place-items:center;
+          font-size:13.5px;font-weight:700;color:#fff;letter-spacing:.3px}
+  .kMetin{flex:1;min-width:0}
+  .kAd{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kAlt{font-size:12.5px;color:var(--silik);white-space:nowrap;overflow:hidden;
+        text-overflow:ellipsis;margin-top:1px}
+  .sag{display:flex;align-items:center;gap:8px;flex:none}
+  .mini{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:3px 8px;border-radius:20px}
+  .mini.gizliR{background:var(--uyari-yumusak);color:var(--uyari)}
+  .guc{display:flex;gap:3px}
+  .guc i{width:5px;height:5px;border-radius:50%;background:var(--cizgi)}
+  .guc.g0 i:nth-child(1){background:var(--hata)}
+  .guc.g1 i:nth-child(-n+2){background:var(--uyari)}
+  .guc.g2 i:nth-child(-n+3){background:var(--vurgu)}
+  .guc.g3 i{background:var(--iyi)}
+  .ok{width:16px;height:16px;stroke:var(--silik);fill:none;stroke-width:2.2;
+      stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
+  .kayit.acik .ok{transform:rotate(180deg)}
+
+  /* Detay YERİNDE açılıyor — ayrı bir panele gitmek yerine. */
+  .detay{border-top:1px solid var(--cizgi);padding:2px 15px 14px}
+  .dSatir{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--cizgi);font-size:13.5px}
+  .dSatir:last-of-type{border-bottom:0}
+  .dEt{width:96px;flex:none;font-size:11px;color:var(--silik);text-transform:uppercase;
+       letter-spacing:.5px;font-weight:700;padding-top:2px}
+  .dDg{flex:1;min-width:0;word-break:break-all}
+  .dDg.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+  .eylem{display:flex;gap:8px;padding-top:12px;flex-wrap:wrap}
+  .bos{padding:56px 24px;text-align:center;color:var(--silik)}
+  .bos b{display:block;color:var(--sonuk);font-size:15px;margin-bottom:6px}
+
+  .altBilgi{display:flex;align-items:center;gap:10px;padding:9px 18px;
+            border-top:1px solid var(--cizgi);background:var(--kart);
+            font-size:11.5px;color:var(--silik)}
+
+  /* ── Uyarı şeritleri (yalnız gerçekten gerekince) ─────────────────── */
+  .serit{display:flex;align-items:center;gap:11px;padding:10px 18px;font-size:12.5px;
+         border-bottom:1px solid}
+  .serit .bosluk{flex:1;min-width:0}
+  .serit button{padding:6px 13px;border:0;border-radius:9px;color:#fff;font-weight:600;font-size:12px}
+  .serit.bilgi{background:var(--vurgu-yumusak);border-bottom-color:var(--vurgu);color:var(--vurgu)}
+  .serit.bilgi button{background:var(--vurgu)}
+  .serit.hata{background:var(--hata-yumusak);border-bottom-color:var(--hata);color:var(--hata)}
+  .serit.hata button{background:var(--hata)}
+
+  /* ── Katman ──────────────────────────────────────────────────────── */
+  .katman{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+          padding:22px;background:rgba(10,8,26,.5);backdrop-filter:blur(3px)}
+  .kart{width:100%;max-width:470px;max-height:100%;display:flex;flex-direction:column;
+        background:var(--kart);border:1px solid var(--cizgi);border-radius:20px;
+        box-shadow:var(--golge);overflow:hidden}
+  .kBaslik{display:flex;align-items:center;justify-content:space-between;gap:10px;
+           padding:15px 20px;border-bottom:1px solid var(--cizgi);font-weight:700;font-size:15px}
+  .kGovde{padding:20px;overflow-y:auto;min-height:0}
+  .kAyak{display:flex;gap:10px;padding:15px 20px;border-top:1px solid var(--cizgi)}
+  .kAyak .ana{flex:1}
+  .ikili{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .gucCubuk{height:6px;border-radius:6px;background:var(--kart3);overflow:hidden;margin-top:7px}
   .gucCubuk i{display:block;height:100%;border-radius:6px;transition:width .25s,background .25s}
-
-  /* ── Sistem bölümü ───────────────────────────────────────────────── */
-  .uyariKart{display:flex;align-items:flex-start;gap:14px;padding:16px 18px;margin-bottom:12px;
-             border-radius:16px;border:1px solid;box-shadow:var(--golge-s)}
-  .uyariKart .govde{flex:1;min-width:0}
-  .uyariKart h3{margin:0 0 3px;font-size:14px;font-weight:700}
-  .uyariKart p{margin:0;font-size:12.5px;opacity:.9}
-  .uyariKart .dugmeler{display:flex;gap:8px;flex:none;flex-wrap:wrap}
-  .uyariKart button{padding:8px 14px;border:0;border-radius:10px;color:#fff;font-weight:600;font-size:12.5px}
-  .uyariKart.bilgi{background:var(--vurgu-yumusak);border-color:var(--vurgu);color:var(--vurgu)}
-  .uyariKart.bilgi button{background:var(--vurgu)}
-  .uyariKart.uyari{background:var(--uyari-yumusak);border-color:var(--uyari);color:var(--uyari)}
-  .uyariKart.uyari button{background:var(--uyari)}
-  .uyariKart.hata{background:var(--hata-yumusak);border-color:var(--hata);color:var(--hata)}
-  .uyariKart.hata button{background:var(--hata)}
-  .uyariKart.iyi{background:var(--iyi-yumusak);border-color:var(--iyi);color:var(--iyi)}
-  .uyariKart svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;
-                 stroke-linecap:round;stroke-linejoin:round;flex:none;margin-top:1px}
-  .uyariKart .ikincilDugme{background:transparent !important;border:1px solid currentColor !important;color:inherit !important}
-
-  .hedefKart{display:flex;align-items:center;gap:11px;padding:13px 16px;margin-bottom:18px;
-             background:var(--kart);border:1px solid var(--cizgi);border-radius:14px;font-size:13px;
-             box-shadow:var(--golge-s)}
-  .nokta{width:8px;height:8px;border-radius:50%;background:var(--silik);flex:none}
-  .hedefKart.canli .nokta{background:var(--iyi);box-shadow:0 0 0 4px var(--iyi-yumusak)}
-  .hedefAd{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hedefUrl{color:var(--silik);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ayarSatir{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--cizgi)}
+  .ayarSatir:last-child{border-bottom:0}
+  .ayarMetin{flex:1;min-width:0}
+  .ayarAd{font-weight:600;font-size:13.5px}
+  .ayarNot{font-size:12px;color:var(--silik);margin-top:2px}
+  .isik{width:9px;height:9px;border-radius:50%;flex:none}
+  .isik.acik{background:var(--iyi);box-shadow:0 0 0 3px var(--iyi-yumusak)}
+  .isik.kapali{background:var(--hata);box-shadow:0 0 0 3px var(--hata-yumusak)}
 
   /* ── Giriş ───────────────────────────────────────────────────────── */
   .giris{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
-         padding:24px;background:radial-gradient(900px 460px at 50% -10%, var(--vurgu-yumusak), transparent 70%),var(--zemin)}
-  .gkart{width:100%;max-width:360px;background:var(--kart);border:1px solid var(--cizgi);
-         border-radius:20px;padding:32px 30px;box-shadow:var(--golge)}
-  .gkart .amblem{width:52px;height:52px;border-radius:16px;margin-bottom:18px}
-  .gkart .amblem svg{width:26px;height:26px}
+         padding:24px;
+         background:radial-gradient(880px 450px at 50% -8%, var(--vurgu-yumusak), transparent 70%),var(--zemin)}
+  .gkart{width:100%;max-width:350px;background:var(--kart);border:1px solid var(--cizgi);
+         border-radius:20px;padding:30px 30px 26px;box-shadow:var(--golge)}
+  .gkart .amblem{width:50px;height:50px;border-radius:15px;margin-bottom:18px}
+  .gkart .amblem svg{width:25px;height:25px}
   .gbaslik{font-size:21px;font-weight:700;letter-spacing:-.4px}
   .galt{margin:5px 0 22px;font-size:13px;color:var(--sonuk)}
   .kod{letter-spacing:.45em;text-align:center;font-size:19px;font-weight:600}
@@ -244,29 +227,23 @@
   .onay{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
         font-size:13px;color:var(--sonuk);margin:12px 0 4px}
   .onay input{accent-color:var(--vurgu);margin:0;width:15px;height:15px}
-  .not{margin-top:14px;font-size:11.5px;color:var(--silik);text-align:center;line-height:1.5}
-
-  /* ── Katman ──────────────────────────────────────────────────────── */
-  .katman{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
-          padding:20px;background:rgba(10,8,26,.55);backdrop-filter:blur(3px)}
-  .kart{width:100%;max-width:460px;max-height:100%;display:flex;flex-direction:column;
-        background:var(--kart);border:1px solid var(--cizgi);border-radius:20px;
-        box-shadow:var(--golge);overflow:hidden}
-  .kBaslik{display:flex;align-items:center;justify-content:space-between;gap:10px;
-           padding:16px 20px;border-bottom:1px solid var(--cizgi);font-weight:700;font-size:15px}
-  .kGovde{padding:20px;overflow-y:auto;min-height:0}
-  .kAlt{display:flex;gap:10px;padding:16px 20px;border-top:1px solid var(--cizgi)}
-  .kAlt .ana{flex:1}
-  .ikili{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .uretecCikti{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:17px;
-               padding:16px;border:1px solid var(--cizgi);border-radius:13px;background:var(--kart2);
-               word-break:break-all;text-align:center;margin-bottom:16px;letter-spacing:.4px}
-  .kaydirici{display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:13px}
-  .kaydirici input[type=range]{flex:1;accent-color:var(--vurgu)}
+  .not{margin-top:14px;font-size:11.5px;color:var(--silik);text-align:center;line-height:1.6}
+  .not button{background:none;border:0;color:var(--vurgu);padding:0;
+              text-decoration:underline;font-size:11.5px}
 </style>
 
-<!-- ══ Giriş (kasa üstünde tam ekran katman) ══ -->
-<div class="giris" id="girisEkrani">
+<!-- ══ Açılış ══ -->
+<div class="acilis" id="acilis">
+  <div class="amblem">
+    <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+  </div>
+  <div class="acilisAd">Bogahost Kasa</div>
+  <div class="cizgiYuk"><i></i></div>
+  <div class="acilisNot" id="acilisNot">Başlatılıyor…</div>
+</div>
+
+<!-- ══ Giriş ══ -->
+<div class="giris gizli" id="girisEkrani">
   <div class="gkart">
     <div class="amblem">
       <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
@@ -289,70 +266,57 @@
 
     <label class="onay" id="hatirlaSatir">
       <input type="checkbox" id="hatirla" checked>
-      <span>Beni hatırla — her açılışta sorma</span>
+      <span>Beni hatırla</span>
     </label>
 
     <button class="ana" id="girisDugme">Giriş yap</button>
     <div class="durum" id="girisDurum" style="text-align:center;margin-top:10px"></div>
     <div class="not">
       Kasa erişimi iki adımlı doğrulama gerektirir.<br>
-      <span id="surumMetin">Bogahost Kasa</span> ·
-      <button id="guncelAra" style="background:none;border:0;color:var(--vurgu);padding:0;text-decoration:underline;font-size:11.5px">güncellemeleri denetle</button>
+      <span id="surumGiris">Bogahost Kasa</span> ·
+      <button id="guncelAra">güncellemeleri denetle</button>
     </div>
   </div>
 </div>
 
-<!-- ══ Gezinme rayı ══ -->
-<nav class="ray gizli" id="ray">
-  <div class="rayUst">
-    <div class="amblem">
-      <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-    </div>
-    <div style="min-width:0">
-      <div class="rayMarka">Kasa</div>
-      <div class="rayKimlik" id="rayKimlik"></div>
-    </div>
-  </div>
-  <div class="rayMenu">
-    <button class="rayOge secili" data-bolum="genel">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
-      Genel Bakış
-    </button>
-    <button class="rayOge" data-bolum="kayitlar">
-      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 10h18"/></svg>
-      Kayıtlar <span class="say" id="sayKayit">0</span>
-    </button>
-    <button class="rayOge" data-bolum="uretec">
-      <svg viewBox="0 0 24 24"><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/><circle cx="12" cy="12" r="3.5"/></svg>
-      Parola Üreteci
-    </button>
-    <button class="rayOge" data-bolum="sistem">
-      <svg viewBox="0 0 24 24"><path d="M12 2.5 4 6v6c0 5 3.4 8.6 8 9.5 4.6-.9 8-4.5 8-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg>
-      Sistem <span class="say gizli" id="sayUyari">0</span>
-    </button>
-  </div>
-  <div class="rayAlt">
-    <span id="surumMetin2">Bogahost Kasa</span><br>
-    <button id="cikisDugme">oturumu kapat</button>
-  </div>
-</nav>
+<!-- ══ Güncelleme şeridi ══ -->
+<div class="serit bilgi gizli" id="guncelSerit">
+  <div class="bosluk"><b>Yeni sürüm hazır:</b> <span id="guncelSurum"></span></div>
+  <button id="guncelUygula">Şimdi güncelle</button>
+</div>
+<!-- ══ İzin şeridi — doldurma tamamen durduğu için üstte ══ -->
+<div class="serit hata gizli" id="izinSerit">
+  <div class="bosluk"><b>Erişilebilirlik izni yok</b> — doldurma çalışmaz.</div>
+  <button id="izinAc">Ayarları aç</button>
+</div>
 
-<!-- ══ İçerik ══ -->
-<div class="icerik gizli" id="icerik">
-  <div class="basliksatir">
-    <div>
-      <div class="h1" id="sayfaBaslik">Genel Bakış</div>
-      <div class="h1alt" id="sayfaAlt"></div>
-    </div>
-    <div class="bosluk"></div>
-    <button class="ikon" id="yeniDugme" title="Yeni kayıt (⌘N)">
-      <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-    </button>
-    <button class="ikon" id="tazeleDugme" title="Yenile">
-      <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
-    </button>
+<!-- ══ Ana ekran ══ -->
+<div class="ust gizli" id="ust">
+  <div class="amblem">
+    <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
   </div>
-  <div class="sayfa" id="sayfa"></div>
+  <div class="araSar">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+    <input class="metin" type="text" id="ara" placeholder="Ara  ( / )">
+  </div>
+  <div class="bosluk"></div>
+  <button class="ikon" id="yeniDugme" title="Yeni kayıt">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+  </button>
+  <div class="dislicSar">
+    <button class="ikon" id="ayarDugme" title="Ayarlar">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+    </button>
+    <span class="rozetSay gizli" id="ayarSay">0</span>
+  </div>
+</div>
+
+<div class="cipler gizli" id="cipler"></div>
+<div class="liste gizli" id="liste"></div>
+<div class="altBilgi gizli" id="altBilgi">
+  <span id="sayiMetin"></span>
+  <div class="bosluk"></div>
+  <span id="kisayolMetin"></span>
 </div>
 
 <!-- ══ Kayıt formu ══ -->
@@ -369,7 +333,7 @@
       </div>
       <div class="alan">
         <label class="etiket" for="fUrl">Adres</label>
-        <input class="metin" type="text" id="fUrl" placeholder="https://ornek.com/login" spellcheck="false">
+        <input class="metin" type="text" id="fUrl" placeholder="https://ornek.com/giris" spellcheck="false">
         <div class="durum" style="margin-top:5px">Giriş sayfasının <b>tam adresini</b> yazın — doldurma yolu da karşılaştırır.</div>
       </div>
       <div class="ikili">
@@ -402,9 +366,24 @@
       </div>
       <div class="durum" id="formDurum"></div>
     </div>
-    <div class="kAlt">
+    <div class="kAyak">
       <button class="ana" id="formKaydet">Kaydet</button>
       <button class="ikincil" id="formVazgec">Vazgeç</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Ayarlar ══ -->
+<div class="katman gizli" id="ayarKatman">
+  <div class="kart" style="max-width:450px">
+    <div class="kBaslik">
+      <span>Ayarlar</span>
+      <button class="ikon" id="ayarKapat"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="kGovde" id="ayarGovde"></div>
+    <div class="kAyak">
+      <button class="ana" id="ayarTamam">Kapat</button>
+      <button class="ikincil" id="cikisDugme">Oturumu kapat</button>
     </div>
   </div>
 </div>
@@ -412,546 +391,255 @@
 <script>
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
-const bildirim = window.__TAURI__.notification;
-const pencereApi = window.__TAURI__.window;
 
 const $ = (id) => document.getElementById(id);
 
-let kayitlar = [], secili = null, adimIki = false, hedefSon = null;
-let bolum = 'genel', kategori = 'hepsi', arama = '';
-let sonAdres = '', sonBildirilen = '', eslesme = null, dolduruluyor = false;
+let kayitlar = [], acikId = null, adimIki = false, kategori = 'hepsi';
 let formId = null, denetleniyor = false;
-let guncelDurum = null, izinDurum = null, politikaDurum = null;
+let guncelDurum = null, izinDurum = null, politikaDurum = null, kopruDurum = null;
 
-/* Renk etiketten türetiliyor: aynı kayıt her açılışta aynı rengi alsın diye
-   rastgele değil, adın kendisinden. */
-function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return `hsl(${h} 48% 45%)`; }
-function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]?.[0]||'?')+(p[1]?.[0]||'')).toUpperCase(); }
+function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
+function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
-function alanAdi(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return (u||'').slice(0,44); } }
 function durumYaz(el,m,t){ if(!el) return; el.className='durum'+(t?' '+t:''); el.textContent=m||''; }
 function yerelOku(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function yerelYaz(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+const mac = navigator.platform.toLowerCase().indexOf('mac') >= 0;
 
-/** "3 gün önce" gibi. Kesin tarih yerine mesafe, listede daha okunur. */
+/** "3 gün önce" — listede kesin tarihten daha okunur. */
 function gecen(iso){
   if(!iso) return null;
-  const t = new Date(iso).getTime();
-  if(isNaN(t)) return null;
-  const f = Math.floor((Date.now()-t)/1000);
-  if(f < 60) return 'az önce';
-  if(f < 3600) return Math.floor(f/60)+' dk önce';
-  if(f < 86400) return Math.floor(f/3600)+' saat önce';
-  const g = Math.floor(f/86400);
-  if(g < 30) return g+' gün önce';
-  if(g < 365) return Math.floor(g/30)+' ay önce';
+  const t=new Date(iso).getTime(); if(isNaN(t)) return null;
+  const f=Math.floor((Date.now()-t)/1000);
+  if(f<60) return 'az önce';
+  if(f<3600) return Math.floor(f/60)+' dk önce';
+  if(f<86400) return Math.floor(f/3600)+' saat önce';
+  const g=Math.floor(f/86400);
+  if(g<30) return g+' gün önce';
+  if(g<365) return Math.floor(g/30)+' ay önce';
   return Math.floor(g/365)+' yıl önce';
-}
-
-/* Kaydın adresi hedefin adresiyle YOL DÜZEYİNDE uyuşuyor mu?
-   Sunucu eşleştirmeyi alan adı düzeyinde yapıyor; "ornek.com/giris" kaydı
-   "ornek.com/panel/arama" ile de eşleşiyor. Kayıtta yol yoksa alan adı yeter. */
-function yolUyar(kayitUrl, hedefUrl){
-  if(!kayitUrl) return true;
-  try{
-    const k=new URL(kayitUrl), h=new URL(hedefUrl);
-    if(k.hostname.replace(/^www\./,'')!==h.hostname.replace(/^www\./,'')) return false;
-    const ky=k.pathname.replace(/\/+$/,''); if(!ky) return true;
-    const hy=h.pathname.replace(/\/+$/,'');
-    return hy===ky || hy.startsWith(ky+'/');
-  }catch(e){ return false; }
 }
 
 /* ══ Giriş ══════════════════════════════════════════════════════════ */
 $('girisDugme').onclick = async () => {
   const d=$('girisDurum'), b=$('girisDugme');
-  b.disabled = true;
+  b.disabled=true;
   try{
     if(!adimIki){
       durumYaz(d,'Bağlanılıyor…');
-      const s = await invoke('giris_yap',{kullanici:$('kullanici').value.trim(), sifre:$('sifre').value});
+      const s=await invoke('giris_yap',{kullanici:$('kullanici').value.trim(), sifre:$('sifre').value});
       if(!s.tamam){
         durumYaz(d, s.kurulum_gerekli
-          ? 'İki adımlı doğrulama kurulu değil. Yöneticinizden Kasa Kullanıcıları ekranından kurmasını isteyin.'
+          ? 'İki adımlı doğrulama kurulu değil. Yöneticinizden kurmasını isteyin.'
           : (s.hata||'Giriş yapılamadı.'), 'hata');
         return;
       }
-      adimIki = true;
+      adimIki=true;
       $('sifre').value='';
       $('alanKullanici').classList.add('gizli');
       $('alanSifre').classList.add('gizli');
       $('hatirlaSatir').classList.add('gizli');
       $('alanKod').classList.remove('gizli');
-      $('girisAlt').textContent = (s.kullanici ? s.kullanici+' — ' : '')+'doğrulama kodunu girin.';
+      $('girisAlt').textContent=(s.kullanici?s.kullanici+' — ':'')+'doğrulama kodunu girin.';
       b.textContent='Doğrula'; $('kod').focus(); durumYaz(d,'');
       return;
     }
     durumYaz(d,'Doğrulanıyor…');
-    const s = await invoke('kod_dogrula',{kod:$('kod').value.trim()});
-    if(!s.tamam){ durumYaz(d, s.hata||'Kod doğrulanamadı.', 'hata'); return; }
-    yerelYaz('kasaHatirla', $('hatirla').checked ? '1' : '0');
-    if(s.kullanici) yerelYaz('kasaKimlik', s.kullanici);
+    const s=await invoke('kod_dogrula',{kod:$('kod').value.trim()});
+    if(!s.tamam){ durumYaz(d, s.hata||'Kod doğrulanamadı.','hata'); return; }
+    yerelYaz('kasaHatirla', $('hatirla').checked?'1':'0');
     await kasayiAc();
   }catch(e){ durumYaz(d,'Hata: '+e,'hata'); }
   finally{ b.disabled=false; }
 };
-['kullanici','sifre','kod'].forEach(id =>
-  $(id).addEventListener('keydown', e=>{ if(e.key==='Enter') $('girisDugme').click(); }));
-$('kod').addEventListener('input', e=>{
-  e.target.value = e.target.value.replace(/\D/g,'');
+['kullanici','sifre','kod'].forEach(function(id){
+  $(id).addEventListener('keydown', function(e){ if(e.key==='Enter') $('girisDugme').click(); });
+});
+$('kod').addEventListener('input', function(e){
+  e.target.value=e.target.value.replace(/\D/g,'');
   if(e.target.value.length===6) $('girisDugme').click();
 });
 
-/* ══ Kabuk ══════════════════════════════════════════════════════════ */
-async function kasayiAc(){
-  $('girisEkrani').classList.add('gizli');
-  $('ray').classList.remove('gizli');
-  $('icerik').classList.remove('gizli');
-  $('rayKimlik').textContent = yerelOku('kasaKimlik') || '';
-  await surumYaz();
-
-  izinDurum = await invoke('izinler').catch(()=>null);
-  await politikaDenetle(true);
-  try{ hedefSon = await invoke('hedef'); }catch(e){}
-  await yenile();
-  uyariSayisiYaz();
+function girisiGoster(){
+  $('girisEkrani').classList.remove('gizli');
+  acilisiKapat();
+  $('kullanici').focus();
 }
 
-document.querySelectorAll('.rayOge').forEach(b=>{
-  b.onclick = ()=>{
-    document.querySelectorAll('.rayOge').forEach(x=>x.classList.remove('secili'));
-    b.classList.add('secili');
-    bolum = b.dataset.bolum;
-    ciz();
-  };
-});
+/* ══ Ana ekran ══════════════════════════════════════════════════════ */
+async function kasayiAc(){
+  $('girisEkrani').classList.add('gizli');
+  ['ust','cipler','liste','altBilgi'].forEach(function(id){ $(id).classList.remove('gizli'); });
+  $('kisayolMetin').textContent = (mac?'⌘ + Alt + K':'Ctrl + Alt + K')+' — hedef pencerede doldurma paneli';
+  await surumYaz();
+  await yenile();
+  acilisiKapat();
+
+  // Durum sorguları listeden SONRA: kullanıcı önce kayıtlarını görsün.
+  izinDurum = await invoke('izinler').catch(function(){ return null; });
+  izinSeridi();
+  politikaDurum = await invoke('politika_durum').catch(function(){ return null; });
+  kopruDurum = await invoke('kopru_durum').catch(function(){ return null; });
+  uyariSayisi();
+}
 
 async function yenile(){
-  try{ kayitlar = await invoke('kayitlar'); }
-  catch(e){ kayitlar=[]; }
-  $('sayKayit').textContent = kayitlar.length;
+  try{ kayitlar = await invoke('kayitlar'); }catch(e){ kayitlar=[]; }
   ciz();
 }
 
-function uyariSayisiYaz(){
-  let n=0;
-  if(guncelDurum && guncelDurum.var) n++;
-  if(izinDurum && !izinDurum.erisilebilirlik) n++;
-  if(politikaDurum && politikaDurum.kurulabilir && !(politikaDurum.kasa_kapali&&politikaDurum.eklenti_zorunlu)) n++;
-  const e=$('sayUyari');
-  e.textContent=n; e.classList.toggle('gizli', n===0);
-  e.classList.toggle('uyari', n>0);
-}
-
-/* ══ Çizim ══════════════════════════════════════════════════════════ */
-function ciz(){
-  const basliklar = {genel:'Genel Bakış', kayitlar:'Kayıtlar', uretec:'Parola Üreteci', sistem:'Sistem'};
-  $('sayfaBaslik').textContent = basliklar[bolum];
-  $('yeniDugme').classList.toggle('gizli', bolum!=='kayitlar' && bolum!=='genel');
-
-  if(bolum==='genel') cizGenel();
-  else if(bolum==='kayitlar') cizKayitlar();
-  else if(bolum==='uretec') cizUretec();
-  else cizSistem();
-}
-
-/* ── Genel bakış ─────────────────────────────────────────────────── */
-function cizGenel(){
-  const t=kayitlar.length;
-  const doldurulabilir=kayitlar.filter(k=>k.url||k.ip).length;
-  const benim=kayitlar.filter(k=>k.benim).length;
-  const zayif=kayitlar.filter(k=>k.guc!==null&&k.guc!==undefined&&k.guc<=1).length;
-  const gizliler=kayitlar.filter(k=>k.gosterilebilir===false).length;
-  const kullanilan=kayitlar.filter(k=>k.son_kullanim).length;
-
-  $('sayfaAlt').textContent = t ? t+' kayıt · '+doldurulabilir+' tanesi doldurulabilir' : '';
-
-  const kpi=(ikon,ad,sayi,not,sinif)=>
-    '<div class="kpi '+(sinif||'')+'">'
-    + '<div class="kpiUst">'+ikon+'<span class="kpiAd">'+esc(ad)+'</span></div>'
-    + '<div class="kpiSayi">'+sayi+'</div>'
-    + (not?'<div class="kpiNot">'+esc(not)+'</div>':'')+'</div>';
-  const iKilit='<svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
-  const iKalem='<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
-  const iUyari='<svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
-  const iGoz='<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>';
-
-  const kat={};
-  kayitlar.forEach(k=>{ const c=(k.category||'').trim()||'kategorisiz'; kat[c]=(kat[c]||0)+1; });
-  const sirali=Object.entries(kat).sort((a,b)=>b[1]-a[1]).slice(0,7);
-  const enBuyuk=sirali.length?sirali[0][1]:1;
-
-  const sonKullanilan = kayitlar.filter(k=>k.son_kullanim)
-    .sort((a,b)=>new Date(b.son_kullanim)-new Date(a.son_kullanim)).slice(0,5);
-
-  $('sayfa').innerHTML =
-    '<div class="kpiIzgara">'
-    +   kpi(iKilit,'Toplam kayıt',t, doldurulabilir+' doldurulabilir','mor')
-    +   kpi(iKalem,'Size ait',benim,'düzenleyip silebilirsiniz')
-    +   kpi(iUyari,'Zayıf parola',zayif, zayif?'güçlendirilmeli':'hepsi iyi', zayif?'kirmizi':'yesil')
-    +   kpi(iGoz,'Gizli kayıt',gizliler,'görüntülenemez, doldurulur', gizliler?'sari':'')
-    + '</div>'
-    + (sirali.length
-      ? '<div class="bolum">Kategoriler</div><div class="dagilim">'
-        + sirali.map(([ad,n])=>
-            '<div class="dSatir"><div class="dAd">'+esc(ad)+'</div>'
-            + '<div class="dCubuk"><i style="width:'+Math.round(n/enBuyuk*100)+'%"></i></div>'
-            + '<div class="dSay">'+n+'</div></div>').join('')
-        + '</div>' : '')
-    + (sonKullanilan.length
-      ? '<div class="bolum">Son kullanılanlar</div><div class="dagilim" style="padding:8px 10px">'
-        + sonKullanilan.map(k=>
-            '<div class="kayitKart" style="box-shadow:none;border:0;margin:0" data-id="'+k.id+'">'
-            + '<div class="avatar" style="background:'+renk(k.label||'?')+'">'+esc(basHarf(k.label||'?'))+'</div>'
-            + '<div class="kMetin"><div class="kAd">'+esc(k.label||'(adsız)')+'</div>'
-            + '<div class="kAlt">'+esc(gecen(k.son_kullanim)||'')+'</div></div></div>').join('')
-        + '</div>'
-      : '<div class="bolum">Son kullanılanlar</div><div class="dagilim"><div class="kpiNot">Henüz hiçbir kayıt kullanılmadı.</div></div>')
-    + (kullanilan===0&&t>0 ? '' : '');
-
-  $('sayfa').querySelectorAll('[data-id]').forEach(el=>{
-    el.onclick=()=>{ secili=kayitlar.find(k=>k.id==el.dataset.id)||null;
-      document.querySelectorAll('.rayOge').forEach(x=>x.classList.toggle('secili', x.dataset.bolum==='kayitlar'));
-      bolum='kayitlar'; ciz(); };
-  });
-}
-
-/* ── Kayıtlar ────────────────────────────────────────────────────── */
 function suzulmus(){
-  const s=arama.trim().toLowerCase();
-  return kayitlar.filter(k=>{
+  const s=$('ara').value.trim().toLowerCase();
+  return kayitlar.filter(function(k){
     if(kategori!=='hepsi' && ((k.category||'').trim()||'kategorisiz')!==kategori) return false;
     if(!s) return true;
-    return ((k.label||'')+' '+(k.username||'')+' '+(k.domain||'')+' '+(k.category||'')).toLowerCase().includes(s);
+    return ((k.label||'')+' '+(k.username||'')+' '+(k.domain||'')+' '+(k.category||'')).toLowerCase().indexOf(s)>=0;
   });
 }
 
-function cizKayitlar(){
+function ciz(){
+  const kats=[];
+  kayitlar.forEach(function(k){
+    const c=(k.category||'').trim()||'kategorisiz';
+    if(kats.indexOf(c)<0) kats.push(c);
+  });
+  kats.sort();
+  $('cipler').innerHTML = (kats.length>1)
+    ? ['hepsi'].concat(kats).map(function(c){
+        return '<button class="cip'+(kategori===c?' secili':'')+'" data-kat="'+esc(c)+'">'
+             + esc(c==='hepsi'?'Hepsi':c)+'</button>';
+      }).join('')
+    : '';
+  Array.prototype.forEach.call($('cipler').querySelectorAll('[data-kat]'), function(b){
+    b.onclick=function(){ kategori=b.dataset.kat; acikId=null; ciz(); };
+  });
+
   const g=suzulmus();
-  if(!secili || !g.some(k=>k.id===secili.id)) secili = g[0] || null;
-  $('sayfaAlt').textContent = g.length+' kayıt gösteriliyor';
+  $('sayiMetin').textContent = kayitlar.length ? g.length+' / '+kayitlar.length+' kayıt' : '';
 
-  const kats=['hepsi',...new Set(kayitlar.map(k=>(k.category||'').trim()||'kategorisiz'))];
-
-  $('sayfa').innerHTML =
-    '<div class="kayitDuzen">'
-    + '<div class="kayitSol">'
-    +   '<div class="araKutu">'
-    +     '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>'
-    +     '<input class="metin" type="text" id="ara" placeholder="Ara  ( / )" value="'+esc(arama)+'">'
-    +   '</div>'
-    +   '<div class="cipler">'+kats.map(c=>
-          '<button class="cip'+(kategori===c?' secili':'')+'" data-kat="'+esc(c)+'">'
-          + esc(c==='hepsi'?'Hepsi':c)+'</button>').join('')+'</div>'
-    +   '<div class="kartListe" id="kartListe">'+(g.length?g.map(kayitKartHtml).join(''):'')+'</div>'
-    + '</div>'
-    + '<div class="kayitSag" id="kayitSag"></div>'
-    + '</div>';
-
-  if(!g.length) $('kartListe').innerHTML='<div class="bosDurum">'
-    + (kayitlar.length?'Aramaya uyan kayıt yok.':'Kasanızda henüz kayıt yok.')+'</div>';
-
-  $('ara').oninput = e=>{ arama=e.target.value; cizKayitlar(); $('ara').focus(); };
-  $('sayfa').querySelectorAll('[data-kat]').forEach(b=>{
-    b.onclick=()=>{ kategori=b.dataset.kat; cizKayitlar(); };
+  if(!g.length){
+    $('liste').innerHTML = '<div class="bos"><b>'
+      + (kayitlar.length?'Aramaya uyan kayıt yok':'Kasanız boş')+'</b>'
+      + (kayitlar.length?'Farklı bir şey arayın.':'Sağ üstteki + ile ilk kaydınızı ekleyin.')+'</div>';
+    return;
+  }
+  $('liste').innerHTML = g.map(kayitHtml).join('');
+  Array.prototype.forEach.call($('liste').querySelectorAll('[data-ac]'), function(el){
+    el.onclick=function(){
+      acikId = (acikId===Number(el.dataset.ac)) ? null : Number(el.dataset.ac);
+      ciz();
+    };
   });
-  $('sayfa').querySelectorAll('.kayitKart[data-id]').forEach(el=>{
-    el.onclick=()=>{ secili=kayitlar.find(k=>k.id==el.dataset.id)||null; cizKayitlar(); };
-    el.ondblclick=()=>doldur();
-  });
-  detayCiz();
+  bagla();
 }
 
-function kayitKartHtml(k){
+function kayitHtml(k){
   const ad=k.label||'(adsız)';
+  const acik=acikId===k.id;
   const guc=(k.guc===null||k.guc===undefined)?null:k.guc;
-  return '<div class="kayitKart'+(secili&&secili.id===k.id?' secili':'')+'" data-id="'+k.id+'">'
-    + '<div class="avatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</div>'
-    + '<div class="kMetin">'
-    +   '<div class="kAd">'+esc(ad)+'</div>'
-    +   '<div class="kAlt">'+esc([k.username,k.domain].filter(Boolean).join('  ·  ')||'—')+'</div>'
-    + '</div>'
-    + '<div class="rozetler">'
-    +   (k.gosterilebilir===false?'<span class="mini gizliR">GİZLİ</span>':'')
-    +   (eslesme&&eslesme.id===k.id?'<span class="mini eslesmeR">EŞLEŞTİ</span>':'')
-    +   (guc!==null?'<span class="gucNokta g'+guc+'" title="Parola gücü"><i></i><i></i><i></i><i></i></span>':'')
-    + '</div></div>';
-}
-
-function detayCiz(){
-  const s=$('kayitSag'); if(!s) return;
-  if(!secili){ s.innerHTML='<div class="bosDurum">Soldan bir kayıt seçin.</div>'; return; }
-  const k=secili, ad=k.label||'(adsız)';
   const gorunur=k.gosterilebilir!==false;
   const benim=!!k.benim;
-  // Doldurulabilir kayıt = adresi ya da IP'si var. Bu kayıtlarda parola panoya
-  // alınmıyor; hedefe doğrudan yazılıyor. Kararı sunucu da uyguluyor.
+  // Doldurulabilir kayıt = adresi ya da IP'si var. Bunlarda parola panoya
+  // alınmıyor, hedefe doğrudan yazılıyor. Kararı sunucu da uyguluyor.
   const kopyalanamaz=!!(k.url||k.ip);
-  const guc=(k.guc===null||k.guc===undefined)?null:k.guc;
   const gucAd=['zayıf','orta','iyi','güçlü'][guc]||'—';
   const gucRenk=['var(--hata)','var(--uyari)','var(--vurgu)','var(--iyi)'][guc]||'var(--cizgi)';
 
-  s.innerHTML =
-    '<div class="detayKart">'
-    + '<div class="detayUst">'
-    +   '<div class="dAvatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</div>'
-    +   '<div style="min-width:0"><div class="dBaslikAd">'+esc(ad)+'</div>'
-    +   '<div class="dBaslikAlt">'+esc((k.category||'kategorisiz')+(benim?'':' · başkasının kaydı'))+'</div></div>'
-    + '</div>'
-    + sd('Kullanıcı', k.username||'—','mono')
-    + sd('Adres', k.url||k.domain||'—')
-    + sd('IP', k.ip||'—','mono')
-    + sd('Şifre', !gorunur?'gizli — yalnızca doldurulabilir'
-        :(kopyalanamaz?'•••••••••• — kopyalanamaz, doldurulur':'••••••••••'),'mono')
-    + (guc!==null
-        ? '<div class="sdSatir"><div class="sdEt">Güç</div><div class="sdDg">'+esc(gucAd)
-          + '<div class="gucCubuk"><i style="width:'+((guc+1)*25)+'%;background:'+gucRenk+'"></i></div></div></div>'
-        : '')
-    + sd('Son kullanım', gecen(k.son_kullanim)||'hiç kullanılmadı')
-    + sd('Eklenme', gecen(k.olusturma)||'—')
-    + '<div class="eylemler">'
-    +   '<button class="ana" id="dDoldur">Doldur</button>'
-    +   '<button class="ikincil" id="dKadi"'+(gorunur?'':' disabled')+'>Kullanıcıyı kopyala</button>'
-    +   '<button class="ikincil" id="dSifre"'+((gorunur&&!kopyalanamaz)?'':' disabled')
-    +     ' title="'+(kopyalanamaz?'Doldurulabilir kayıt — kopyalanamaz':'Şifreyi kopyala')+'">Şifreyi kopyala</button>'
-    +   '<button class="ikincil" id="dDuzenle"'+(benim?'':' disabled')+'>Düzenle</button>'
-    +   '<button class="ikincil" id="dSil"'+(benim?'':' disabled')+'>Sil</button>'
-    + '</div></div>'
-    + '<div class="durum" id="durum" style="margin-top:14px"></div>'
-    + hedefKartHtml();
+  let h='<div class="kayit'+(acik?' acik':'')+'">'
+    + '<div class="basSatir" data-ac="'+k.id+'">'
+    +   '<div class="avatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</div>'
+    +   '<div class="kMetin"><div class="kAd">'+esc(ad)+'</div>'
+    +     '<div class="kAlt">'+esc([k.username,k.domain].filter(Boolean).join('  ·  ')||'—')+'</div></div>'
+    +   '<div class="sag">'
+    +     (gorunur?'':'<span class="mini gizliR">GİZLİ</span>')
+    +     (guc!==null?'<span class="guc g'+guc+'" title="Parola gücü: '+gucAd+'"><i></i><i></i><i></i><i></i></span>':'')
+    +     '<svg class="ok" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>'
+    +   '</div></div>';
 
-  $('dDoldur').onclick=()=>doldur();
-  $('dKadi').onclick=kullaniciKopyala;
-  $('dSifre').onclick=sifreKopyala;
-  $('dDuzenle').onclick=()=>formAc(secili);
-  $('dSil').onclick=kayitSil;
-}
-function sd(e,d,sinif){
-  return '<div class="sdSatir"><div class="sdEt">'+esc(e)+'</div>'
-       + '<div class="sdDg '+(sinif||'')+'">'+esc(d)+'</div></div>';
-}
-
-function hedefKartHtml(){
-  const h=hedefSon;
-  const mac=navigator.platform.toLowerCase().includes('mac');
-  const kisayol = mac ? '⌘ + Alt + K' : 'Ctrl + Alt + K';
-  if(!h||!h.program){
-    return '<div class="hedefKart"><span class="nokta"></span>'
-      + '<span class="hedefAd">Hedef bekleniyor</span>'
-      + '<span class="hedefUrl">— bir programa geçin, ya da '+kisayol+'</span></div>';
+  if(acik){
+    h += '<div class="detay">'
+      + ds('Kullanıcı', k.username||'—','mono')
+      + ds('Adres', k.url||k.domain||'—')
+      + (k.ip?ds('IP',k.ip,'mono'):'')
+      + ds('Şifre', !gorunur?'gizli — yalnızca doldurulabilir'
+          :(kopyalanamaz?'•••••••••• — kopyalanamaz, doldurulur':'••••••••••'),'mono')
+      + (guc!==null?'<div class="dSatir"><div class="dEt">Güç</div><div class="dDg">'+esc(gucAd)
+          +'<div class="gucCubuk"><i style="width:'+((guc+1)*25)+'%;background:'+gucRenk+'"></i></div></div></div>':'')
+      + ds('Son kullanım', gecen(k.son_kullanim)||'hiç kullanılmadı')
+      + '<div class="eylem">'
+      +   '<button class="ana" data-doldur="'+k.id+'">Doldur</button>'
+      +   '<button class="ikincil" data-kadi="'+k.id+'"'+(gorunur?'':' disabled')+'>Kullanıcıyı kopyala</button>'
+      +   '<button class="ikincil" data-sifre="'+k.id+'"'+((gorunur&&!kopyalanamaz)?'':' disabled')
+      +     ' title="'+(kopyalanamaz?'Doldurulabilir kayıt — kopyalanamaz':'Şifreyi kopyala')+'">Şifreyi kopyala</button>'
+      +   '<button class="ikincil" data-duzenle="'+k.id+'"'+(benim?'':' disabled')+'>Düzenle</button>'
+      +   '<button class="ikincil" data-sil="'+k.id+'"'+(benim?'':' disabled')+'>Sil</button>'
+      + '</div>'
+      + '<div class="durum" id="d'+k.id+'" style="margin-top:8px"></div>'
+      + '</div>';
   }
-  // Tarayıcıda doğru doldurma yeri sayfanın içi: eklenti parola alanının
-  // altında kendi menüsünü açıp GÖREREK dolduruyor. Uygulama sayfayı göremez.
-  const ad = h.tarayici ? h.program+' — eklenti sayfada sorar' : h.program;
-  const alt = h.url ? alanAdi(h.url) : ((h.baslik||'').trim()!==h.program?(h.baslik||'').slice(0,44):'');
-  return '<div class="hedefKart canli"><span class="nokta"></span>'
-    + '<span class="hedefAd">'+esc(ad)+'</span>'
-    + (alt?'<span class="hedefUrl">· '+esc(alt)+'</span>':'')
-    + '<span style="flex:1"></span><span class="hedefUrl">'+kisayol+'</span></div>';
+  return h+'</div>';
+}
+function ds(e,d,sinif){
+  return '<div class="dSatir"><div class="dEt">'+esc(e)+'</div>'
+       + '<div class="dDg '+(sinif||'')+'">'+esc(d)+'</div></div>';
 }
 
-/* ── Üreteç ──────────────────────────────────────────────────────── */
-function cizUretec(){
-  $('sayfaAlt').textContent='Karışabilen karakterler (0/O, 1/l/I) bilerek dışarıda';
-  $('sayfa').innerHTML =
-    '<div style="max-width:460px">'
-    + '<div class="uretecCikti" id="uretecCikti">—</div>'
-    + '<div class="kaydirici"><span>Uzunluk</span>'
-    +   '<input type="range" id="uUzunluk" min="8" max="64" value="'+(yerelOku("kasaUzunluk")||20)+'">'
-    +   '<b id="uUzunlukMetin" style="width:28px;text-align:right">'+(yerelOku("kasaUzunluk")||20)+'</b></div>'
-    + '<label class="onay"><input type="checkbox" id="uRakam" checked> Rakam içersin</label>'
-    + '<label class="onay"><input type="checkbox" id="uSimge" checked> Simge içersin</label>'
-    + '<div style="display:flex;gap:10px;margin-top:18px">'
-    +   '<button class="ana" id="uKopya">Kopyala</button>'
-    +   '<button class="ikincil" id="uYenile">Yeniden üret</button>'
-    + '</div><div class="durum" id="durum" style="margin-top:12px"></div></div>';
-  $('uUzunluk').addEventListener('input', e=>{
-    $('uUzunlukMetin').textContent=e.target.value; yerelYaz('kasaUzunluk',e.target.value); uret(); });
-  $('uRakam').onchange=uret; $('uSimge').onchange=uret;
-  $('uYenile').onclick=uret;
-  $('uKopya').onclick=async()=>{
-    try{ await panoyaYaz($('uretecCikti').textContent);
-      durumYaz($('durum'),'Panoya kopyalandı.','iyi'); }catch(e){}
-  };
-  uret();
-}
-async function uret(){
-  try{
-    const p=await invoke('parola_uret',{uzunluk:Number($('uUzunluk').value),
-      rakam:$('uRakam').checked, simge:$('uSimge').checked});
-    $('uretecCikti').textContent=p;
-  }catch(e){ $('uretecCikti').textContent='Üretilemedi'; }
+function bagla(){
+  const bul=function(id){ return kayitlar.filter(function(k){ return k.id===Number(id); })[0]; };
+  const her=function(sec,is){ Array.prototype.forEach.call(document.querySelectorAll(sec),is); };
+
+  her('[data-doldur]', function(b){ b.onclick=async function(e){
+    e.stopPropagation(); const k=bul(b.dataset.doldur); if(!k) return;
+    const d=$('d'+k.id); durumYaz(d,'Şifre alınıyor…');
+    try{
+      const s=await invoke('doldur',{id:k.id, enterBas:false});
+      durumYaz(d, s.mesaj, s.tamam?'iyi':'hata');
+      if(s.tamam) await yenile();
+    }catch(err){ durumYaz(d,'Hata: '+err,'hata'); }
+  };});
+  her('[data-kadi]', function(b){ b.onclick=async function(e){
+    e.stopPropagation(); const k=bul(b.dataset.kadi); const d=$('d'+k.id);
+    try{ await panoyaYaz(await invoke('kullanici_adi',{id:k.id}));
+      durumYaz(d,'Kullanıcı adı kopyalandı.','iyi'); }
+    catch(err){ durumYaz(d,String(err),'hata'); }
+  };});
+  her('[data-sifre]', function(b){ b.onclick=async function(e){
+    e.stopPropagation(); const k=bul(b.dataset.sifre); const d=$('d'+k.id);
+    try{ const sn=await invoke('panoya_sifre',{id:k.id});
+      durumYaz(d,'Şifre kopyalandı — '+sn+' sn sonra silinecek.','iyi'); }
+    catch(err){ durumYaz(d,String(err),'hata'); }
+  };});
+  her('[data-duzenle]', function(b){ b.onclick=function(e){
+    e.stopPropagation(); formAc(bul(b.dataset.duzenle));
+  };});
+  her('[data-sil]', function(b){ b.onclick=async function(e){
+    e.stopPropagation(); const k=bul(b.dataset.sil);
+    if(!confirm('"'+k.label+'" silinsin mi? Bu geri alınamaz.')) return;
+    try{ await invoke('kayit_sil',{id:k.id}); acikId=null; await yenile(); }
+    catch(err){ durumYaz($('d'+k.id),String(err),'hata'); }
+  };});
 }
 
-/* ── Sistem ──────────────────────────────────────────────────────── */
-function cizSistem(){
-  $('sayfaAlt').textContent='İzinler, tarayıcı koruması ve güncelleme';
-  const iUyari='<svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
-  const iTik='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>';
-  const iIndir='<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>';
-  let h='';
-
-  if(guncelDurum&&guncelDurum.var){
-    h += kartHtml('bilgi',iIndir,'Yeni sürüm hazır: '+esc(guncelDurum.surum||''),
-      'İndirildi. Uygulamayı yeniden başlatarak tamamlayın.',
-      '<button id="sGuncelle">'+(guncelDurum.elle?'İndirme sayfasını aç':'Şimdi güncelle')+'</button>');
-  }
-  if(izinDurum&&!izinDurum.erisilebilirlik){
-    h += kartHtml('hata',iUyari,'Erişilebilirlik izni yok',
-      'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listede görünse bile “−” ile kaldırıp “+” ile yeniden ekleyin.',
-      '<button id="sIzin">Ayarları aç</button>');
-  }
-  if(politikaDurum&&politikaDurum.kurulabilir&&!(politikaDurum.kasa_kapali&&politikaDurum.eklenti_zorunlu)){
-    h += kartHtml('uyari',iUyari,'Tarayıcı koruması eksik',
-      (politikaDurum.kasa_kapali?'✓':'✕')+' tarayıcı parola kasası kapalı &nbsp;·&nbsp; '
-      +(politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu kurulumda',
-      '<button class="ikincilDugme" id="sEklentiKur">Eklentiyi kur</button>'
-      + '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>'
-      + '<button class="ikincilDugme" id="sPolDenetle">Yeniden denetle</button>'
-      + '<button id="sPolKur">Kur</button>');
-  }
-  if(!h){
-    h = kartHtml('iyi',iTik,'Her şey yolunda',
-      'İzinler verilmiş, tarayıcı koruması etkin, sürüm güncel.',
-      '<button class="ikincilDugme" id="sEklentiKur">Eklentiyi kur</button>'
-      + '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>');
-  }
-
-  h += '<div class="bolum" style="margin-top:22px">Uygulama</div>'
-    + '<div class="dagilim">'
-    +   '<div class="dSatir"><div class="dAd">Sürüm</div><div style="flex:1" id="surumMetin3">—</div></div>'
-    +   '<div class="dSatir"><div class="dAd">Kısayol</div><div style="flex:1">'
-    +     (navigator.platform.toLowerCase().includes('mac')?'⌘ + Alt + K':'Ctrl + Alt + K')+'</div></div>'
-    +   '<div class="dSatir" style="margin-top:6px">'
-    +     '<button class="ikincil" id="sDenetle">Güncellemeleri denetle</button></div>'
-    + '</div>'
-    + '<div class="durum" id="durum" style="margin-top:12px"></div>';
-
-  $('sayfa').innerHTML=h;
-  surumYaz();
-  if($('sGuncelle')) $('sGuncelle').onclick=guncellemeUygula;
-  if($('sIzin')) $('sIzin').onclick=()=>invoke('izin_ayarlarini_ac').catch(()=>{});
-  if($('sPolKur')) $('sPolKur').onclick=politikaKur;
-  if($('sPolDenetle')) $('sPolDenetle').onclick=()=>politikaDenetle(false);
-  if($('sProfilSil')) $('sProfilSil').onclick=profilKaldir;
-  if($('sEklentiKur')) $('sEklentiKur').onclick=eklentiKur;
-  $('sDenetle').onclick=()=>guncellemeAra($('durum'));
-}
-function kartHtml(sinif,ikon,baslik,metin,dugmeler){
-  return '<div class="uyariKart '+sinif+'">'+ikon
-    + '<div class="govde"><h3>'+baslik+'</h3><p>'+metin+'</p></div>'
-    + (dugmeler?'<div class="dugmeler">'+dugmeler+'</div>':'')+'</div>';
-}
-
-async function surumYaz(){
-  try{
-    const v=await window.__TAURI__.app.getVersion();
-    ['surumMetin','surumMetin2','surumMetin3'].forEach(id=>{ const e=$(id); if(e) e.textContent='Bogahost Kasa '+v; });
-  }catch(e){}
-}
-
-/* ══ Hedef ve eşleşme ═══════════════════════════════════════════════ */
-listen('hedef-degisti', async o=>{
-  hedefSon=o.payload;
-  if(bolum==='kayitlar') detayCiz();
-  await otomatikEslestir(o.payload);
-});
-
-/* Adres değişince eşleşen kaydı bulup İŞARETLER — doldurmaz.
-   Kendiliğinden doldurma bilerek kaldırıldı: uygulama sayfanın içini
-   göremediği için hangi alanın ne olduğunu ancak dolaylı işaretlerden
-   çıkarabiliyor. Doldurma her zaman kullanıcının eylemiyle olur. */
-async function otomatikEslestir(h){
-  if(!h||!h.url){ eslesme=null; sonAdres=''; return; }
-  if(h.url===sonAdres) return;
-  sonAdres=h.url;
-  let bulunan=[];
-  try{ bulunan=await invoke('eslesenler',{url:h.url}); }catch(e){ return; }
-  bulunan=bulunan.filter(k=>yolUyar(k.url,h.url));
-  if(!bulunan.length){ eslesme=null; if(bolum==='kayitlar') cizKayitlar(); return; }
-  eslesme=bulunan[0];
-  secili=kayitlar.find(k=>k.id===eslesme.id)||eslesme;
-  if(bolum==='kayitlar') cizKayitlar();
-  if(!(await pencereGorunur())) bildir(eslesme.label, alanAdi(h.url));
-}
-async function pencereGorunur(){
-  try{ const p=pencereApi.getCurrentWindow(); return (await p.isVisible())&&(await p.isFocused()); }
-  catch(e){ return true; }
-}
-async function bildir(etiket,host){
-  if(sonBildirilen===host) return; sonBildirilen=host;
-  try{
-    let izin=await bildirim.isPermissionGranted();
-    if(!izin) izin=(await bildirim.requestPermission())==='granted';
-    if(!izin) return;
-    bildirim.sendNotification({title:'Kasa — '+host, body:`"${etiket}" hazır. Doldurmak için kısayola basın.`});
-  }catch(e){}
-}
-
-/* ══ Eylemler ═══════════════════════════════════════════════════════ */
-async function doldur(){
-  if(dolduruluyor||!secili) return;
-  dolduruluyor=true;
-  durumYaz($('durum'),'Şifre alınıyor…');
-  try{
-    const s=await invoke('doldur',{id:secili.id, enterBas:false});
-    durumYaz($('durum'), s.mesaj, s.tamam?'iyi':'hata');
-    if(s.tamam) await yenile();
-  }catch(e){ durumYaz($('durum'),'Hata: '+e,'hata'); }
-  finally{ dolduruluyor=false; }
-}
 async function panoyaYaz(m){
   const t=window.__TAURI__&&window.__TAURI__.clipboardManager;
   if(t&&t.writeText){ await t.writeText(m); return; }
   await navigator.clipboard.writeText(m);
 }
-async function kullaniciKopyala(){
-  if(!secili) return;
-  try{ await panoyaYaz(await invoke('kullanici_adi',{id:secili.id}));
-    durumYaz($('durum'),'Kullanıcı adı kopyalandı.','iyi'); }
-  catch(e){ durumYaz($('durum'),String(e),'hata'); }
-}
-async function sifreKopyala(){
-  if(!secili) return;
-  try{ const sn=await invoke('panoya_sifre',{id:secili.id});
-    durumYaz($('durum'),`Şifre kopyalandı — ${sn} sn sonra silinecek.`,'iyi'); }
-  catch(e){ durumYaz($('durum'),String(e),'hata'); }
-}
-async function kayitSil(){
-  if(!secili) return;
-  if(!confirm(`"${secili.label}" silinsin mi? Bu geri alınamaz.`)) return;
-  try{ await invoke('kayit_sil',{id:secili.id}); secili=null; await yenile();
-    durumYaz($('durum'),'Kayıt silindi.','iyi'); }
-  catch(e){ durumYaz($('durum'),String(e),'hata'); }
-}
-listen('pano-temizlendi', ()=>durumYaz($('durum'),'Pano temizlendi.'));
-
-$('tazeleDugme').onclick=async()=>{
-  sonAdres='';
-  try{ hedefSon=await invoke('hedef'); await otomatikEslestir(hedefSon); }catch(e){}
-  izinDurum=await invoke('izinler').catch(()=>null);
-  await politikaDenetle(true);
-  await yenile(); uyariSayisiYaz();
-};
-$('cikisDugme').onclick=async()=>{
-  await invoke('oturumu_kapat').catch(()=>{});
-  yerelYaz('kasaHatirla','0');
-  location.reload();
-};
+$('ara').addEventListener('input', function(){ acikId=null; ciz(); });
 
 /* ══ Form ═══════════════════════════════════════════════════════════ */
 function formAc(k){
   formId=k?k.id:null;
   $('formBaslik').textContent=k?'Kaydı düzenle':'Yeni kayıt';
   $('fEtiket').value=k?(k.label||''):''; $('fUrl').value=k?(k.url||''):'';
-  $('fKullanici').value=k?(k.username||''):''; $('fSifre').value='';
+  $('fKullanici').value=k?(k.username||''):''; $('fSifre').value=''; $('fSifre').type='password';
   $('fSifre').placeholder=k?'(boş bırakılırsa değişmez)':'';
   $('fKategori').value=k?(k.category||''):''; $('fIp').value=k?(k.ip||''):'';
   $('fNot').value=''; durumYaz($('formDurum'),''); gucCiz(-1);
   $('formKatman').classList.remove('gizli'); $('fEtiket').focus();
 }
 function formKapat(){ $('formKatman').classList.add('gizli'); formId=null; }
-$('yeniDugme').onclick=()=>formAc(null);
+$('yeniDugme').onclick=function(){ formAc(null); };
 $('formKapat').onclick=formKapat; $('formVazgec').onclick=formKapat;
 
 function gucCiz(g){
@@ -960,11 +648,11 @@ function gucCiz(g){
   const r=['var(--hata)','var(--uyari)','var(--vurgu)','var(--iyi)'];
   el.style.width=((g+1)*25)+'%'; el.style.background=r[g]||r[0];
 }
-$('fSifre').addEventListener('input', async e=>{
+$('fSifre').addEventListener('input', async function(e){
   const v=e.target.value; if(!v){ gucCiz(-1); return; }
   try{ gucCiz(await invoke('parola_gucu',{parola:v})); }catch(err){}
 });
-$('fUret').onclick=async()=>{
+$('fUret').onclick=async function(){
   try{
     const p=await invoke('parola_uret',{uzunluk:20,rakam:true,simge:true});
     $('fSifre').value=p; $('fSifre').type='text';
@@ -972,7 +660,7 @@ $('fUret').onclick=async()=>{
     durumYaz($('formDurum'),'Parola üretildi — kaydetmeden önce not alın.','iyi');
   }catch(e){ durumYaz($('formDurum'),'Üretilemedi: '+e,'hata'); }
 };
-$('formKaydet').onclick=async()=>{
+$('formKaydet').onclick=async function(){
   const etiket=$('fEtiket').value.trim();
   if(!etiket){ durumYaz($('formDurum'),'Etiket zorunlu.','hata'); $('fEtiket').focus(); return; }
   const veri={ label:etiket, url:$('fUrl').value.trim()||null,
@@ -984,141 +672,194 @@ $('formKaydet').onclick=async()=>{
 
   const b=$('formKaydet'); b.disabled=true;
   try{
-    if(formId) await invoke('kayit_guncelle',{id:formId, veri});
-    else await invoke('kayit_ekle',{veri});
+    if(formId) await invoke('kayit_guncelle',{id:formId, veri:veri});
+    else await invoke('kayit_ekle',{veri:veri});
     formKapat(); await yenile();
   }catch(e){ durumYaz($('formDurum'),String(e),'hata'); }
   finally{ b.disabled=false; }
 };
 
-/* ══ İzin / politika / güncelleme ═══════════════════════════════════ */
-listen('izin-durumu', o=>{ izinDurum={...(izinDurum||{}), erisilebilirlik:!!o.payload};
-  uyariSayisiYaz(); if(bolum==='sistem') cizSistem(); });
-
-/* Hangi parça eksik — tek bir "kurulu değil" yazısı teşhise yaramıyordu.
-   İki ayrı şey var: tarayıcının parola kasasının kapatılması ve eklentinin
-   zorunlu kurulum listesine girmesi. */
-async function politikaDenetle(sessiz){
-  try{ politikaDurum=await invoke('politika_durum'); }catch(e){ return; }
-  uyariSayisiYaz();
-  if(bolum==='sistem') cizSistem();
-  if(!sessiz && politikaDurum && politikaDurum.kasa_kapali && politikaDurum.eklenti_zorunlu)
-    durumYaz($('durum'),'Tarayıcı koruması etkin.','iyi');
+/* ══ Ayarlar ════════════════════════════════════════════════════════
+   Sürekli göz önünde durmasına gerek olmayan her şey burada. Ekranın
+   kalanı tek işe ayrılmış oluyor. */
+function uyariSayisi(){
+  let n=0;
+  if(guncelDurum&&guncelDurum.var) n++;
+  if(izinDurum&&!izinDurum.erisilebilirlik) n++;
+  if(politikaDurum&&politikaDurum.kurulabilir
+     &&!(politikaDurum.kasa_kapali&&politikaDurum.eklenti_zorunlu)) n++;
+  const e=$('ayarSay'); e.textContent=n; e.classList.toggle('gizli', n===0);
 }
-/* PROFİLİ KALDIR — güncellemede eskisini elle silmek gerekmesin.
-   Aynı kimlikte bir profil yüklüyken yenisini açmak macOS'ta reddediliyor ya
-   da kullanıcıdan elle silmesini istiyor; Sistem Ayarları'nda o yeri bulmak
-   da kolay değil. Kur düğmesi zaten önce kaldırmayı deniyor, bu düğme ise
-   ayrıca elle temizlemek isteyen için. */
-/* EKLENTİYİ DOĞRUDAN KUR — politikadan bağımsız ikinci yol.
-   Zorunlu kurulum politikası Chrome'un iznine bağlı ve mağaza dışı
-   eklentilerde Chrome zorluk çıkarıyor ("[BLOCKED]"). Bu düğme CRX'i makineye
-   indirip Chrome'un harici eklenti klasörüne bir kayıt bırakıyor; Chrome bir
-   sonraki açılışta kuruyor. İki yol çakışmaz, birbirini tamamlar. */
-async function eklentiKur(){
-  const b=$('sEklentiKur');
-  if(b){ b.disabled=true; b.textContent='Kuruluyor…'; }
-  try{
-    await invoke('eklenti_kur');
-    durumYaz($('durum'),'Eklenti paketi kuruldu. Chrome’u tamamen kapatıp açın — eklenti açılışta yüklenecek.','iyi');
-  }catch(e){
-    durumYaz($('durum'), String(e).includes('İptal') ? 'İptal edildi.' : ('Kurulamadı: '+e),
-      String(e).includes('İptal') ? 'uyari' : 'hata');
-  }finally{ if(b){ b.disabled=false; b.textContent='Eklentiyi kur'; } }
+function izinSeridi(){
+  $('izinSerit').classList.toggle('gizli', !(izinDurum && !izinDurum.erisilebilirlik));
 }
 
-async function profilKaldir(){
-  const b=$('sProfilSil');
-  if(!confirm('Yüklü tarayıcı koruması profili kaldırılsın mı? Chrome ayarları eski hâline döner.')) return;
-  if(b){ b.disabled=true; b.textContent='Kaldırılıyor…'; }
-  try{
-    politikaDurum = await invoke('politika_profil_kaldir');
-    uyariSayisiYaz(); cizSistem();
-    durumYaz($('durum'),'Profil kaldırıldı. Yeniden kurmak için “Kur” deyin.','iyi');
-  }catch(e){
-    cizSistem();
-    durumYaz($('durum'), String(e), 'uyari');
-  }
+function ayarCiz(){
+  const sat=function(isik,ad,not,dugme){
+    return '<div class="ayarSatir">'
+      + (isik===null?'':'<span class="isik '+(isik?'acik':'kapali')+'"></span>')
+      + '<div class="ayarMetin"><div class="ayarAd">'+ad+'</div>'
+      + (not?'<div class="ayarNot">'+not+'</div>':'')+'</div>'
+      + (dugme||'')+'</div>';
+  };
+
+  const izinVar = !!(izinDurum && izinDurum.erisilebilirlik);
+  const polVar = !!(politikaDurum && politikaDurum.kasa_kapali && politikaDurum.eklenti_zorunlu);
+  const kopruVar = !!(kopruDurum && kopruDurum.calisiyor);
+
+  $('ayarGovde').innerHTML =
+    sat(izinVar,'Erişilebilirlik izni',
+        izinVar?'Doldurma çalışıyor.'
+          :'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listeden “−” ile kaldırıp “+” ile yeniden ekleyin.',
+        izinVar?'':'<button class="ikincil" id="aIzin">Aç</button>')
+  + sat(kopruVar,'Tarayıcı bağlantısı',
+        kopruVar
+          ? 'Eklenti bu bilgisayardaki oturumu kullanıyor (yerel port '+kopruDurum.port+'). Ayrıca giriş yapmaz.'
+          : 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.', '')
+  + sat(polVar,'Tarayıcı koruması',
+        polVar?'Parola kasası kapalı, eklenti zorunlu kurulumda.'
+          :((politikaDurum&&politikaDurum.kasa_kapali?'✓':'✕')+' parola kasası kapalı &nbsp;·&nbsp; '
+            +(politikaDurum&&politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu'),
+        '<button class="ikincil" id="aPolKur">Kur</button>')
+  + sat(null,'Chrome eklentisi',
+        'Kurulu değilse: <b>İndir</b> paketi bilgisayara alır, Chrome’da '
+        + '<code>chrome://extensions</code> → “Geliştirici modu” → “Paketlenmemiş öğe yükle”.',
+        '<button class="ikincil" id="aEklentiIndir">İndir</button>'
+        + '<button class="ikincil" id="aEklenti" style="margin-left:8px">Kur</button>')
+  + sat(null,'Yapılandırma profili','Güncellemeden sonra eskisini temizlemek için.',
+        '<button class="ikincil" id="aProfilSil">Kaldır</button>')
+  + sat(null,'Sürüm','<span id="surumAyar">—</span>',
+        '<button class="ikincil" id="aGuncelle">Denetle</button>')
+  + '<div class="durum" id="ayarDurum" style="margin-top:12px"></div>';
+
+  surumYaz();
+  if($('aIzin')) $('aIzin').onclick=function(){ invoke('izin_ayarlarini_ac').catch(function(){}); };
+  $('aPolKur').onclick=politikaKur;
+  $('aEklenti').onclick=eklentiKur;
+  $('aEklentiIndir').onclick=eklentiIndir;
+  $('aProfilSil').onclick=profilKaldir;
+  $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
 }
+$('ayarDugme').onclick=function(){ ayarCiz(); $('ayarKatman').classList.remove('gizli'); };
+$('ayarKapat').onclick=function(){ $('ayarKatman').classList.add('gizli'); };
+$('ayarTamam').onclick=function(){ $('ayarKatman').classList.add('gizli'); };
+$('cikisDugme').onclick=async function(){
+  await invoke('oturumu_kapat').catch(function(){});
+  yerelYaz('kasaHatirla','0');
+  location.reload();
+};
 
 async function politikaKur(){
-  const b=$('sPolKur'); if(b){ b.disabled=true; b.textContent='Kuruluyor…'; }
+  const b=$('aPolKur'); b.disabled=true; b.textContent='Kuruluyor…';
   try{
     politikaDurum=await invoke('politika_kur');
-    uyariSayisiYaz(); cizSistem();
-    durumYaz($('durum'),'Tarayıcı koruması kuruldu. Chrome’u tamamen kapatıp açın.','iyi');
+    uyariSayisi(); ayarCiz();
+    durumYaz($('ayarDurum'),'Tarayıcı koruması kuruldu. Chrome’u tamamen kapatıp açın.','iyi');
   }catch(e){
+    ayarCiz();
     // Modern macOS elle yazılan yönetilen tercihi yok sayıyor; o durumda
     // uygulama bir yapılandırma profili açıyor, onay kullanıcıya kalıyor.
-    cizSistem();
-    if(String(e).includes('PROFIL_ONAYI')){
-      durumYaz($('durum'),'Profil İndirilenler klasörüne kaydedildi ve Sistem Ayarları açıldı: Genel → VPN ve Cihaz Yönetimi → “Bogahost Kasa — Tarayıcı Koruması” → Yükle. Sonra Chrome’u tamamen kapatıp açın.','uyari');
-    }else durumYaz($('durum'),'Kurulamadı: '+e,'hata');
+    durumYaz($('ayarDurum'), String(e).indexOf('PROFIL_ONAYI')>=0
+      ? 'Profil İndirilenler’e kaydedildi ve Sistem Ayarları açıldı: Genel → VPN ve Cihaz Yönetimi → “Bogahost Kasa — Tarayıcı Koruması” → Yükle.'
+      : 'Kurulamadı: '+e, 'uyari');
   }
 }
+async function eklentiKur(){
+  const b=$('aEklenti'); b.disabled=true; b.textContent='Kuruluyor…';
+  try{ await invoke('eklenti_kur'); ayarCiz();
+    durumYaz($('ayarDurum'),'Eklenti paketi kuruldu. Chrome’u tamamen kapatıp açın.','iyi'); }
+  catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Kurulamadı: '+e,'hata'); }
+}
+async function eklentiIndir(){
+  const b=$('aEklentiIndir'); b.disabled=true; b.textContent='İndiriliyor…';
+  try{
+    const yol=await invoke('eklenti_indir');
+    ayarCiz();
+    durumYaz($('ayarDurum'),'İndirildi: '+yol+' — klasör açıldı. Chrome’da chrome://extensions sayfasında “Paketlenmemiş öğe yükle” ile klasörü seçin.','iyi');
+  }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'İndirilemedi: '+e,'hata'); }
+}
+async function profilKaldir(){
+  if(!confirm('Yüklü tarayıcı koruması profili kaldırılsın mı?')) return;
+  const b=$('aProfilSil'); b.disabled=true; b.textContent='Kaldırılıyor…';
+  try{ politikaDurum=await invoke('politika_profil_kaldir');
+    uyariSayisi(); ayarCiz(); durumYaz($('ayarDurum'),'Profil kaldırıldı.','iyi'); }
+  catch(e){ ayarCiz(); durumYaz($('ayarDurum'),String(e),'uyari'); }
+}
 
-listen('guncelleme-durumu', o=>{ guncelDurum=o.payload; uyariSayisiYaz();
-  if(bolum==='sistem') cizSistem(); });
+/* ══ Güncelleme ═════════════════════════════════════════════════════ */
+async function surumYaz(){
+  try{
+    const v=await window.__TAURI__.app.getVersion();
+    ['surumGiris','surumAyar'].forEach(function(id){
+      const e=$(id); if(e) e.textContent='Bogahost Kasa '+v;
+    });
+  }catch(e){}
+}
+listen('guncelleme-durumu', function(o){ guncelDurum=o.payload; guncelSerit(); uyariSayisi(); });
+function guncelSerit(){
+  const s=$('guncelSerit');
+  if(!guncelDurum||!guncelDurum.var){ s.classList.add('gizli'); return; }
+  $('guncelSurum').textContent=guncelDurum.surum||'';
+  $('guncelUygula').textContent=guncelDurum.elle?'İndirme sayfasını aç':'Şimdi güncelle';
+  s.classList.remove('gizli');
+}
+$('guncelUygula').onclick=async function(){
+  const b=$('guncelUygula'); b.disabled=true; b.textContent='Uygulanıyor…';
+  try{ await invoke('guncelleme_uygula'); }
+  catch(e){ b.disabled=false; b.textContent='Şimdi güncelle'; }
+};
 async function guncellemeAra(durumEl){
   if(denetleniyor) return; denetleniyor=true;
   try{
-    guncelDurum=await invoke('guncelleme_ara');
-    uyariSayisiYaz(); if(bolum==='sistem') cizSistem();
+    guncelDurum=await invoke('guncelleme_ara'); guncelSerit(); uyariSayisi();
     durumYaz(durumEl, guncelDurum.var?('Yeni sürüm hazır: '+guncelDurum.surum):'Güncel sürümü kullanıyorsunuz.',
       guncelDurum.var?'iyi':'');
   }catch(e){ durumYaz(durumEl,'Denetlenemedi: '+e,'hata'); }
   finally{ denetleniyor=false; }
 }
-async function guncellemeUygula(){
-  const b=$('sGuncelle'); if(b){ b.disabled=true; b.textContent='Uygulanıyor…'; }
-  try{ await invoke('guncelleme_uygula'); }
-  catch(e){ cizSistem(); durumYaz($('durum'),'Güncellenemedi: '+e,'hata'); }
-}
-$('guncelAra').onclick=async()=>{
+$('guncelAra').onclick=async function(){
   const b=$('guncelAra'), eski=b.textContent; b.textContent='denetleniyor…';
   await guncellemeAra($('girisDurum')); b.textContent=eski;
 };
 
-listen('kisayol-dolduruldu', o=>{ durumYaz($('durum'),`"${o.payload}" dolduruldu.`,'iyi'); yenile(); });
-listen('kisayol-notu', o=>{
-  const n=String(o.payload||'');
-  const d=$('girisEkrani').classList.contains('gizli') ? $('durum') : $('girisDurum');
-  if(n==='izin-yok'){ izinDurum={...(izinDurum||{}),erisilebilirlik:false}; uyariSayisiYaz();
-    durumYaz(d,'Erişilebilirlik izni verilmeden hiçbir şey yazılamaz.','hata'); }
-  else if(n==='eslesme-yok') durumYaz(d,'Bu adres için kayıt yok.','uyari');
-  else if(n==='coklu-eslesme') durumYaz(d,'Birden fazla kayıt eşleşti — hangisi olduğunu seçin.','uyari');
-  else if(n.startsWith('alan:')) durumYaz(d,n.slice(5),'uyari');
-  else if(n.startsWith('yazma-hatasi:')) durumYaz(d,'Yazılamadı: '+n.slice(13),'hata');
+listen('izin-durumu', function(o){
+  izinDurum=Object.assign({}, izinDurum||{}, {erisilebilirlik:!!o.payload});
+  izinSeridi(); uyariSayisi();
 });
+$('izinAc').onclick=function(){ invoke('izin_ayarlarini_ac').catch(function(){}); };
+
+listen('kisayol-dolduruldu', function(){ yenile(); });
 
 /* ══ Klavye ═════════════════════════════════════════════════════════ */
-document.addEventListener('keydown', e=>{
+document.addEventListener('keydown', function(e){
   if(!$('formKatman').classList.contains('gizli')){ if(e.key==='Escape') formKapat(); return; }
+  if(!$('ayarKatman').classList.contains('gizli')){
+    if(e.key==='Escape') $('ayarKatman').classList.add('gizli'); return;
+  }
   if(!$('girisEkrani').classList.contains('gizli')) return;
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){ e.preventDefault(); formAc(null); return; }
-  if(bolum!=='kayitlar') return;
-  const g=suzulmus();
-  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
-    if(!g.length) return; e.preventDefault();
-    const i=Math.max(0,g.findIndex(k=>secili&&k.id===secili.id));
-    secili=g[Math.min(g.length-1,Math.max(0,i+(e.key==='ArrowDown'?1:-1)))]; cizKayitlar();
-  }else if(e.key==='Enter'&&document.activeElement!==$('ara')){ doldur();
-  }else if(e.key==='Escape'&&arama){ arama=''; cizKayitlar();
-  }else if(e.key==='/'&&document.activeElement!==$('ara')){ e.preventDefault(); if($('ara')) $('ara').focus(); }
+  if(e.key==='/'&&document.activeElement!==$('ara')){ e.preventDefault(); $('ara').focus(); }
+  else if(e.key==='Escape'&&$('ara').value){ $('ara').value=''; acikId=null; ciz(); }
 });
 
 /* ══ Açılış ═════════════════════════════════════════════════════════ */
-(async ()=>{
+function acilisiKapat(){
+  const a=$('acilis'); if(!a || a.classList.contains('cikiyor')) return;
+  a.classList.add('cikiyor');
+  setTimeout(function(){ a.classList.add('gizli'); }, 340);
+}
+(async function(){
   await surumYaz();
   // BENİ HATIRLA: jeton işletim sistemi kasasında (imzasız derlemede yedek
-  // dosyada) duruyor. Kullanıcı hatırlamayı kapattıysa oturum kapatılıyor.
+  // dosyada) duruyor. Kapatılmışsa açılışta oturum kapatılıyor.
   const hatirla = yerelOku('kasaHatirla') !== '0';
   $('hatirla').checked = hatirla;
   if(hatirla){
+    $('acilisNot').textContent='Oturum denetleniyor…';
     try{ if(await invoke('oturum_var')){ await kasayiAc(); return; } }catch(e){}
   }else{
-    await invoke('oturumu_kapat').catch(()=>{});
+    await invoke('oturumu_kapat').catch(function(){});
   }
-  $('kullanici').focus();
+  girisiGoster();
 })();
 </script>

@@ -18,7 +18,7 @@ use serde::Serialize;
 
 /// Eklenti kimliği — imzalama anahtarından türer, DEĞİŞMEZ.
 /// Değişirse Chrome bunu bambaşka bir eklenti sayar ve zorunlu kurulum kopar.
-const EKLENTI_ID: &str = "nfoohkianbefpbobbbgfikiiicnghjeh";
+pub const EKLENTI_ID: &str = "nfoohkianbefpbobbbgfikiiicnghjeh";
 const GUNCELLEME_URL: &str = "https://native.bogahost.com/eklenti/update.xml";
 const KAYNAK: &str = "https://native.bogahost.com/*";
 /// Profil kimliği — kaldırma bu kimlikle yapılıyor, profil metniyle AYNI olmalı.
@@ -488,4 +488,102 @@ pub fn eklenti_kaldir() -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 pub fn eklenti_dosyasi_var() -> bool {
     false
+}
+
+// ── Eklentiyi elle kurmak isteyene ─────────────────────────────────────────
+
+/// Eklenti paketinin adresi. `eklenti_kur` bunun CRX'ini SİSTEM klasörüne
+/// yönetici hakkıyla koyuyor; buradaki yol ise yönetici hakkı istemez.
+const EKLENTI_ZIP: &str = "https://native.bogahost.com/eklenti/bogahost-kasa-eklenti.zip";
+
+/// Eklentiyi kullanıcının İndirilenler klasörüne indirir ve AÇAR.
+///
+/// NEDEN AYRI BİR YOL VAR: zorunlu kurulum politikası ve harici kurulum
+/// dosyası ikisi de yönetici hakkı istiyor ve Chrome mağaza dışı eklentilerde
+/// zorluk çıkarabiliyor. Personelin elinde hiçbir şey kalmasın istemiyoruz:
+/// bu düğme paketi indirip klasörü açıyor, "Paketlenmemiş öğe yükle" ile iki
+/// tıkta kuruluyor. Hiçbir hak istemez, her makinede çalışır.
+///
+/// Klasör her seferinde yenileniyor ki eski sürüm yüklenmesin.
+pub fn eklenti_indir() -> Result<String, String> {
+    let ev = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "Kullanıcı klasörü bulunamadı.".to_string())?;
+    let indirilenler = std::path::Path::new(&ev).join("Downloads");
+    std::fs::create_dir_all(&indirilenler)
+        .map_err(|e| format!("İndirilenler klasörü açılamadı: {e}"))?;
+
+    let zip = indirilenler.join("bogahost-kasa-eklenti.zip");
+    let klasor = indirilenler.join("bogahost-kasa-eklenti");
+
+    let bayt = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(EKLENTI_ZIP)
+        .send()
+        .and_then(|y| y.error_for_status())
+        .and_then(|y| y.bytes())
+        .map_err(|e| format!("İndirilemedi: {e}"))?;
+    std::fs::write(&zip, &bayt).map_err(|e| format!("Yazılamadı: {e}"))?;
+
+    // ESKİ KLASÖRÜ YALNIZCA KENDİMİZİNKİYSE SİL.
+    // İsim çakışması olabilir; içinde manifest.json yoksa dokunmuyoruz ve
+    // paketi yanına bırakıyoruz — kullanıcının dosyasını silmek yok.
+    if klasor.join("manifest.json").exists() {
+        let _ = std::fs::remove_dir_all(&klasor);
+    }
+    std::fs::create_dir_all(&klasor).map_err(|e| format!("Klasör açılamadı: {e}"))?;
+
+    ac_arsiv(&zip, &klasor)?;
+    klasoru_goster(&klasor);
+    Ok(klasor.display().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn ac_arsiv(zip: &std::path::Path, klasor: &std::path::Path) -> Result<(), String> {
+    let c = std::process::Command::new("/usr/bin/unzip")
+        .args(["-o", "-q"])
+        .arg(zip)
+        .arg("-d")
+        .arg(klasor)
+        .output()
+        .map_err(|e| format!("unzip çalıştırılamadı: {e}"))?;
+    if c.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Arşiv açılamadı: {}", String::from_utf8_lossy(&c.stderr).trim()))
+    }
+}
+
+#[cfg(windows)]
+fn ac_arsiv(zip: &std::path::Path, klasor: &std::path::Path) -> Result<(), String> {
+    let c = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(format!(
+            "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+            zip.display(),
+            klasor.display()
+        ))
+        .output()
+        .map_err(|e| format!("powershell çalıştırılamadı: {e}"))?;
+    if c.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Arşiv açılamadı: {}", String::from_utf8_lossy(&c.stderr).trim()))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn ac_arsiv(_zip: &std::path::Path, _klasor: &std::path::Path) -> Result<(), String> {
+    Err("Bu platformda arşiv açma yok.".into())
+}
+
+fn klasoru_goster(klasor: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("/usr/bin/open").arg(klasor).spawn();
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(klasor).spawn();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = klasor;
 }

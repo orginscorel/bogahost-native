@@ -1,0 +1,35 @@
+BOGAHOST KASA — CHROME EKLENTİSİ
+================================
+
+Bu eklenti KENDİ BAŞINA çalışmaz ve kendi girişi YOKTUR.
+Kimliği, bilgisayarınızdaki "Bogahost Kasa" uygulamasından alır.
+Uygulamada bir kez giriş yaparsınız; eklenti aynı oturumu kullanır.
+Uygulamadan çıkış yapınca eklenti de aynı anda boşa düşer.
+
+KURULUM (iki tıklama)
+---------------------
+1. Kasa uygulamasını açın → sağ üstteki dişli → Ayarlar
+2. "Chrome eklentisi" satırında "İndir" düğmesine basın.
+   Paket İndirilenler klasörüne açılır ve klasör önünüze gelir.
+3. Chrome'da chrome://extensions adresini açın.
+4. Sağ üstteki "Geliştirici modu"nu açın.
+5. "Paketlenmemiş öğe yükle" → açılan klasörü seçin.
+
+Yöneticiyseniz Ayarlar'daki "Kur" düğmesi eklentiyi yönetici hakkıyla
+sistem genelinde kurar; o zaman personelin hiçbir şey yapması gerekmez.
+
+KULLANIM
+--------
+Bir giriş sayfası açtığınızda şifre alanının sağında mor bir ANAHTAR
+simgesi çıkar. Tıklayın; kullanıcı adı ve şifre alanlara yazılır.
+Şifreyi hiçbir aşamada görmez ve kopyalamazsınız.
+
+Eklenti simgesinde kırmızı "!" varsa Kasa uygulaması kapalıdır;
+turuncu "!" varsa uygulamada oturum açık değildir.
+
+GÜVENLİK
+--------
+• Eklenti yalnız 127.0.0.1'deki kendi uygulamanızla konuşur; ağa çıkmaz.
+• Şifre "doldur" anında bir kez gelir, alana yazılır, saklanmaz.
+• Chrome'un kendi şifre kasası kapatılır — bu şifreler tarayıcıya kaydedilmez.
+• Bir kayıt yalnızca adresi uyan sayfada sunulur.

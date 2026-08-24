@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Bogahost Kasa</title>
+<style>
+  /* Eklenti penceresi Chrome'un temasından bağımsız; ikisini de tanımlıyoruz. */
+  :root{
+    --zemin:#ffffff; --kart:#f7f6fc; --metin:#18172a; --sonuk:#5d5a75; --silik:#8f8ca6;
+    --cizgi:#e6e3f0; --vurgu:#5443D2; --iyi:#12905a; --uyari:#a9660a; --hata:#c02a45;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --zemin:#14141c; --kart:#1e1e29; --metin:#efeef7; --sonuk:#a4a2b6; --silik:#6f6d82;
+      --cizgi:#2a2939; --vurgu:#8F86F0; --iyi:#4ecb8d; --uyari:#e8b45c; --hata:#f0788f;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;width:320px;background:var(--zemin);color:var(--metin);
+       font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
+  .ust{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--cizgi)}
+  .amblem{width:28px;height:28px;border-radius:9px;flex:none;display:grid;place-items:center;
+          background:linear-gradient(160deg,#5443D2,#7a6cf0)}
+  .amblem svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2.2;
+              stroke-linecap:round;stroke-linejoin:round}
+  .ad{font-weight:700;font-size:13.5px}
+  .alt{font-size:11px;color:var(--silik)}
+  .isik{width:8px;height:8px;border-radius:50%;margin-left:auto;flex:none}
+  .isik.acik{background:var(--iyi)} .isik.uyari{background:var(--uyari)} .isik.kapali{background:var(--hata)}
+  .govde{padding:10px 14px 14px;max-height:340px;overflow-y:auto}
+  .satir{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;
+         margin-bottom:6px;border:1px solid var(--cizgi);border-radius:11px;background:var(--kart);
+         color:inherit;font:inherit;cursor:pointer}
+  .satir:hover{border-color:var(--vurgu)}
+  .rozet{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;
+         color:#fff;font-weight:700;font-size:12px;background:var(--vurgu)}
+  .sMetin{min-width:0;flex:1}
+  .sAd{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sAlt{font-size:11px;color:var(--silik);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bilgi{padding:16px 4px;text-align:center;color:var(--silik);font-size:12.5px;line-height:1.65}
+  .bilgi b{display:block;color:var(--sonuk);font-size:13px;margin-bottom:5px}
+  .ayak{padding:9px 14px;border-top:1px solid var(--cizgi);font-size:11px;color:var(--silik)}
+</style>
+
+<div class="ust">
+  <div class="amblem">
+    <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+  </div>
+  <div>
+    <div class="ad">Bogahost Kasa</div>
+    <div class="alt" id="baglanti">bağlanılıyor…</div>
+  </div>
+  <span class="isik" id="isik"></span>
+</div>
+
+<div class="govde" id="govde">
+  <div class="bilgi">Yükleniyor…</div>
+</div>
+
+<div class="ayak" id="ayak"></div>
+
+<script src="popup.js"></script>

@@ -23,6 +23,7 @@
 mod alan;
 mod guncelleme;
 mod kasa;
+mod kopru;
 mod politika;
 mod pencere;
 
@@ -282,6 +283,19 @@ fn eklenti_dosyasi_var() -> bool {
     politika::eklenti_dosyasi_var()
 }
 
+/// Eklenti paketini İndirilenler'e indirip klasörü açar — yönetici hakkı
+/// istemez. Politika ya da harici kurulum tutmadığında kalan yol bu.
+#[tauri::command(async)]
+fn eklenti_indir() -> Result<String, String> {
+    politika::eklenti_indir()
+}
+
+/// Yerel köprünün durumu — eklenti bu bilgisayardaki oturumu buradan kullanır.
+#[tauri::command(async)]
+fn kopru_durum() -> serde_json::Value {
+    kopru::durum()
+}
+
 /// Yüklü profili kaldır — güncellemede eskisini elle silmek gerekmesin.
 #[tauri::command(async)]
 fn politika_profil_kaldir() -> Result<politika::Durum, String> {
@@ -498,7 +512,8 @@ pub fn run() {
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
-            eklenti_kur, eklenti_kaldir, eklenti_dosyasi_var,
+            eklenti_kur, eklenti_kaldir, eklenti_dosyasi_var, eklenti_indir,
+            kopru_durum,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
@@ -508,6 +523,9 @@ pub fn run() {
                 let durum = uygulama.state::<Durum>();
                 *durum.jeton.lock().unwrap() = Some(t);
             }
+
+            // Eklenti köprüsü — tarayıcı eklentisi ayrıca giriş yapmasın diye.
+            kopru::baslat(uygulama.handle().clone());
 
             kisayol_kur(uygulama.handle())?;
             hedef_izle(uygulama.handle());
@@ -738,7 +756,7 @@ fn yol_al(u: &str) -> String {
 ///
 /// Kayıtta yol yoksa (yalnız alan adı girilmişse) alan adı eşleşmesi yeterli
 /// sayılır — kullanıcı bilerek geniş bırakmıştır.
-fn yol_uyar(kayit_url: &Option<String>, hedef_url: &str) -> bool {
+pub(crate) fn yol_uyar(kayit_url: &Option<String>, hedef_url: &str) -> bool {
     let Some(k) = kayit_url else { return true };
     let kayit_yol = yol_al(k);
     if kayit_yol.is_empty() {
@@ -847,7 +865,7 @@ fn panel_yerlestir(panel: &tauri::WebviewWindow) {
 /// Kullanıcının bildirdiği durum: doldurduktan sonra panel çıkmaya devam
 /// ediyordu. Doldurma bittiyse o adreste işimiz bitmiştir; kullanıcı yine
 /// isterse kısayolla açabilir.
-static SON_DOLDURULAN: Mutex<Option<String>> = Mutex::new(None);
+pub(crate) static SON_DOLDURULAN: Mutex<Option<String>> = Mutex::new(None);
 
 /// Hedefte eşleşen kayıt varsa hızlı paneli gösterir, yoksa gizler.
 ///
