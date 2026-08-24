@@ -1,35 +1,42 @@
 BOGAHOST KASA — CHROME EKLENTİSİ
 ================================
 
-Bu eklenti KENDİ BAŞINA çalışmaz ve kendi girişi YOKTUR.
-Kimliği, bilgisayarınızdaki "Bogahost Kasa" uygulamasından alır.
-Uygulamada bir kez giriş yaparsınız; eklenti aynı oturumu kullanır.
-Uygulamadan çıkış yapınca eklenti de aynı anda boşa düşer.
+Bu eklentinin KENDİ GİRİŞİ YOKTUR. Kimliğini bilgisayarınızdaki
+"Bogahost Kasa" uygulamasından alır. Uygulamada bir kez giriş yaparsınız;
+eklenti aynı oturumu kullanır. Uygulamadan çıkınca eklenti de boşa düşer.
 
-KURULUM (iki tıklama)
----------------------
-1. Kasa uygulamasını açın → sağ üstteki dişli → Ayarlar
-2. "Chrome eklentisi" satırında "İndir" düğmesine basın.
-   Paket İndirilenler klasörüne açılır ve klasör önünüze gelir.
-3. Chrome'da chrome://extensions adresini açın.
-4. Sağ üstteki "Geliştirici modu"nu açın.
-5. "Paketlenmemiş öğe yükle" → açılan klasörü seçin.
+GÜNCELLEME — SİZE DÜŞEN BİR ŞEY YOK
+-----------------------------------
+Eklenti kendini yeniler. Uygulama paketi güncel tutuyor, eklenti dakikada
+bir bakıyor, yeni sürüm varsa kendini yeniden yüklüyor ve açık sekmelere
+kendisi geri yerleşiyor. Chrome'u kapatmanız gerekmez.
 
-Yöneticiyseniz Ayarlar'daki "Kur" düğmesi eklentiyi yönetici hakkıyla
-sistem genelinde kurar; o zaman personelin hiçbir şey yapması gerekmez.
+KURULUM (tek seferlik)
+----------------------
+Yöneticiyseniz: Kasa -> Ayarlar -> Chrome eklentisi -> "Kur".
+Sistem genelinde kurar, personelin bir sey yapmasi gerekmez.
+
+Degilseniz:
+1. Kasa uygulamasi -> sag ustteki disli -> Ayarlar
+2. "Chrome eklentisi" satirinda "Indir"e basin (klasor onunuze gelir)
+3. Chrome'da chrome://extensions adresini acin
+4. Sag ustteki "Gelistirici modu"nu acin
+5. "Paketlenmemis oge yukle" -> acilan klasoru secin
+
+Bu adimlar bir kez yapilir. Sonraki surumler kendiliginden gelir.
 
 KULLANIM
 --------
-Bir giriş sayfası açtığınızda şifre alanının sağında mor bir ANAHTAR
-simgesi çıkar. Tıklayın; kullanıcı adı ve şifre alanlara yazılır.
-Şifreyi hiçbir aşamada görmez ve kopyalamazsınız.
+Giris sayfasinda sifre kutusuna tiklayin; kutunun ALTINDA kayitlariniz
+listelenir. Yukari/asagi ok ile secip Enter'a basin, Esc ile kapatin.
+Sifreyi hicbir asamada gormez ve kopyalamazsiniz.
 
-Eklenti simgesinde kırmızı "!" varsa Kasa uygulaması kapalıdır;
-turuncu "!" varsa uygulamada oturum açık değildir.
+Eklenti simgesinde kirmizi "!" varsa Kasa uygulamasi kapalidir;
+turuncu "!" varsa uygulamada oturum acik degildir.
 
-GÜVENLİK
+GUVENLIK
 --------
-• Eklenti yalnız 127.0.0.1'deki kendi uygulamanızla konuşur; ağa çıkmaz.
-• Şifre "doldur" anında bir kez gelir, alana yazılır, saklanmaz.
-• Chrome'un kendi şifre kasası kapatılır — bu şifreler tarayıcıya kaydedilmez.
-• Bir kayıt yalnızca adresi uyan sayfada sunulur.
+- Eklenti yalniz 127.0.0.1'deki kendi uygulamanizla konusur; aga cikmaz.
+- Sifre "doldur" aninda bir kez gelir, alana yazilir, saklanmaz.
+- Chrome'un kendi sifre kasasi kapatilir.
+- Bir kayit yalnizca adresi TAM uyan sayfada sunulur.

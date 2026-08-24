@@ -286,8 +286,8 @@
 </div>
 <!-- ══ Eklenti tazelendi — Chrome'un dosyaları yeniden okuması gerekiyor ══ -->
 <div class="serit bilgi gizli" id="eklentiSerit">
-  <div class="bosluk"><b>Chrome eklentisi güncellendi</b> (<span id="eklentiYeniSurum"></span>) —
-    Chrome'u tamamen kapatıp açın.</div>
+  <div class="bosluk"><b>Chrome eklentisi <span id="eklentiYeniSurum"></span> sürümüne geçiyor</b> —
+    eklenti bunu kendisi yüklüyor, tarayıcıyı kapatmanız gerekmiyor.</div>
   <button id="eklentiSeritKapat">Tamam</button>
 </div>
 <!-- ══ İzin şeridi — doldurma tamamen durduğu için üstte ══ -->
@@ -764,7 +764,7 @@ async function politikaKur(){
   try{
     politikaDurum=await invoke('politika_kur');
     uyariSayisi(); ayarCiz();
-    durumYaz($('ayarDurum'),'Tarayıcı koruması kuruldu. Chrome’u tamamen kapatıp açın.','iyi');
+    durumYaz($('ayarDurum'),'Tarayıcı koruması kuruldu. İlk kurulum için Chrome’u bir kez kapatıp açın.','iyi');
   }catch(e){
     ayarCiz();
     // Modern macOS elle yazılan yönetilen tercihi yok sayıyor; o durumda
@@ -785,12 +785,12 @@ function eklentiNotu(){
          + '“Geliştirici modu” → “Paketlenmemiş öğe yükle”.';
   }
   if(eklentiSurum.guncel){
-    return 'Chrome’daki sürüm ' + esc(eklentiSurum.yerel) + ' — güncel.<br>'
-         + '<code>' + klasor + '</code>';
+    return 'Chrome’daki sürüm ' + esc(eklentiSurum.yerel)
+         + ' — güncel. Yeni sürümü eklenti kendisi alıyor.<br><code>' + klasor + '</code>';
   }
   return 'Chrome’daki sürüm <b>' + esc(eklentiSurum.yerel) + '</b>, sunucuda <b>'
-       + esc(eklentiSurum.uzak || '?') + '</b>. Paketlenmemiş eklenti kendi kendine '
-       + 'güncellenmez; <b>Güncelle</b>’ye basıp Chrome’u tamamen kapatıp açın.<br>'
+       + esc(eklentiSurum.uzak || '?') + '</b>. Paket birazdan kendiliğinden yenilenecek; '
+       + 'beklemek istemezseniz <b>Güncelle</b>’ye basın. Tarayıcıyı kapatmanız gerekmiyor.<br>'
        + 'Chrome’a tanıttığınız klasör bu olmalı: <code>' + klasor + '</code>';
 }
 
@@ -801,7 +801,7 @@ async function eklentiTazele(){
     eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
     uyariSayisi(); ayarCiz();
     durumYaz($('ayarDurum'), yeni
-      ? ('Eklenti ' + yeni + ' sürümüne güncellendi. Chrome’u tamamen kapatıp açın.')
+      ? ('Paket ' + yeni + ' sürümüne yenilendi. Eklenti bir dakika içinde kendini yükler.')
       : 'Zaten güncel.', 'iyi');
   }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Güncellenemedi: '+e,'hata'); }
 }
@@ -809,7 +809,8 @@ async function eklentiTazele(){
 async function eklentiKur(){
   const b=$('aEklenti'); b.disabled=true; b.textContent='Kuruluyor…';
   try{ await invoke('eklenti_kur'); ayarCiz();
-    durumYaz($('ayarDurum'),'Eklenti paketi kuruldu. Chrome’u tamamen kapatıp açın.','iyi'); }
+    durumYaz($('ayarDurum'),'Eklenti paketi kuruldu. İlk kurulum için Chrome’u bir kez kapatıp açın; '
+      + 'sonraki sürümleri Chrome kendisi alır.','iyi'); }
   catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Kurulamadı: '+e,'hata'); }
 }
 async function eklentiIndir(){
@@ -818,7 +819,8 @@ async function eklentiIndir(){
     const yol=await invoke('eklenti_indir');
     eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
     uyariSayisi(); ayarCiz();
-    durumYaz($('ayarDurum'),'İndirildi: '+yol+' — klasör açıldı. Chrome’da chrome://extensions sayfasında “Paketlenmemiş öğe yükle” ile klasörü seçin.','iyi');
+    durumYaz($('ayarDurum'),'İndirildi: '+yol+' — klasör açıldı. Chrome’da chrome://extensions sayfasında '
+      + '“Paketlenmemiş öğe yükle” ile bu klasörü seçin. Bu tek seferlik; sonraki sürümleri eklenti kendisi alır.','iyi');
   }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'İndirilemedi: '+e,'hata'); }
 }
 async function profilKaldir(){

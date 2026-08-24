@@ -723,20 +723,26 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
     }
 }
 
-/// Açılışta eklentiyi sessizce tazeler.
+/// Eklentiyi açılışta ve sonra düzenli aralıkla sessizce tazeler.
 ///
 /// Uygulama kendini güncelliyor ama Chrome'a "Paketlenmemiş öğe yükle" ile
 /// tanıtılan eklenti güncellenmiyordu: Chrome o klasördeki DOSYALARI okur ve
 /// dosyalar değişmedikçe eski sürüm sonsuza kadar çalışır. Kullanıcının bunu
 /// bilmesi ve her sürümde elle indirmesi beklenemez.
 ///
-/// Ağ işi olduğu için ayrı iplikte; klasör yoksa hiçbir şey yapmıyor.
+/// TARAYICIYI KAPATMAK GEREKMİYOR: dosyalar değişince eklenti bunu köprüden
+/// öğrenip `chrome.runtime.reload()` ile kendini yeniden yüklüyor.
+///
+/// Uygulama günlerce açık kalabiliyor; tek seferlik denetim yetmez, o yüzden
+/// altı saatte bir tekrarlanıyor.
 fn eklenti_tazele_arkada(uygulama: &tauri::AppHandle) {
+    const ARALIK_SN: u64 = 6 * 60 * 60;
     let u = uygulama.clone();
-    std::thread::spawn(move || {
+    std::thread::spawn(move || loop {
         if let Ok(Some(surum)) = politika::eklenti_tazele() {
             let _ = u.emit("eklenti-guncellendi", surum);
         }
+        std::thread::sleep(std::time::Duration::from_secs(ARALIK_SN));
     });
 }
 

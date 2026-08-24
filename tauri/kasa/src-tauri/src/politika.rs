@@ -512,6 +512,30 @@ pub fn eklenti_yerel_surum() -> Option<String> {
     j["version"].as_str().map(|v| v.to_string())
 }
 
+/// Sunucudaki sürümün ÖNBELLEKLİ hâli.
+///
+/// Eklenti köprüye dakikada bir soruyor; her seferinde update.xml'i çekmek
+/// hem gereksiz hem de kaba olurdu. Sürüm yarım saatte bir tazeleniyor.
+static YAYIN_SURUM: std::sync::Mutex<Option<(String, std::time::Instant)>> =
+    std::sync::Mutex::new(None);
+const YAYIN_TAZELIK: std::time::Duration = std::time::Duration::from_secs(1800);
+
+pub fn eklenti_yayin_surum() -> Option<String> {
+    // Kilit ağ çağrısı boyunca TUTULMUYOR: tutulsaydı yavaş bir istek bütün
+    // köprüyü bekletirdi.
+    {
+        let g = YAYIN_SURUM.lock().unwrap();
+        if let Some((v, t)) = g.as_ref() {
+            if t.elapsed() < YAYIN_TAZELIK {
+                return Some(v.clone());
+            }
+        }
+    }
+    let v = eklenti_uzak_surum()?;
+    *YAYIN_SURUM.lock().unwrap() = Some((v.clone(), std::time::Instant::now()));
+    Some(v)
+}
+
 /// Sunucudaki sürüm. `eklenti_surumu()` yalnız macOS'ta ve curl ile vardı;
 /// bu her iki platformda da çalışıyor.
 pub fn eklenti_uzak_surum() -> Option<String> {

@@ -17,6 +17,33 @@
   if (window.top !== window) return;                    // yalnız üst çerçeve
   if (location.protocol !== 'https:' && location.protocol !== 'http:') return;
 
+  /* SÜRÜM DAMGASI — eklenti kendini yeniledikten sonra açık sekmelere geri
+     yerleşiyor. Aynı sürüm ikinci kez enjekte edilirse çıkılıyor; ESKİ bir
+     sürüm çalışıyorsa önce o sökülüyor. Düz bir "yüklü mü" bayrağı yeni
+     sürümün de girmesini engellerdi.
+     İçerik betikleri aynı eklentinin yalıtılmış dünyasını paylaşıyor, o
+     yüzden bu bayrak sayfaya sızmıyor. */
+  var SURUM = (function () {
+    try { return chrome.runtime.getManifest().version; } catch (e) { return '?'; }
+  })();
+  if (window.__bogahostKasa === SURUM) return;
+  if (window.__bogahostKasa && typeof window.__bogahostKasaSok === 'function') {
+    try { window.__bogahostKasaSok(); } catch (e) {}
+  }
+  window.__bogahostKasa = SURUM;
+
+  /* Eklenti yeniden yüklenince bu betiğin köprüsü kopar; Chrome
+     "Extension context invalidated" atar. Sessizce sökülüyoruz — yerimize
+     yeni sürüm zaten enjekte ediliyor. */
+  function gonder(mesaj, geri) {
+    try {
+      chrome.runtime.sendMessage(mesaj, function (c) {
+        if (chrome.runtime.lastError) { sok(); return; }
+        geri(c);
+      });
+    } catch (e) { sok(); }
+  }
+
   var KAYITLAR = null;        // null = daha sorulmadı
   var sorguda = false;
   var kapatildi = false;      // kullanıcı bu sayfada kapattı
@@ -67,7 +94,7 @@
       var u = kullaniciAlani(pw);
       if (u) u.setAttribute('autocomplete', 'off');
     } catch (e) {}
-    try { chrome.runtime.sendMessage({ type: 'noSave' }); } catch (e) {}
+    gonder({ type: 'noSave' }, function () {});
   }
   function hataMetni(r) {
     var h = r && (r.hata || r.error);
@@ -243,7 +270,7 @@
     var pw = alan.type === 'password' ? alan : (sifreAlanlari()[0] || null);
     if (!pw) { bildir('Sayfada şifre alanı bulunamadı', false); return; }
     panelKapat();
-    chrome.runtime.sendMessage({ type: 'doldur', id: kayit.id, url: location.href }, function (r) {
+    gonder({ type: 'doldur', id: kayit.id, url: location.href }, function (r) {
       if (!r || !r.ok) { bildir('Kasa: ' + hataMetni(r), false); return; }
       kaydetme(pw);
       var u = kullaniciAlani(pw);
@@ -273,7 +300,7 @@
   function getir(alan) {
     if (sorguda) return;
     sorguda = true;
-    chrome.runtime.sendMessage({ type: 'eslesenler', url: location.href }, function (r) {
+    gonder({ type: 'eslesenler', url: location.href }, function (r) {
       sorguda = false;
       KAYITLAR = (r && r.ok) ? (r.kayitlar || []) : [];
       if (!KAYITLAR.length || kapatildi || dolduruldu) return;
@@ -282,13 +309,13 @@
     });
   }
 
-  document.addEventListener('focusin', odaklandi, true);
-
-  document.addEventListener('input', function (e) {
+  function yazmaya_basladi(e) {
     if (panel && e.target === panel.alan) panelKapat();
-  }, true);
+  }
+  document.addEventListener('focusin', odaklandi, true);
+  document.addEventListener('input', yazmaya_basladi, true);
 
-  document.addEventListener('keydown', function (e) {
+  function tusa_basildi(e) {
     if (!panel) return;
     if (e.key === 'Escape') { kapatildi = true; panelKapat(); e.stopPropagation(); }
     else if (e.key === 'ArrowDown') { secimTasi(1); e.preventDefault(); }
@@ -297,10 +324,11 @@
       var k = panel.kayitlar[panel.secili];
       if (k) { e.preventDefault(); doldur(panel.alan, k); }
     }
-  }, true);
+  }
+  document.addEventListener('keydown', tusa_basildi, true);
 
   /* Eklenti penceresinden "şunu doldur" isteği. */
-  chrome.runtime.onMessage.addListener(function (m, gonderen, cevapla) {
+  function pencereden(m, gonderen, cevapla) {
     if (!m || m.type !== 'kasa-doldur') return;
     var pw = sifreAlanlari()[0];
     if (!pw) { bildir('Sayfada şifre alanı bulunamadı', false); cevapla({ ok: false }); return; }
@@ -308,15 +336,30 @@
     if (KAYITLAR) kayit = KAYITLAR.filter(function (i) { return i.id === m.id; })[0];
     doldur(pw, kayit || { id: m.id, etiket: 'Giriş' });
     cevapla({ ok: true });
-  });
+  }
+  try { chrome.runtime.onMessage.addListener(pencereden); } catch (e) {}
 
   /* TEK SAYFA UYGULAMALARDA ADRES DEĞİŞİNCE HER ŞEY SIFIRLANIR.
      Giriş yaptıktan sonra adres değişiyor ama sayfa yeniden yüklenmiyor;
      eski eşleşmeleri taşımak, kaydı ait olmadığı sayfada sunmak demekti. */
-  setInterval(function () {
+  var adresSaati = setInterval(function () {
     if (location.href === sonAdres) return;
     sonAdres = location.href;
     KAYITLAR = null; kapatildi = false; dolduruldu = false;
     panelKapat();
   }, 700);
+
+  /* Kendini tamamen söker: yerine yeni sürüm gelirken ya da eklenti
+     yeniden yüklenirken sayfada iz bırakmamak için. */
+  function sok() {
+    try { clearInterval(adresSaati); } catch (e) {}
+    document.removeEventListener('focusin', odaklandi, true);
+    document.removeEventListener('input', yazmaya_basladi, true);
+    document.removeEventListener('keydown', tusa_basildi, true);
+    try { chrome.runtime.onMessage.removeListener(pencereden); } catch (e) {}
+    panelKapat();
+    if (bildirimHost) { bildirimHost.remove(); bildirimHost = null; }
+    if (window.__bogahostKasa === SURUM) window.__bogahostKasa = null;
+  }
+  window.__bogahostKasaSok = sok;
 })();

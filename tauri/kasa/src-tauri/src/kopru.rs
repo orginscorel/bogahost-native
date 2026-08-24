@@ -240,12 +240,23 @@ fn yuzde_coz(s: &str) -> String {
     String::from_utf8_lossy(&cikti).into_owned()
 }
 
+/// Eklentinin dakikada bir sorduğu uç.
+///
+/// İki sürüm numarası taşıyor ve eklentinin KENDİNİ YENİLEMESİ bunlara bağlı:
+///   • `eklenti` — İndirilenler'deki paketin sürümü. Eklenti paketlenmemiş
+///     kurulduysa Chrome dosyaları oradan okur; kendi sürümünden farklıysa
+///     dosyalar değişmiş demektir ve eklenti `chrome.runtime.reload()` ile
+///     kendini yeniden yükler. Tarayıcıyı kapatmaya gerek kalmaz.
+///   • `yayin` — sunucuda duran sürüm. CRX olarak kurulmuş eklenti bunu
+///     görünce Chrome'dan güncelleme denetimi istiyor.
 fn durum_cevabi(uygulama: &tauri::AppHandle) -> serde_json::Value {
     let acik = uygulama.state::<Durum>().jeton.lock().unwrap().is_some();
     serde_json::json!({
         "ok": true,
         "oturum": acik,
         "surum": uygulama.package_info().version.to_string(),
+        "eklenti": crate::politika::eklenti_yerel_surum(),
+        "yayin": crate::politika::eklenti_yayin_surum(),
     })
 }
 

@@ -125,6 +125,74 @@ function kasaKapat() {
   } catch (e) {}
 }
 
+/* ── KENDİNİ YENİLEME ────────────────────────────────────────────────────
+   Kullanıcının şikayeti buydu: "google'yi kapatmadan eklentiyi
+   güncelleyememek çok absürt". Haklı.
+
+   Chrome'un davranışı iki kurulum yoluna göre ayrılıyor:
+     • Paketlenmemiş (klasörden) kurulanı Chrome ASLA kendiliğinden
+       güncellemez; dosyaları yalnız yüklenirken okur. Ama eklenti kendini
+       `chrome.runtime.reload()` ile yeniden yükleyebilir — o anda Chrome
+       dosyaları diskten TEKRAR okur. Tarayıcıyı kapatmaya gerek yok.
+     • CRX olarak kurulanı Chrome birkaç saatte bir kendi denetler;
+       `requestUpdateCheck()` ile bunu hemen yaptırıyoruz.
+
+   Uygulama, İndirilenler'deki paketi güncel tutuyor ve köprüden diskteki
+   sürümü bildiriyor. Bizimkinden farklıysa dosyalar değişmiş demektir.
+
+   SONSUZ DÖNGÜ KORUMASI: eklenti başka bir klasörden yüklenmiş olabilir; o
+   zaman yeniden yükleme sürümü değiştirmez ve durmadan kendimizi yeniden
+   yüklerdik. Denenen sürüm kaydediliyor, aynısı bir daha denenmiyor. */
+async function kendiniYenile(durum) {
+  const bizim = chrome.runtime.getManifest().version;
+
+  // CRX kurulumu: Chrome'dan hemen denetim iste.
+  if (durum.yayin && cmpSurum(durum.yayin, bizim) > 0) {
+    try { chrome.runtime.requestUpdateCheck(function () { void chrome.runtime.lastError; }); }
+    catch (e) {}
+  }
+
+  // Paketlenmemiş kurulum: diskteki paket bizden farklıysa yeniden yükle.
+  if (!durum.eklenti || durum.eklenti === bizim) return;
+  let denenen = null;
+  try {
+    const s = await chrome.storage.local.get('denenenSurum');
+    denenen = s && s.denenenSurum;
+  } catch (e) {}
+  if (denenen === durum.eklenti) return;      // bir kez denendi, olmadı
+  try { await chrome.storage.local.set({ denenenSurum: durum.eklenti }); } catch (e) {}
+  chrome.runtime.reload();
+}
+
+function cmpSurum(a, b) {
+  const x = String(a || '0').split('.'), y = String(b || '0').split('.');
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const m = parseInt(x[i] || 0, 10), n = parseInt(y[i] || 0, 10);
+    if (m !== n) return m > n ? 1 : -1;
+  }
+  return 0;
+}
+
+/* Yeniden yüklendikten sonra AÇIK SEKMELERE geri yerleş.
+   Aksi hâlde eski içerik betiği kopuk kalır ve kullanıcının her sekmeyi
+   yenilemesi gerekir — yine elle iş demek olurdu. */
+async function sekmelereYerles() {
+  if (!chrome.scripting) return;
+  let sekmeler = [];
+  try { sekmeler = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }); }
+  catch (e) { return; }
+  for (const t of sekmeler) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['autofill.js'] });
+    } catch (e) { /* chrome:// , mağaza sayfaları vb. — geçilir */ }
+  }
+}
+
+/* CRX güncellemesi indiğinde Chrome bunu haber veriyor; beklemeden uygula. */
+if (chrome.runtime.onUpdateAvailable) {
+  chrome.runtime.onUpdateAvailable.addListener(function () { chrome.runtime.reload(); });
+}
+
 /* Rozet: kasa kapalıysa ya da oturum yoksa kullanıcı bunu eklenti simgesinden
    görsün — sayfada hiçbir şey çıkmamasının nedenini aramasın. */
 async function rozet() {
@@ -141,14 +209,20 @@ async function rozet() {
     chrome.action.setBadgeText({ text: '' });
     chrome.action.setTitle({ title: 'Bogahost Kasa' });
   }
+  if (k) kendiniYenile(k.durum);
 }
 
-chrome.runtime.onInstalled.addListener(() => { kasaKapat(); zamanla(); });
+chrome.runtime.onInstalled.addListener(function () {
+  kasaKapat(); zamanla(); sekmelereYerles();
+});
 if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(zamanla);
 function zamanla() {
-  if (chrome.alarms) chrome.alarms.create('kasaDurum', { periodInMinutes: 5 });
+  // Dakikada bir: tek bir 127.0.0.1 isteği. Diskteki paket değiştiği anda
+  // eklentinin kendini yenilemesi için bundan seyrek olamaz.
+  if (chrome.alarms) chrome.alarms.create('kasaDurum', { periodInMinutes: 1 });
   rozet();
 }
+zamanla();
 if (chrome.alarms) {
   chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'kasaDurum') rozet(); });
 }
