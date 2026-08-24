@@ -323,8 +323,8 @@ fn doldur_cevabi(uygulama: &tauri::AppHandle, govde: &str) -> serde_json::Value 
 
     match kasa::doldurmak_icin_ac(&durum, id) {
         Ok((kullanici, parola)) => {
-            // Eklenti doldurduysa masaüstü paneli aynı adres için ısrar etmesin.
-            *crate::SON_DOLDURULAN.lock().unwrap() = Some(url);
+            // Eklenti doldurduysa masaüstü paneli o sitede ısrar etmesin.
+            crate::dolduruldu_isaretle(&url);
             let _ = uygulama.emit("kisayol-dolduruldu", "eklenti");
             serde_json::json!({"ok": true, "kullanici": kullanici, "parola": parola})
         }

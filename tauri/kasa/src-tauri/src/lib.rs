@@ -21,6 +21,7 @@
 //! İÇİNDE `uygulama.state::<Durum>()` ile alınır — ödünç, gövdeden dışarı çıkmaz.
 
 mod alan;
+mod anahtarlik;
 mod guncelleme;
 mod kasa;
 mod kopru;
@@ -38,6 +39,18 @@ use tauri::{Emitter, Manager};
 /// anında yakalanan penceredir.
 #[derive(Default)]
 struct HedefDurum(Mutex<pencere::Hedef>);
+
+/// Bellekteki kripto anahtarları. Diske yazılmıyor, sunucuya gitmiyor,
+/// arayüze verilmiyor — yalnız burada.
+struct KilitDurum(Mutex<anahtarlik::Anahtarlik>);
+
+impl Default for KilitDurum {
+    fn default() -> Self {
+        Self(Mutex::new(anahtarlik::Anahtarlik::yeni(
+            anahtarlik::VARSAYILAN_KILIT_DK,
+        )))
+    }
+}
 
 #[derive(Serialize)]
 struct DoldurSonuc {
@@ -166,6 +179,25 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         }
     }
 
+    /* TARAYICIDA TUŞ GÖNDERMİYORUZ — EKLENTİ DOLDURUYOR.
+       Kısayol yolunda bu kural zaten vardı ama panelden "Doldur"a basınca
+       yine tuş gönderiliyordu. Sayfanın içini göremeyen bir program hangi
+       kutunun ne olduğunu ancak tahmin edebilir; bildirilen "rastgele bir
+       inputa şifre yazıyor" hatasının kökü bu.
+       Eklenti sayfayı GÖRÜYOR: parola alanını bulur, altında menüsünü açar,
+       oraya yazar. Doğru iş bölümü bu. */
+    if h.tarayici {
+        if let Some(p) = uygulama.get_webview_window("hizli") {
+            let _ = p.hide();
+        }
+        return DoldurSonuc {
+            tamam: false,
+            mesaj: "Tarayıcıda doldurmayı Bogahost Kasa eklentisi yapıyor — \
+                    parola kutusuna tıklayın, kutunun altında kayıtlarınız açılır."
+                .into(),
+        };
+    }
+
     // Doldurma /fill ucundan geçer: gizli kayıtta görüntüleme kapalı olsa
     // bile yazma çalışır ve her yazım denetime düşer.
     let (kullanici, sifre) = match kasa::doldurmak_icin_ac(&uygulama.state::<Durum>(), id) {
@@ -243,8 +275,10 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
 
     match sonuc {
         Ok(()) => {
-            // Bu adres için panel bir daha kendiliğinden açılmasın.
-            *SON_DOLDURULAN.lock().unwrap() = h.url.clone();
+            // Bu SİTE için panel bir süre kendiliğinden açılmasın.
+            if let Some(u) = &h.url {
+                dolduruldu_isaretle(u);
+            }
             DoldurSonuc { tamam: true, mesaj: "Dolduruldu.".into() }
         }
         Err(e) => DoldurSonuc {
@@ -409,6 +443,28 @@ fn diger_cihazlari_kapat(uygulama: tauri::AppHandle) -> Result<i64, String> {
     kasa::diger_cihazlari_kapat(&uygulama.state::<Durum>())
 }
 
+/// Kasa kilidinin durumu.
+///
+/// Anahtarlar bellekte `anahtarlik` modülünde duruyor; kilit açma akışı
+/// (ana parola ekranı) henüz yok, o yüzden bugün her zaman kilitli
+/// görünüyor ve arayüz bunu açıkça yazıyor. Uydurma bir "açık" durumu
+/// göstermektense doğruyu söylemek daha iyi.
+#[tauri::command(async)]
+fn kilit_durumu(uygulama: tauri::AppHandle) -> serde_json::Value {
+    let mut a = uygulama.state::<KilitDurum>().0.lock().unwrap();
+    serde_json::json!({
+        "acik": a.acik_mi(),
+        "kalan_sn": a.kalan_sn(),
+        "otomatik_kilit_dk": anahtarlik::VARSAYILAN_KILIT_DK,
+    })
+}
+
+/// Kasayı hemen kilitle — bellekteki anahtarları sıfırlar.
+#[tauri::command(async)]
+fn kilitle(uygulama: tauri::AppHandle) {
+    uygulama.state::<KilitDurum>().0.lock().unwrap().kilitle();
+}
+
 // ── Faz 2b: kasa ve üye yönetimi ───────────────────────────────────────────
 
 #[tauri::command(async)]
@@ -568,6 +624,24 @@ fn yaz(kullanici: &str, sifre: &str, enter_bas: bool) -> Result<(), String> {
                 ))
             }
         }
+
+        /* PAROLA YALNIZCA GERÇEK PAROLA ALANINA YAZILIR.
+           BİLDİRİLEN HATA: "şifreyi açık bir şekilde rastgele bir inputa
+           yazıyor". Doğruydu — yukarıdaki denetim yalnız "boş bir metin
+           alanı mı" diye bakıyordu. Boş bir ARAMA kutusu da boş bir metin
+           alanıdır; parola oraya DÜZ METİN olarak yazılıyordu.
+           `alan::parola_alani_mi()` bu iş için yazılmıştı ama hiçbir yerden
+           çağrılmıyordu.
+           Rol okunamıyorsa (Windows'ta AX yok) engellemiyoruz: orada
+           tespit imkânı yok ve çalışan bir akışı hiç çalıştırmamak çözüm
+           değil. macOS'ta izin varsa kural kesin. */
+        if alan::odakli_rol().is_some() && !alan::parola_alani_mi() {
+            return Err(
+                "Odaktaki alan bir parola alanı değil; parola YAZILMADI. \
+                 Şifrenin açıkta görünmemesi için yalnızca parola kutularına yazılıyor."
+                    .into(),
+            );
+        }
     }
     if !sifre.is_empty() {
         e.text(sifre).map_err(|x| x.to_string())?;
@@ -622,6 +696,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(Durum::default())
         .manage(HedefDurum::default())
+        .manage(KilitDurum::default())
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
@@ -634,6 +709,7 @@ pub fn run() {
             cihazlar, cihaz_iptal, diger_cihazlari_kapat,
             kasalar, kasa_olustur, kasa_sil, kasa_uyeler,
             uye_ekle, uye_rol, uye_cikar,
+            kilit_durumu, kilitle,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
@@ -1011,12 +1087,52 @@ fn panel_yerlestir(panel: &tauri::WebviewWindow) {
     let _ = panel.set_position(PhysicalPosition::new(x, y));
 }
 
-/// Doldurulduktan sonra AYNI adres için panel bir daha kendiliğinden açılmasın.
+/// Doldurulduktan sonra o SİTE için panel bir süre kendiliğinden açılmasın.
 ///
-/// Kullanıcının bildirdiği durum: doldurduktan sonra panel çıkmaya devam
-/// ediyordu. Doldurma bittiyse o adreste işimiz bitmiştir; kullanıcı yine
-/// isterse kısayolla açabilir.
-pub(crate) static SON_DOLDURULAN: Mutex<Option<String>> = Mutex::new(None);
+/// ÖNCE ADRESE BAKIYORDU, YETMEDİ. Bildirilen durum: "giriş yapınca da hâlâ
+/// kasa görünmeye devam ediyor". Sebebi şuydu — giriş yapıldıktan sonra
+/// adres değişiyor (`/giris` → `/panel`), bizim sakladığımız adres artık
+/// tutmuyor ve panel yeniden açılıyordu.
+///
+/// Artık ALAN ADI saklanıyor: bir siteye giriş yaptıysanız o sitede işiniz
+/// bitmiştir. Süre dolunca ya da başka bir siteye geçince panel yine
+/// çalışıyor; kullanıcı isterse kısayolla her zaman açabiliyor.
+static SON_DOLDURULAN: Mutex<Vec<(String, std::time::Instant)>> = Mutex::new(Vec::new());
+
+/// Doldurulan sitede panel ne kadar sessiz kalsın.
+const SESSIZLIK_DK: u64 = 20;
+
+/// Adresin alan adı — `https://a.com/x?y` → `a.com`
+fn alan_adi(u: &str) -> String {
+    let s = u.split("://").nth(1).unwrap_or(u);
+    let host = s.split(['/', '?', '#']).next().unwrap_or("");
+    host.split('@').last().unwrap_or(host)
+        .split(':').next().unwrap_or("")
+        .trim_start_matches("www.")
+        .to_ascii_lowercase()
+}
+
+/// Bu adres az önce dolduruldu mu? Süresi geçmiş kayıtlar da burada temizlenir.
+pub(crate) fn az_once_dolduruldu(url: &str) -> bool {
+    let alan = alan_adi(url);
+    if alan.is_empty() {
+        return false;
+    }
+    let mut liste = SON_DOLDURULAN.lock().unwrap();
+    let sure = std::time::Duration::from_secs(SESSIZLIK_DK * 60);
+    liste.retain(|(_, t)| t.elapsed() < sure);
+    liste.iter().any(|(a, _)| *a == alan)
+}
+
+pub(crate) fn dolduruldu_isaretle(url: &str) {
+    let alan = alan_adi(url);
+    if alan.is_empty() {
+        return;
+    }
+    let mut liste = SON_DOLDURULAN.lock().unwrap();
+    liste.retain(|(a, _)| *a != alan);
+    liste.push((alan, std::time::Instant::now()));
+}
 
 /// Hedefte eşleşen kayıt varsa hızlı paneli gösterir, yoksa gizler.
 ///
@@ -1047,8 +1163,8 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
         return;
     }
 
-    // Bu adres az önce dolduruldu — panel ısrar etmesin.
-    if SON_DOLDURULAN.lock().unwrap().as_deref() == Some(url.as_str()) {
+    // Bu sitede az önce dolduruldu — panel ısrar etmesin.
+    if az_once_dolduruldu(&url) {
         if acik {
             let _ = panel.hide();
         }

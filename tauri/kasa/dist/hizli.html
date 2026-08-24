@@ -1,11 +1,17 @@
-<!-- Bogahost Kasa — HIZLI ERİŞİM.
-     Ana pencere tam bir uygulama (620x560); doldurmak için onu açmak zorunda
-     kalmak akışı bozuyordu: hedeften uzaklaşıyor, pencere ekranı kaplıyordu.
-     Bu pencere küçük, çerçevesiz ve her zaman üstte. Kısayola basınca beliriyor,
-     kayıt seçilip doldurulunca kayboluyor.
+<!-- Bogahost Kasa — HIZLI ERİŞİM PANELİ.
 
-     KLAVYEYLE BİTİYOR: ↑/↓ ile seç, Enter ile doldur, Esc ile kapat. Fareye
-     uzanmadan tek akışta bitmesi bu pencerenin bütün amacı. -->
+     TEK TIK = DOLDUR.
+     Bildirilen sorun: "doldura basmak çok zor, bazen araya basıyor". Doğruydu.
+     Panelde üç ayrı hedef vardı — arama kutusu, satırlar, Doldur düğmesi — ve
+     satıra tek tıklamak yalnızca SEÇİYORDU; doldurmak için ayrıca düğmeye ya
+     da çift tıklamaya gerek vardı. 380 pikselin içinde üç hedef, ıskalanan tık
+     demek.
+
+     Şimdi: arama kutusu YOK (bu panel zaten yalnız EŞLEŞEN kayıtları
+     gösteriyor, aranacak bir şey yok), satıra bir kez tıklamak dolduruyor.
+     Satırlar büyük ve tam genişlikte — ıskalanacak boşluk kalmadı.
+
+     KLAVYEYLE DE BİTİYOR: ↑/↓ ile seç, Enter ile doldur, Esc ile kapat. -->
 <meta charset="utf-8">
 <title>Kasa — Hızlı Erişim</title>
 <style>
@@ -14,6 +20,7 @@
     --metin:#17162a; --sonuk:#5f5c78; --silik:#918ea8; --cizgi:#e4e1f1;
     --vurgu:#5443D2; --vurgu2:#7a6cf0; --vurgu-yumusak:rgba(84,67,210,.10);
     --iyi:#12905a; --uyari:#a9660a; --hata:#c02a45;
+    --golge:0 10px 34px rgba(20,16,45,.20);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -21,6 +28,7 @@
       --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#2b2a3a;
       --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.16);
       --iyi:#4ecb8d; --uyari:#e8b45c; --hata:#f0788f;
+      --golge:0 10px 34px rgba(0,0,0,.55);
     }
   }
   :root[data-theme="dark"]{
@@ -28,63 +36,68 @@
     --metin:#eeedf6; --sonuk:#a3a1b5; --silik:#6e6c80; --cizgi:#2b2a3a;
     --vurgu:#8F86F0; --vurgu2:#a79ff5; --vurgu-yumusak:rgba(143,134,240,.16);
     --iyi:#4ecb8d; --uyari:#e8b45c; --hata:#f0788f;
+    --golge:0 10px 34px rgba(0,0,0,.55);
   }
 
   *{box-sizing:border-box}
-  /* Pencere saydam: köşeler gerçekten yuvarlak görünsün diye gövde boş bırakılıp
-     içerideki kabuk boyanıyor. */
-  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
-            font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
-            color:var(--metin);-webkit-font-smoothing:antialiased}
-  .kabuk{height:100%;display:flex;flex-direction:column;background:var(--kart);
-         border:1px solid var(--cizgi);border-radius:16px;overflow:hidden;
-         box-shadow:0 18px 48px rgba(12,8,32,.34)}
+  html,body{height:100%;margin:0;background:transparent;overflow:hidden}
+  body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+       color:var(--metin);-webkit-font-smoothing:antialiased}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-  /* Üst şerit sürüklenebilir — çerçeve olmadığı için pencereyi taşımanın tek yolu. */
-  .ust{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  .kabuk{height:100%;display:flex;flex-direction:column;background:var(--kart);
+         border:1px solid var(--cizgi);border-radius:16px;box-shadow:var(--golge);overflow:hidden}
+
+  /* ── Üst ── */
+  .ust{display:flex;align-items:center;gap:9px;padding:11px 12px;
        border-bottom:1px solid var(--cizgi);background:var(--kart2);
        -webkit-app-region:drag;user-select:none}
   .nokta{width:8px;height:8px;border-radius:50%;background:var(--silik);flex:none}
-  .nokta.canli{background:var(--iyi);box-shadow:0 0 0 4px rgba(18,144,90,.16)}
-  .hedef{flex:1;min-width:0;font-size:12.5px}
-  .hedefAd{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hedefAlt{color:var(--silik);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nokta.canli{background:var(--iyi)}
+  .hedef{flex:1;min-width:0}
+  .hedefAd{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hedefAlt{font-size:11px;color:var(--silik);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .kapat{-webkit-app-region:no-drag;width:26px;height:26px;display:grid;place-items:center;
          border:0;border-radius:8px;background:none;color:var(--silik);cursor:pointer;flex:none}
   .kapat:hover{background:var(--kart3);color:var(--metin)}
   .kapat svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
 
-  .araSatir{padding:12px 14px 8px}
-  .ara{width:100%;padding:11px 13px;border:1px solid var(--cizgi);border-radius:11px;
-       background:var(--kart2);color:inherit;font:inherit;outline:none}
-  .ara:focus{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
-
-  .liste{flex:1;overflow-y:auto;padding:0 10px 8px;min-height:0}
-  ::-webkit-scrollbar{width:8px}
-  ::-webkit-scrollbar-thumb{background:var(--cizgi);border-radius:8px}
-  .satir{display:flex;align-items:center;gap:11px;padding:9px 10px;margin-bottom:3px;
-         border:1px solid transparent;border-radius:11px;cursor:pointer}
-  .satir:hover{background:var(--kart2)}
-  .satir.secili{background:var(--vurgu-yumusak);border-color:var(--vurgu)}
-  .avatar{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;
-          font-size:11.5px;font-weight:700;color:#fff}
+  /* ── Liste: SATIRIN TAMAMI TIKLANIR ── */
+  .liste{flex:1;overflow-y:auto;padding:6px;min-height:0}
+  .satir{display:flex;align-items:center;gap:11px;width:100%;text-align:left;
+         padding:12px 11px;border:0;border-radius:12px;background:none;color:inherit;
+         font:inherit;cursor:pointer;transition:background .12s}
+  .satir:hover,.satir.secili{background:var(--vurgu-yumusak)}
+  .satir.secili{box-shadow:inset 3px 0 0 var(--vurgu)}
+  .satir:active{transform:scale(.995)}
+  .satir:disabled{opacity:.5;cursor:default}
+  .avatar{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;
+          justify-content:center;color:#fff;font-weight:700;font-size:13px}
   .metin{flex:1;min-width:0}
-  .ad{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .alt{font-size:11.5px;color:var(--silik);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .rozet{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 7px;border-radius:20px;flex:none;
-         background:rgba(18,144,90,.14);color:var(--iyi)}
-  .bos{padding:30px 18px;text-align:center;color:var(--silik);font-size:12.5px}
+  .ad{display:block;font-weight:600;font-size:14px;line-height:1.35;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .alt{display:block;font-size:11.5px;line-height:1.35;color:var(--silik);
+       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .git{width:15px;height:15px;flex:none;stroke:var(--vurgu);fill:none;stroke-width:2.4;
+       stroke-linecap:round;stroke-linejoin:round;opacity:0;transition:opacity .12s}
+  .satir:hover .git,.satir.secili .git{opacity:1}
 
-  .alt-cubuk{display:flex;align-items:center;gap:10px;padding:10px 14px;
-             border-top:1px solid var(--cizgi);background:var(--kart2)}
-  .ipucu{flex:1;font-size:11px;color:var(--silik)}
-  .ipucu kbd{font:inherit;background:var(--kart3);border:1px solid var(--cizgi);
-             border-radius:5px;padding:1px 5px;margin:0 1px}
-  .doldur{padding:9px 18px;border:0;border-radius:10px;color:#fff;font-weight:600;font-size:13px;
-          background:linear-gradient(160deg,var(--vurgu),var(--vurgu2));cursor:pointer}
-  .doldur:disabled{opacity:.45;cursor:default}
-  .durum{padding:0 14px 10px;font-size:11.5px;color:var(--sonuk);min-height:0}
-  .durum.hata{color:var(--hata)} .durum.iyi{color:var(--iyi)} .durum.uyari{color:var(--uyari)}
+  .bos{padding:30px 18px;text-align:center;color:var(--silik);font-size:12.5px;line-height:1.65}
+  .bos b{display:block;color:var(--sonuk);font-size:13px;margin-bottom:5px}
+
+  .durum{padding:0 13px;font-size:11.5px;color:var(--sonuk);min-height:0}
+  .durum:not(:empty){padding:8px 13px}
+  .durum.hata{color:var(--hata)}
+  .durum.iyi{color:var(--iyi)}
+
+  /* ── Alt: tıklama yolundan UZAK ── */
+  .altCubuk{display:flex;align-items:center;gap:8px;padding:8px 12px;
+            border-top:1px solid var(--cizgi);background:var(--kart2);font-size:11px;color:var(--silik)}
+  .altCubuk label{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .altCubuk input{accent-color:var(--vurgu);margin:0;width:13px;height:13px}
+  .bosluk{flex:1}
+  kbd{font:600 10px/1 ui-monospace,monospace;background:var(--kart3);border:1px solid var(--cizgi);
+      border-radius:4px;padding:2px 4px;color:var(--sonuk)}
 </style>
 
 <div class="kabuk">
@@ -99,20 +112,13 @@
     </button>
   </div>
 
-  <div class="araSatir">
-    <input class="ara" type="text" id="ara" placeholder="Ara…" autocomplete="off" spellcheck="false">
-  </div>
-
   <div class="liste" id="liste"></div>
-
   <div class="durum" id="durum"></div>
 
-  <div class="alt-cubuk">
-    <label class="ipucu" style="display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" id="enterKutu" checked style="accent-color:var(--vurgu);margin:0">
-      Doldurunca Enter’a bas
-    </label>
-    <button class="doldur" id="doldurDugme">Doldur</button>
+  <div class="altCubuk">
+    <label><input type="checkbox" id="enterKutu" checked> Doldurunca Enter’a bas</label>
+    <div class="bosluk"></div>
+    <span><kbd>↑↓</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd></span>
   </div>
 </div>
 
@@ -122,31 +128,29 @@ const { listen } = window.__TAURI__.event;
 const pencereApi = window.__TAURI__.window;
 
 const $ = (id) => document.getElementById(id);
-let kayitlar = [], gosterilen = [], secili = null, hedefSon = null, dolduruluyor = false;
+let gosterilen = [], secili = null, hedefSon = null, dolduruluyor = false;
 
-function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return `hsl(${h} 48% 45%)`; }
-function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]?.[0]||'?')+(p[1]?.[0]||'')).toUpperCase(); }
+function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
+function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
 function alanAdi(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return (u||'').slice(0,40); } }
 function durumYaz(m,t){ const e=$('durum'); e.className='durum'+(t?' '+t:''); e.textContent=m||''; }
 
-/* Kaydın adresi hedefin adresiyle YOL DÜZEYİNDE uyuşuyor mu?
-   Sunucu alan adı düzeyinde eşleştiriyor; "ornek.com/giris" kaydı
-   "ornek.com/panel/arama" ile de eşleşir. Kayıtta yol yoksa alan adı yeter. */
+/* YOL TAM UYMALI — sunucudaki kuralın aynısı.
+   Önceki sürüm alt yolları da kabul ediyordu (`hy.startsWith(ky+'/')`),
+   sunucu ise artık tam eşleşme istiyor. İki tarafın farklı kural
+   uygulaması, panelin sunucunun kabul etmeyeceği kaydı önermesi demekti. */
 function yolUyar(kayitUrl, hedefUrl){
   if(!kayitUrl) return true;
   try{
     const k=new URL(kayitUrl), h=new URL(hedefUrl);
     if(k.hostname.replace(/^www\./,'')!==h.hostname.replace(/^www\./,'')) return false;
     const ky=k.pathname.replace(/\/+$/,''); if(!ky) return true;
-    const hy=h.pathname.replace(/\/+$/,'');
-    return hy===ky || hy.startsWith(ky+'/');
+    return h.pathname.replace(/\/+$/,'')===ky;
   }catch(e){ return false; }
 }
 
-async function kapat(){
-  try{ await pencereApi.getCurrentWindow().hide(); }catch(e){}
-}
+async function kapat(){ try{ await pencereApi.getCurrentWindow().hide(); }catch(e){} }
 
 function hedefYaz(h){
   hedefSon = h;
@@ -158,100 +162,113 @@ function hedefYaz(h){
     return;
   }
   n.className='nokta canli';
-  // Tarayıcıda sayfa içi doldurmayı eklenti yapıyor; burada yine de yazabiliriz
-  // çünkü kullanıcı açıkça Doldur diyor.
   $('hedefAd').textContent = h.program;
   $('hedefAlt').textContent = h.url ? alanAdi(h.url)
     : ((h.baslik||'').trim()!==h.program ? (h.baslik||'').slice(0,48) : '');
 }
 
 function ciz(){
-  const s=$('ara').value.trim().toLowerCase();
-  let liste = kayitlar;
-
-  /* HEDEFE UYAN KAYITLAR ÖNE.
-     Pencere hedefin üstünde açıldığı için ilk satırın doğru kayıt olması
-     gerekiyor — kullanıcı çoğu zaman doğrudan Enter'a basacak. */
-  if(hedefSon && hedefSon.url){
-    const uyan = liste.filter(k=>k.url && yolUyar(k.url, hedefSon.url));
-    const digerleri = liste.filter(k=>!uyan.includes(k));
-    liste = [...uyan, ...digerleri];
-  }
-  if(s) liste = liste.filter(k=>
-    ((k.label||'')+' '+(k.username||'')+' '+(k.domain||'')+' '+(k.category||'')).toLowerCase().includes(s));
-
-  gosterilen = liste.slice(0, 40);
-  if(!secili || !gosterilen.some(k=>k.id===secili.id)) secili = gosterilen[0] || null;
-
   const l=$('liste');
-  if(!gosterilen.length){
-    l.innerHTML='<div class="bos">'+(kayitlar.length?'Aramaya uyan kayıt yok.':'Kasanızda kayıt yok.')+'</div>';
-    $('doldurDugme').disabled=true;
+
+  /* TARAYICIDA BU PANEL DOLDURMAZ.
+     Sayfanın içini göremeyen bir program hangi kutunun ne olduğunu ancak
+     tahmin edebilir; parolanın yanlış kutuya düşmesinin kökü buydu.
+     Eklenti sayfayı GÖRÜYOR — orada iş onun. */
+  if(hedefSon && hedefSon.tarayici){
+    l.innerHTML='<div class="bos"><b>Tarayıcıda doldurmayı eklenti yapıyor</b>'
+      + 'Parola kutusuna tıklayın; kutunun altında kayıtlarınız açılır.</div>';
+    gosterilen=[]; secili=null;
     return;
   }
-  $('doldurDugme').disabled=false;
 
-  const uyanMi = k => hedefSon && hedefSon.url && k.url && yolUyar(k.url, hedefSon.url);
-  l.innerHTML = gosterilen.map(k=>{
+  if(!gosterilen.length){
+    l.innerHTML='<div class="bos"><b>Bu pencereye uyan kayıt yok</b>'
+      + 'Kasada bu adrese ait bir kayıt bulunamadı.</div>';
+    secili=null;
+    return;
+  }
+  if(!secili || !gosterilen.some(function(k){ return k.id===secili.id; })) secili = gosterilen[0];
+
+  l.innerHTML = gosterilen.map(function(k){
     const ad=k.label||'(adsız)';
-    return '<div class="satir'+(secili&&secili.id===k.id?' secili':'')+'" data-id="'+k.id+'">'
-      + '<div class="avatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</div>'
-      + '<div class="metin"><div class="ad">'+esc(ad)+'</div>'
-      + '<div class="alt">'+esc([k.username,k.domain].filter(Boolean).join('  ·  ')||'—')+'</div></div>'
-      + (uyanMi(k)?'<span class="rozet">EŞLEŞTİ</span>':'')
-      + '</div>';
+    const izinli = !Array.isArray(k.izinler) || k.izinler.indexOf('doldur')>=0;
+    return '<button class="satir'+(secili&&secili.id===k.id?' secili':'')+'" data-id="'+k.id+'"'
+      + (izinli?'':' disabled title="Bu kaydı doldurma yetkiniz yok"')+'>'
+      + '<span class="avatar" style="background:'+renk(ad)+'">'+esc(basHarf(ad))+'</span>'
+      + '<span class="metin"><span class="ad">'+esc(ad)+'</span>'
+      + '<span class="alt">'+esc(k.username||k.domain||'—')+'</span></span>'
+      + '<svg class="git" viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m12 5 7 7-7 7"/></svg>'
+      + '</button>';
   }).join('');
 
-  l.querySelectorAll('[data-id]').forEach(el=>{
-    el.onclick=()=>{ secili=gosterilen.find(k=>k.id==el.dataset.id)||null; ciz(); };
-    el.ondblclick=doldur;
+  // TEK TIK = DOLDUR. Seçmek için ayrı bir adım yok.
+  Array.prototype.forEach.call(l.querySelectorAll('[data-id]'), function(el){
+    el.onclick=function(){
+      secili = gosterilen.filter(function(k){ return k.id==el.dataset.id; })[0] || null;
+      doldur();
+    };
+    el.onmouseenter=function(){
+      secili = gosterilen.filter(function(k){ return k.id==el.dataset.id; })[0] || secili;
+      Array.prototype.forEach.call(l.querySelectorAll('.satir'), function(x){
+        x.classList.toggle('secili', x===el);
+      });
+    };
   });
-  const sec=l.querySelector('.satir.secili');
-  if(sec&&sec.scrollIntoView) sec.scrollIntoView({block:'nearest'});
 }
 
 async function doldur(){
   if(dolduruluyor||!secili) return;
   dolduruluyor=true;
-  $('doldurDugme').disabled=true;
   durumYaz('Şifre alınıyor…');
   try{
-    // Doldurduktan sonra Enter — kullanıcı isteği. Kutu ile kapatılabiliyor;
-    // bazı formlar Enter ile gönderilmiyor ya da araya başka bir adım koyuyor.
     const s=await invoke('doldur',{id:secili.id, enterBas:$('enterKutu').checked});
     if(s.tamam){ await kapat(); durumYaz(''); }
     else durumYaz(s.mesaj,'hata');
   }catch(e){ durumYaz('Hata: '+e,'hata'); }
-  finally{ dolduruluyor=false; $('doldurDugme').disabled=false; }
+  finally{ dolduruluyor=false; }
 }
 
-$('doldurDugme').onclick=doldur;
 $('kapat').onclick=kapat;
-$('ara').addEventListener('input', ciz);
 
-document.addEventListener('keydown', e=>{
+document.addEventListener('keydown', function(e){
   if(e.key==='Escape'){ e.preventDefault(); kapat(); return; }
   if(e.key==='Enter'){ e.preventDefault(); doldur(); return; }
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){
     if(!gosterilen.length) return;
     e.preventDefault();
-    const i=Math.max(0,gosterilen.findIndex(k=>secili&&k.id===secili.id));
-    secili=gosterilen[Math.min(gosterilen.length-1,Math.max(0,i+(e.key==='ArrowDown'?1:-1)))];
+    let i=0;
+    for(let j=0;j<gosterilen.length;j++) if(secili && gosterilen[j].id===secili.id) i=j;
+    i = Math.min(gosterilen.length-1, Math.max(0, i + (e.key==='ArrowDown'?1:-1)));
+    secili = gosterilen[i];
     ciz();
+    const sec=$('liste').querySelector('.satir.secili');
+    if(sec&&sec.scrollIntoView) sec.scrollIntoView({block:'nearest'});
   }
 });
 
-/* Pencere her göründüğünde tazelenir: hedef değişmiş, kayıt eklenmiş olabilir. */
+/* Panel her göründüğünde tazeleniyor.
+   YALNIZ EŞLEŞENLER GÖSTERİLİYOR: bu panel zaten "bu pencereye uyan kayıt
+   var" diye açılıyor. Bütün kasayı listeleyip kullanıcıya aratmak, panelin
+   varlık sebebini ortadan kaldırırdı — o iş ana pencerenin. */
 async function tazele(){
   try{ hedefYaz(await invoke('hedef')); }catch(e){}
-  try{ kayitlar = await invoke('kayitlar'); }catch(e){ kayitlar=[]; }
-  $('ara').value=''; secili=null; durumYaz('');
+  gosterilen=[]; secili=null; durumYaz('');
+
+  if(hedefSon && hedefSon.url && !hedefSon.tarayici){
+    try{
+      const uyan = await invoke('eslesenler',{url:hedefSon.url});
+      gosterilen = (uyan||[]).filter(function(k){ return yolUyar(k.url, hedefSon.url); }).slice(0,12);
+    }catch(e){ gosterilen=[]; }
+  } else if(hedefSon && !hedefSon.url && !hedefSon.tarayici){
+    /* Masaüstü programında adres yok — eşleştirilecek bir şey de yok.
+       Burada kullanıcının seçmesi gerekiyor, o yüzden hepsini gösteriyoruz. */
+    try{ gosterilen = (await invoke('kayitlar')).slice(0,12); }catch(e){ gosterilen=[]; }
+  }
   ciz();
-  $('ara').focus();
 }
 
 listen('hizli-goster', tazele);
-listen('hedef-degisti', o=>{ hedefYaz(o.payload); ciz(); });
+listen('hedef-degisti', function(o){ hedefYaz(o.payload); tazele(); });
 
-// İlk yükleme
 tazele();
+</script>
