@@ -408,6 +408,45 @@ fn diger_cihazlari_kapat(uygulama: tauri::AppHandle) -> Result<i64, String> {
     kasa::diger_cihazlari_kapat(&uygulama.state::<Durum>())
 }
 
+// ── Faz 2b: kasa ve üye yönetimi ───────────────────────────────────────────
+
+#[tauri::command(async)]
+fn kasalar(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    kasa::kasalar(&uygulama.state::<Durum>())
+}
+
+#[tauri::command(async)]
+fn kasa_olustur(uygulama: tauri::AppHandle, ad: String, tur: String, aciklama: String)
+    -> Result<serde_json::Value, String>
+{
+    kasa::kasa_olustur(&uygulama.state::<Durum>(), &ad, &tur, &aciklama)
+}
+
+#[tauri::command(async)]
+fn kasa_sil(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
+    kasa::kasa_sil(&uygulama.state::<Durum>(), id)
+}
+
+#[tauri::command(async)]
+fn kasa_uyeler(uygulama: tauri::AppHandle, id: i64) -> Result<serde_json::Value, String> {
+    kasa::kasa_uyeler(&uygulama.state::<Durum>(), id)
+}
+
+#[tauri::command(async)]
+fn uye_ekle(uygulama: tauri::AppHandle, kasa: i64, user_id: i64, rol: String) -> Result<(), String> {
+    kasa::uye_ekle(&uygulama.state::<Durum>(), kasa, user_id, &rol)
+}
+
+#[tauri::command(async)]
+fn uye_rol(uygulama: tauri::AppHandle, kasa: i64, user_id: i64, rol: String) -> Result<(), String> {
+    kasa::uye_rol(&uygulama.state::<Durum>(), kasa, user_id, &rol)
+}
+
+#[tauri::command(async)]
+fn uye_cikar(uygulama: tauri::AppHandle, kasa: i64, user_id: i64) -> Result<(), String> {
+    kasa::uye_cikar(&uygulama.state::<Durum>(), kasa, user_id)
+}
+
 // ── Parola üreteci ─────────────────────────────────────────────────────────
 
 /// Güçlü parola üret. Rastgelelik işletim sisteminden gelir.
@@ -592,6 +631,8 @@ pub fn run() {
             eklenti_surum_durum, eklenti_tazele, kopru_durum,
             cop, cop_geri, cop_kalici_sil, gecmis, surume_don,
             cihazlar, cihaz_iptal, diger_cihazlari_kapat,
+            kasalar, kasa_olustur, kasa_sil, kasa_uyeler,
+            uye_ekle, uye_rol, uye_cikar,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])

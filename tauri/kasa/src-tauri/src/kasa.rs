@@ -623,3 +623,59 @@ pub fn diger_cihazlari_kapat(durum: &Durum) -> Result<i64, String> {
     let j = eylem(durum, "POST", "/vault/api/cihazlar/digerlerini-kapat")?;
     Ok(j["kapatilan"].as_i64().unwrap_or(0))
 }
+
+// ── Faz 2b: kasa ve üye yönetimi ───────────────────────────────────────────
+//
+// Uygulama yalnız gösteriyor ve iletiyor; "kasa yöneticisi mi" sorusunun
+// cevabı her uçta sunucuda veriliyor. İstemcide düğme söndürmek yetki değil.
+
+/// JSON gövdeli istek — kasa/üye uçları için.
+fn govdeli(durum: &Durum, metot: &str, yol: &str, govde: serde_json::Value)
+    -> Result<serde_json::Value, String>
+{
+    let t = jeton_of(durum)?;
+    let c = istemci();
+    let istek = match metot {
+        "PUT" => c.put(format!("{SUNUCU}{yol}")),
+        _ => c.post(format!("{SUNUCU}{yol}")),
+    };
+    let y = istek
+        .bearer_auth(t)
+        .json(&govde)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    yaniti_coz(y)
+}
+
+pub fn kasalar(durum: &Durum) -> Result<serde_json::Value, String> {
+    getir(durum, "/vault/api/kasalar")
+}
+
+pub fn kasa_olustur(durum: &Durum, ad: &str, tur: &str, aciklama: &str)
+    -> Result<serde_json::Value, String>
+{
+    govdeli(durum, "POST", "/vault/api/kasalar",
+        serde_json::json!({"ad": ad, "tur": tur, "aciklama": aciklama}))
+}
+
+pub fn kasa_sil(durum: &Durum, id: i64) -> Result<(), String> {
+    eylem(durum, "DELETE", &format!("/vault/api/kasalar/{id}")).map(|_| ())
+}
+
+pub fn kasa_uyeler(durum: &Durum, id: i64) -> Result<serde_json::Value, String> {
+    getir(durum, &format!("/vault/api/kasalar/{id}/uyeler"))
+}
+
+pub fn uye_ekle(durum: &Durum, kasa: i64, user_id: i64, rol: &str) -> Result<(), String> {
+    govdeli(durum, "POST", &format!("/vault/api/kasalar/{kasa}/uyeler"),
+        serde_json::json!({"user_id": user_id, "rol": rol})).map(|_| ())
+}
+
+pub fn uye_rol(durum: &Durum, kasa: i64, user_id: i64, rol: &str) -> Result<(), String> {
+    govdeli(durum, "PUT", &format!("/vault/api/kasalar/{kasa}/uyeler/{user_id}"),
+        serde_json::json!({"rol": rol})).map(|_| ())
+}
+
+pub fn uye_cikar(durum: &Durum, kasa: i64, user_id: i64) -> Result<(), String> {
+    eylem(durum, "DELETE", &format!("/vault/api/kasalar/{kasa}/uyeler/{user_id}")).map(|_| ())
+}

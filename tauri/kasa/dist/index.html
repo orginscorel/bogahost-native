@@ -797,6 +797,9 @@ function ayarCiz(){
           ? '<button class="ikincil" id="aEklentiTazele">Güncelle</button>'
           : '<button class="ikincil" id="aEklentiIndir">İndir</button>')
         + '<button class="ikincil" id="aEklenti" style="margin-left:8px">Kur</button>')
+  + sat(null,'Kasalar',
+        'Kişisel kasanız yalnız sizindir. Ortak kasalarda kimin ne yapabileceğini rol belirler.',
+        '<button class="ikincil" id="aKasalar">Aç</button>')
   + sat(null,'Cihazlar',
         'Bu hesapla açık oturumlar. Kaybolan bir bilgisayarın erişimi buradan kesilir.',
         '<button class="ikincil" id="aCihazlar">Aç</button>')
@@ -815,6 +818,7 @@ function ayarCiz(){
   $('aEklenti').onclick=eklentiKur;
   if($('aEklentiIndir')) $('aEklentiIndir').onclick=eklentiIndir;
   if($('aEklentiTazele')) $('aEklentiTazele').onclick=eklentiTazele;
+  $('aKasalar').onclick=kasalariAc;
   $('aCihazlar').onclick=cihazlariAc;
   $('aCop').onclick=copAc;
   $('aProfilSil').onclick=profilKaldir;
@@ -942,6 +946,91 @@ function listeCiz(satirlar){
       b.disabled=true; a.calistir(b);
     };
   });
+}
+
+/* ── Kasalar ──
+   Kişisel kasa ayrı bir şey: silinemez, başkası üye edilemez. Bunu sunucu
+   zorluyor; buradaki rozet yalnız kullanıcıya durumu söylüyor. */
+let ROLLER = null;
+async function kasalariAc(){
+  listeAc('Kasalar', { ad:'Yeni kasa', calistir: kasaOlustur });
+  try{
+    const d=await invoke('kasalar');
+    ROLLER = d.roller || null;
+    const c=d.kasalar||[];
+    if(!c.length){ listeBos('Henüz kasanız yok'); return; }
+    listeCiz(c.map(function(x){
+      const eylemler=[{ ad:'Üyeler', calistir: function(b){ b.disabled=false; uyeleriAc(x); } }];
+      if(!x.kisisel && x.yoneticiyim){
+        eylemler.push({ ad:'Sil', tehlike:true, calistir: async function(b){
+          if(!confirm('"'+x.ad+'" kasası silinsin mi?')){ b.disabled=false; return; }
+          try{ await invoke('kasa_sil',{id:x.id}); kasalariAc(); }
+          catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+        }});
+      }
+      return {
+        ad: x.ad,
+        alt: [x.tur_adi, x.kayit+' kayıt', x.uye+' üye',
+              x.rolum ? ('rolünüz: '+((ROLLER&&ROLLER[x.rolum])?ROLLER[x.rolum].ad:x.rolum)) : null]
+             .filter(Boolean).join('  ·  '),
+        rozet: x.kisisel ? 'KİŞİSEL' : null,
+        eylemler: eylemler
+      };
+    }));
+  }catch(e){ listeHata(e); }
+}
+
+async function kasaOlustur(b){
+  const ad=prompt('Kasa adı:'); if(!ad){ b.disabled=false; return; }
+  const tur=prompt('Tür — organizasyon / departman / takim / proje:','takim');
+  if(!tur){ b.disabled=false; return; }
+  try{ await invoke('kasa_olustur',{ad:ad.trim(), tur:tur.trim(), aciklama:''}); kasalariAc(); }
+  catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+}
+
+async function uyeleriAc(kasa){
+  listeAc('Üyeler — '+kasa.ad, kasa.yoneticiyim && !kasa.kisisel
+    ? { ad:'Üye ekle', calistir: function(b){ uyeEkleAkis(kasa,b); } } : null);
+  try{
+    const d=await invoke('kasa_uyeler',{id:kasa.id});
+    ROLLER = d.roller || ROLLER;
+    window.__eklenebilir = d.eklenebilir || [];
+    listeCiz((d.uyeler||[]).map(function(u){
+      const eylemler=[];
+      if(kasa.yoneticiyim && !kasa.kisisel){
+        eylemler.push({ ad:'Rol', calistir: async function(b){
+          const secenek=Object.keys(ROLLER||{}).join(' / ');
+          const yeni=prompt('Yeni rol ('+secenek+'):', u.rol);
+          if(!yeni){ b.disabled=false; return; }
+          try{ await invoke('uye_rol',{kasa:kasa.id, userId:u.user_id, rol:yeni.trim()});
+               uyeleriAc(kasa); }
+          catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+        }});
+        eylemler.push({ ad:'Çıkar', tehlike:true, calistir: async function(b){
+          if(!confirm(u.ad+' kasadan çıkarılsın mı? Bu kayıtlara erişimi hemen kesilir.')){
+            b.disabled=false; return; }
+          try{ await invoke('uye_cikar',{kasa:kasa.id, userId:u.user_id}); uyeleriAc(kasa); }
+          catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+        }});
+      }
+      // Rolün ne demek olduğunu yazıyoruz — "kullanan" adı tek başına
+      // parolayı göremeyeceğini anlatmıyor.
+      const not = (ROLLER&&ROLLER[u.rol]) ? ROLLER[u.rol].not : '';
+      return { ad: u.ad, alt: u.rol_adi + (not ? '  ·  '+not : ''), eylemler: eylemler };
+    }));
+  }catch(e){ listeHata(e); }
+}
+
+async function uyeEkleAkis(kasa,b){
+  const liste=window.__eklenebilir||[];
+  if(!liste.length){ b.disabled=false; durumYaz($('listeDurum'),'Eklenecek kullanıcı kalmadı.'); return; }
+  const secim=prompt('Kullanıcı:\n'+liste.map(function(u){ return u.id+' — '+u.name; }).join('\n'));
+  if(!secim){ b.disabled=false; return; }
+  const rol=prompt('Rol ('+Object.keys(ROLLER||{}).join(' / ')+'):','kullanan');
+  if(!rol){ b.disabled=false; return; }
+  try{ await invoke('uye_ekle',{kasa:kasa.id, userId:parseInt(secim,10), rol:rol.trim()});
+       uyeleriAc(kasa); }
+  catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
 }
 
 /* ── Cihazlar ── */
