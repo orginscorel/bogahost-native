@@ -34,6 +34,18 @@ pub struct Kayit {
     /// Kayıt bu kullanıcıya mı ait? Düzenleme/silme buna bağlı.
     #[serde(default)]
     pub benim: bool,
+    /// Son doldurma/açma zamanı (ISO 8601). Liste bağlamı için.
+    #[serde(default)]
+    pub son_kullanim: Option<String>,
+    /// Kaydın oluşturulma zamanı — "parola kaç aylık" sorusunun cevabı.
+    #[serde(default)]
+    pub olusturma: Option<String>,
+    #[serde(default)]
+    pub guncelleme: Option<String>,
+    /// Parola gücü 0–3. SUNUCUDA hesaplanıyor; parolanın kendisi hiç gelmiyor,
+    /// bu yüzden gizli kayıtlarda bile güvenle gösterilebiliyor.
+    #[serde(default)]
+    pub guc: Option<u8>,
     /// Gizli kayıt: paylaşılan kişi DOLDURABİLİR ama göremez/kopyalayamaz.
     #[serde(default)]
     pub gizli: bool,
