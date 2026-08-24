@@ -324,15 +324,41 @@ writeJson('latest.json', {
 // digerinin yazdigini eziyordu. Ortak yazilan dosya olmayinca yarisacak bir sey
 // de kalmiyor: her akis yalnizca kendi dosyasina dokunuyor, birlestirmeyi
 // indirme sayfasi yapiyor.
+// BU TURDA DERLENMEYEN UYGULAMALAR KORUNUR.
+//
+// Seçmeli derlemeye geçtikten sonra bir tur yalnızca DEĞİŞEN uygulamayı
+// derliyor. Dosya sıfırdan yazılınca o turda derlenmeyen uygulamalar listeden
+// düşüyordu; kasa-only bir tur DÜŞTÜĞÜNDE ise dosya tamamen boşalıyor ve
+// indirme sayfasından bütün Windows paketleri kayboluyordu. Paketler diskte
+// duruyor olmasına rağmen.
+//
+// Bu okuma-birleştirme YARIŞ ÜRETMEZ: her akış yalnızca KENDİ platform
+// dosyasına dokunuyor, Windows ile macOS aynı dosyayı paylaşmıyor.
+const mevcut = (await fetchJson(`updates/downloads.${PLATFORM}.json`)) ?? {};
+const apps = { ...(mevcut.apps ?? {}) };
+for (const a of APPS) {
+  const taze = downloadEntries[a] ?? [];
+  if (taze.length) apps[a] = taze;
+}
+
 const platformState = {
   version: VERSION,
   notes: NOTES,
   updated: PUB_DATE,
-  apps: Object.fromEntries(
-    APPS.map((a) => [a, downloadEntries[a] ?? []]).filter(([, v]) => v.length)
-  ),
+  apps,
 };
-writeJson(`updates/downloads.${PLATFORM}.json`, platformState);
+
+// GÜVENLİK FRENİ: sunucudaki dosya doluyken üstüne BOŞ liste yazma.
+// Bu ancak bir şeyler ters gittiğinde olur (tüm derlemeler düştü, artifact
+// indirilemedi); o durumda sessizce silmektense eski listeyi korumak doğru.
+if (!Object.keys(apps).length && Object.keys(mevcut.apps ?? {}).length) {
+  warn(
+    `updates/downloads.${PLATFORM}.json BOŞ yazılacaktı — sunucudaki liste korundu. ` +
+      'Bu turda hiç artifact üretilmedi.'
+  );
+} else {
+  writeJson(`updates/downloads.${PLATFORM}.json`, platformState);
+}
 
 // index.html sablondan aynen kopyalanir; icerik uretilmiyor, yarisi yok.
 const indexHtml = renderIndex();
