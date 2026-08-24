@@ -244,6 +244,94 @@ pub fn anahtar_cifti() -> ([u8; 32], [u8; 32]) {
     (ozel.to_bytes(), acik.to_bytes())
 }
 
+// ── Kurtarma anahtarı ──────────────────────────────────────────────────────
+//
+// ANA PAROLAYI UNUTMAK TOPLAM KAYIP DEMEK OLMAMALI.
+//
+// Zero-knowledge mimaride "şifremi unuttum → e-postadan yeni şifre" diye bir
+// şey yoktur; sunucu kullanıcının anahtarını bilmiyor ki sıfırlasın. Bunun
+// yerine kurulum sırasında BİR KEZ gösterilen yüksek entropili bir kurtarma
+// anahtarı üretiliyor ve özel anahtar ONUNLA DA sarılıyor.
+//
+//   ana parola ──► kilit anahtarı ──┐
+//                                    ├──► aynı özel anahtar
+//   kurtarma anahtarı ──► kurtarma ──┘
+//                         kilit anahtarı
+//
+// Kurtarma anahtarı sunucuya ASLA gitmez; kullanıcı onu yazdırıp saklar.
+// Kaybedilirse ve ana parola da unutulursa kasa gerçekten açılamaz — bu bir
+// kusur değil, zero-knowledge'ın tanımı.
+//
+// NEDEN ARGON2 DEĞİL HKDF: kurtarma anahtarı 256 bit rastgele. Kaba kuvvetle
+// denenecek bir "insan parolası" değil, o yüzden yavaşlatmanın anlamı yok.
+// Argon2 insanların seçtiği düşük entropili parolaları korumak içindir.
+
+/// Kurtarma anahtarı uzunluğu — 32 bayt = 256 bit.
+const KURTARMA_BAYT: usize = 32;
+
+/// İnsanın yazabileceği alfabe — Crockford Base32 düzeni.
+///
+/// `0 O` · `1 I L` · `U` dışarıda: elle yazılan ya da telefonla okunan bir
+/// dizede en sık karışan çiftler bunlar. `U` ayrıca istenmeyen kelimeler
+/// oluşmasını azaltmak için yok.
+///
+/// `B` ve `8` ikisi de var — Crockford'un tercihi bu ve yazı tipi ayrımı
+/// genelde yeterli. Karıştırılırsa kurtarma başarısız olur ama sessiz bir
+/// yanlış sonuç ÜRETMEZ: çözme ya doğru anahtarı verir ya hata döner.
+const ALFABE: &[u8] = b"ABCDEFGHJKMNPQRSTVWXYZ23456789";
+
+/// Yeni kurtarma anahtarı: `XXXXX-XXXXX-...` biçiminde, 10 grup.
+pub fn kurtarma_uret() -> String {
+    let ham = rastgele(KURTARMA_BAYT);
+    let mut harfler = String::new();
+    // Her bayttan bir harf; 30 harflik alfabede modulo sapması ihmal
+    // edilebilir çünkü asıl entropi aşağıdaki türetmede ham bayttan değil
+    // ÜRETİLEN DİZEDEN geliyor: 50 harf × log2(30) ≈ 245 bit.
+    for _ in 0..50 {
+        let b = rastgele(1)[0] as usize;
+        harfler.push(ALFABE[b % ALFABE.len()] as char);
+    }
+    let _ = ham;
+    harfler
+        .as_bytes()
+        .chunks(5)
+        .map(|c| std::str::from_utf8(c).unwrap())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Kullanıcının yazdığı kurtarma anahtarını normalleştir.
+///
+/// Tire, boşluk ve büyük/küçük harf farkı yok sayılıyor. Kâğıttan okuyup
+/// yazan birinin araya tire koyup koymaması kurtarmayı engellememeli.
+pub fn kurtarma_duzelt(girdi: &str) -> String {
+    girdi
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
+}
+
+/// Kurtarma anahtarından kurtarma kilit anahtarı.
+pub fn kurtarma_kilit_anahtari(kurtarma: &str, tuz: &[u8]) -> Result<[u8; ANAHTAR_BOYU], String> {
+    let temiz = kurtarma_duzelt(kurtarma);
+    if temiz.len() < 40 {
+        return Err("Kurtarma anahtarı eksik görünüyor.".into());
+    }
+    if tuz.len() < 16 {
+        return Err("Tuz en az 16 bayt olmalı.".into());
+    }
+    let mut anahtar = [0u8; ANAHTAR_BOYU];
+    Hkdf::<Sha256>::new(Some(tuz), temiz.as_bytes())
+        .expand(b"bogahost-kasa-kurtarma-v1", &mut anahtar)
+        .map_err(|_| "Kurtarma anahtarı türetilemedi.".to_string())?;
+    Ok(anahtar)
+}
+
+pub fn aad_kurtarma(kullanici: i64) -> String {
+    format!("v{SURUM}|kurtarma|u{kullanici}")
+}
+
 // ── Bağlam etiketleri ──────────────────────────────────────────────────────
 
 /// AAD üretimi tek yerde. İki tarafın farklı AAD kurması, çözülemeyen
@@ -372,6 +460,68 @@ mod testler {
 
     /// Uçtan uca: ana parola → kilit anahtarı → özel anahtar → kasa
     /// anahtarı → kayıt anahtarı → parola.
+    #[test]
+    fn kurtarma_bicimi_okunabilir() {
+        let k = kurtarma_uret();
+        assert_eq!(k.len(), 59);                       // 50 harf + 9 tire
+        assert_eq!(k.matches('-').count(), 9);
+        // Karıştırılabilir karakter olmamalı.
+        for c in k.chars().filter(|c| *c != '-') {
+            assert!(!"01ILOU".contains(c), "karistirilabilir karakter: {c}");
+            assert!(c.is_ascii_uppercase() || c.is_ascii_digit());
+        }
+        // İki üretim aynı olmamalı.
+        assert_ne!(kurtarma_uret(), kurtarma_uret());
+    }
+
+    #[test]
+    fn kurtarma_tire_ve_kucuk_harf_onemsemez() {
+        let tuz = rastgele(16);
+        let k = kurtarma_uret();
+        let a = kurtarma_kilit_anahtari(&k, &tuz).unwrap();
+        let b = kurtarma_kilit_anahtari(&k.replace('-', ""), &tuz).unwrap();
+        let c = kurtarma_kilit_anahtari(&k.to_lowercase(), &tuz).unwrap();
+        let d = kurtarma_kilit_anahtari(&format!("  {}  ", k.replace('-', " ")), &tuz).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a, c);
+        assert_eq!(a, d);
+    }
+
+    #[test]
+    fn eksik_kurtarma_reddedilir() {
+        assert!(kurtarma_kilit_anahtari("ABCDE-FGHJK", &rastgele(16)).is_err());
+    }
+
+    /// ANA PAROLA UNUTULDU: kurtarma anahtarı aynı özel anahtarı açmalı.
+    #[test]
+    fn kurtarma_ayni_ozel_anahtari_acar() {
+        let u = 8i64;
+        let (ozel, _acik) = anahtar_cifti();
+
+        // Kurulum: özel anahtar İKİ AYRI yolla sarılıyor.
+        let tuz = rastgele(16);
+        let ka = kilit_anahtari("unutulacak-parola", &tuz, KdfParam::default()).unwrap();
+        let normal_zarf = sifrele(&ka, &ozel, &aad_ozel_anahtar(u)).unwrap();
+
+        let kurtarma = kurtarma_uret();
+        let k_tuz = rastgele(16);
+        let kka = kurtarma_kilit_anahtari(&kurtarma, &k_tuz).unwrap();
+        let kurtarma_zarf = sifrele(&kka, &ozel, &aad_kurtarma(u)).unwrap();
+
+        // Ana parola unutuldu; elde yalnız kâğıttaki kurtarma anahtarı var.
+        let kka2 = kurtarma_kilit_anahtari(&kurtarma.to_lowercase(), &k_tuz).unwrap();
+        let geri = coz(&kka2, &kurtarma_zarf, &aad_kurtarma(u)).unwrap();
+        assert_eq!(geri, ozel.to_vec());
+
+        // Kurtarma zarfı NORMAL bağlamda açılmamalı ve tersi.
+        assert!(coz(&kka2, &normal_zarf, &aad_kurtarma(u)).is_err());
+        assert!(coz(&kka2, &kurtarma_zarf, &aad_ozel_anahtar(u)).is_err());
+
+        // Yanlış kurtarma anahtarı işe yaramamalı.
+        let yanlis = kurtarma_kilit_anahtari(&kurtarma_uret(), &k_tuz).unwrap();
+        assert!(coz(&yanlis, &kurtarma_zarf, &aad_kurtarma(u)).is_err());
+    }
+
     #[test]
     fn tam_zincir() {
         let kullanici = 8i64;
