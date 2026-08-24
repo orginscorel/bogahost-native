@@ -197,7 +197,32 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     // Klavye odakta ne varsa oraya yazar; adresi eşleşen bir sayfada odak
     // arama kutusundaysa parola oraya gider. Dolu alanın üstüne yazmak da
     // veri kaybıdır. Tespit edilemiyorsa (Windows / izin yok) engellemiyoruz.
-    let uygun = alan::odakli_alan();
+    let mut uygun = alan::odakli_alan();
+
+    // ODAK METİN ALANINDA DEĞİLSE ALANI ARA.
+    //
+    // Bildirilen durum: "Odakta bir metin alanı yok (AXButton)". Doğruydu ama
+    // işe yaramıyordu — kullanıcı panelden Doldur'a bastıysa niyeti zaten
+    // belli; ondan ayrıca doğru kutuya tıklamasını beklemek gereksiz bir adım.
+    // Tab ile ileri gidip ilk BOŞ metin alanını buluyoruz. Hiçbir şey
+    // yazılmıyor, yalnızca odak ilerliyor; bulunamazsa eski davranışa dönülüp
+    // kullanıcıya söyleniyor.
+    if matches!(uygun, alan::Uygun::AlanDegil(_)) {
+        if let Ok(mut e) = enigo::Enigo::new(&enigo::Settings::default()) {
+            use enigo::{Direction, Key, Keyboard};
+            for _ in 0..8 {
+                if e.key(Key::Tab, Direction::Click).is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(90));
+                uygun = alan::odakli_alan();
+                if uygun == alan::Uygun::Bos {
+                    break;
+                }
+            }
+        }
+    }
+
     if uygun == alan::Uygun::Dolu || matches!(uygun, alan::Uygun::AlanDegil(_)) {
         if let Some(p) = &pencere_tauri {
             let _ = p.show();
@@ -215,7 +240,11 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     }
 
     match sonuc {
-        Ok(()) => DoldurSonuc { tamam: true, mesaj: "Dolduruldu.".into() },
+        Ok(()) => {
+            // Bu adres için panel bir daha kendiliğinden açılmasın.
+            *SON_DOLDURULAN.lock().unwrap() = h.url.clone();
+            DoldurSonuc { tamam: true, mesaj: "Dolduruldu.".into() }
+        }
         Err(e) => DoldurSonuc {
             tamam: false,
             mesaj: format!("Yazılamadı: {e}. Kopyala düğmelerini kullanabilirsiniz."),
@@ -549,6 +578,7 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
             let _ = p.set_focus();
         };
         if let Some(p) = uygulama.get_webview_window("hizli") {
+            panel_yerlestir(&p);
             hedefe_gonder(&p);
             let _ = uygulama.emit("hizli-goster", ());
         } else if let Some(p) = uygulama.get_webview_window("main") {
@@ -790,6 +820,35 @@ fn hedef_izle(uygulama: &tauri::AppHandle) {
     });
 }
 
+/// Paneli ekranın SAĞ ALTINA yerleştirir.
+///
+/// NEDEN ORTA DEĞİL: ortada açılan bir pencere tam olarak baktığınız yeri
+/// kapatıyor — giriş formunun üstüne oturuyor ve rahatsız ediyor. Sağ alt köşe
+/// göz ucuyla görülüyor ama çalışılan alanı örtmüyor; bildirim panellerinin
+/// orada olmasının sebebi de bu.
+fn panel_yerlestir(panel: &tauri::WebviewWindow) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    let Ok(Some(ekran)) = panel.current_monitor() else { return };
+    let PhysicalSize { width: ew, height: eh } = *ekran.size();
+    let Ok(PhysicalSize { width: pw, height: ph }) = panel.outer_size() else { return };
+    let konum = ekran.position();
+    let olcek = ekran.scale_factor();
+
+    // Kenar boşluğu ekran ölçeğine göre; Retina'da 24 mantıksal piksel.
+    let bosluk = (24.0 * olcek) as i32;
+    let x = konum.x + ew as i32 - pw as i32 - bosluk;
+    let y = konum.y + eh as i32 - ph as i32 - bosluk * 2;
+    let _ = panel.set_position(PhysicalPosition::new(x, y));
+}
+
+/// Doldurulduktan sonra AYNI adres için panel bir daha kendiliğinden açılmasın.
+///
+/// Kullanıcının bildirdiği durum: doldurduktan sonra panel çıkmaya devam
+/// ediyordu. Doldurma bittiyse o adreste işimiz bitmiştir; kullanıcı yine
+/// isterse kısayolla açabilir.
+static SON_DOLDURULAN: Mutex<Option<String>> = Mutex::new(None);
+
 /// Hedefte eşleşen kayıt varsa hızlı paneli gösterir, yoksa gizler.
 ///
 /// Sunucuya sorulan tek şey eşleşme listesi; parola burada hiç görünmüyor.
@@ -819,6 +878,14 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
         return;
     }
 
+    // Bu adres az önce dolduruldu — panel ısrar etmesin.
+    if SON_DOLDURULAN.lock().unwrap().as_deref() == Some(url.as_str()) {
+        if acik {
+            let _ = panel.hide();
+        }
+        return;
+    }
+
     let durum = uygulama.state::<Durum>();
     let Ok(eslesenler) = kasa::eslesenler(&durum, &url) else { return };
     let uyanlar: Vec<_> = eslesenler
@@ -835,6 +902,7 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
     }
 
     if !acik {
+        panel_yerlestir(&panel);
         let _ = panel.show();
     }
     let _ = uygulama.emit("hizli-goster", ());

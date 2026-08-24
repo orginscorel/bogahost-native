@@ -108,7 +108,10 @@
   <div class="durum" id="durum"></div>
 
   <div class="alt-cubuk">
-    <div class="ipucu"><kbd>↑</kbd><kbd>↓</kbd> seç · <kbd>Enter</kbd> doldur · <kbd>Esc</kbd> kapat</div>
+    <label class="ipucu" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" id="enterKutu" checked style="accent-color:var(--vurgu);margin:0">
+      Doldurunca Enter’a bas
+    </label>
     <button class="doldur" id="doldurDugme">Doldur</button>
   </div>
 </div>
@@ -213,7 +216,9 @@ async function doldur(){
   $('doldurDugme').disabled=true;
   durumYaz('Şifre alınıyor…');
   try{
-    const s=await invoke('doldur',{id:secili.id, enterBas:false});
+    // Doldurduktan sonra Enter — kullanıcı isteği. Kutu ile kapatılabiliyor;
+    // bazı formlar Enter ile gönderilmiyor ya da araya başka bir adım koyuyor.
+    const s=await invoke('doldur',{id:secili.id, enterBas:$('enterKutu').checked});
     if(s.tamam){ await kapat(); durumYaz(''); }
     else durumYaz(s.mesaj,'hata');
   }catch(e){ durumYaz('Hata: '+e,'hata'); }
