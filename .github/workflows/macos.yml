@@ -9,6 +9,11 @@ name: macOS (DMG + App)
 
 on:
   workflow_dispatch:
+    inputs:
+      app:
+        description: 'Hangi uygulama derlensin? (hepsi / finans / dcim / chat / task / muh / kasa)'
+        required: false
+        default: 'hepsi'
   # NOT: macOS runner'lari private repoda 10x dakika yakar.
   # Bu yuzden branch push'unda CALISMAZ — yalniz surum tag'inde ve elle.
   push:
@@ -71,6 +76,20 @@ jobs:
         run: |
           TUM='["finans","dcim","chat","task","muh","kasa"]'
 
+          # ELLE TETİKLEMEDE TEK UYGULAMA SEÇİLEBİLİR.
+          # Tek bir uygulamanın düzeltmesi için altısını birden derlemek hem
+          # uzun sürüyor hem de yanlış: toplu yayın yapmıyoruz.
+          SEC='${{ github.event.inputs.app }}'
+          if [ -n "$SEC" ] && [ "$SEC" != "hepsi" ]; then
+            case "$SEC" in
+              finans|dcim|chat|task|muh|kasa)
+                echo "Elle tetikleme → yalnız $SEC"
+                echo "liste=[\"$SEC\"]" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              *)
+                echo "::error title=Bilinmeyen uygulama::'$SEC' diye bir uygulama yok."; exit 1 ;;
+            esac
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
           || [ "${{ github.event_name }}" = "workflow_call" ] \
           || [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -87,7 +106,7 @@ jobs:
           FARK=$(git diff --name-only HEAD~1 HEAD)
           echo "Değişen dosyalar:"; echo "$FARK" | sed 's/^/  /'
 
-          if echo "$FARK" | grep -qE '^(scripts/|apps\.config\.json|package\.json|\.github/workflows/)'; then
+          if echo "$FARK" | grep -qE '^(scripts/|apps\.config\.json|package\.json|\.github/workflows/macos\.yml)'; then
             echo "Ortak dosya değişti → hepsi"
             echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
           fi
