@@ -12,6 +12,16 @@
 
 use serde::Serialize;
 
+/// Hedef bir tarayıcı mı? Liste küçük ve sabit; yanlış pozitif, yanlış
+/// negatiften iyidir — tarayıcıda kullanıcıyı eklentiye yönlendirmek
+/// zararsız, masaüstü programında yönlendirmemek ise işi yarım bırakır.
+fn tarayici_mi(program: &str) -> bool {
+    let p = program.to_lowercase();
+    ["chrome", "msedge", "edge", "firefox", "opera", "brave", "vivaldi", "safari", "chromium"]
+        .iter()
+        .any(|t| p.contains(t))
+}
+
 #[derive(Serialize, Clone, Default)]
 pub struct Hedef {
     /// Pencere başlığı (macOS'ta uygulama adı)
@@ -21,6 +31,11 @@ pub struct Hedef {
     /// Pencereyi yeniden öne getirmek için tutamak.
     /// Windows'ta HWND'nin ondalık gösterimi, macOS'ta uygulama adı.
     pub kimlik: String,
+    /// Hedef bir tarayıcı mı? Tarayıcıda doğru doldurma yeri sayfanın
+    /// içidir: eklenti parola alanının altında kendi menüsünü açar ve
+    /// hangi alan olduğunu GÖREREK doldurur. Uygulama klavye simülasyonu
+    /// yaptığı için sayfanın içini göremez.
+    pub tarayici: bool,
     /// Tarayıcıysa açık sekmenin adresi. Kaydı otomatik eşleştirmek için.
     /// Windows'ta okunamaz (aşağıdaki nota bakın), bu yüzden Option.
     pub url: Option<String>,
@@ -80,6 +95,7 @@ mod win {
         let b = baslik(hwnd);
         let (p, _) = program(hwnd);
         Hedef {
+            tarayici: tarayici_mi(&p),
             baslik: b,
             program: p,
             kimlik: (hwnd.0 as isize).to_string(),
@@ -112,6 +128,7 @@ mod win {
         }
 
         liste.push(Hedef {
+            tarayici: tarayici_mi(&p),
             baslik: b,
             program: p,
             kimlik: (hwnd.0 as isize).to_string(),
@@ -160,6 +177,7 @@ mod mac {
 
     fn hedef_yap(ad: String) -> Hedef {
         Hedef {
+            tarayici: tarayici_mi(&ad),
             baslik: ad.clone(),
             program: ad.clone(),
             kimlik: ad,

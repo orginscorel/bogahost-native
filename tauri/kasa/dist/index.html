@@ -277,7 +277,6 @@
     </div>
     <div class="secenekler">
       <label class="onay"><input type="checkbox" id="enterBas"> Sonunda Enter</label>
-      <label class="onay"><input type="checkbox" id="otoDoldur"> Eşleşince kendiliğinden doldur</label>
     </div>
     <div class="durum" id="durum"></div>
     <div class="durum" id="kisayolIpucu" style="opacity:.75"></div>
@@ -345,8 +344,6 @@ const $ = (id) => document.getElementById(id);
 
 let kayitlar = [], secili = null, adimIki = false;
 let sonAdres = '', sonBildirilen = '', eslesme = null, dolduruluyor = false;
-// Kendiliğinden doldurmanın SON yapıldığı alan adı — aynı sitede tekrarı önler.
-let otoDoldurulanHost = '';
 let denetleniyor = false;
 
 /* Renk, etikete göre sabit üretiliyor: aynı kayıt her açılışta aynı rengi alsın
@@ -437,7 +434,6 @@ async function kasayiAc() {
   $('kasaEkrani').classList.remove('gizli');
 
   $('enterBas').checked = yerelOku('kasaEnter') === '1';
-  $('otoDoldur').checked = yerelOku('kasaOto') === '1';
 
   const mac = navigator.platform.toLowerCase().includes('mac');
   $('kisayolIpucu').textContent = mac
@@ -587,7 +583,11 @@ function hedefYaz(h) {
     return;
   }
   serit.className = 'hedefSerit canli';
-  $('hedefAd').textContent = h.program;
+  // Tarayıcıda doğru doldurma yeri sayfanın içi: eklenti parola alanının
+  // altında kendi menüsünü açar ve hangi alan olduğunu GÖREREK doldurur.
+  // Uygulama klavye simülasyonu yapıyor, sayfanın içini göremiyor — bu yüzden
+  // burada yönlendiriyoruz. Doldur düğmesi yine çalışır, engellenen bir şey yok.
+  $('hedefAd').textContent = h.tarayici ? h.program + ' — eklenti sayfada sorar' : h.program;
   if (h.url) { $('hedefAyrac').textContent = '·'; $('hedefUrl').textContent = alan(h.url); }
   else {
     const b = (h.baslik || '').trim();
@@ -624,19 +624,18 @@ async function otomatikEslestir(h) {
   const gorunur = await pencereGorunur();
   const host = alan(h.url);
 
-  // AYNI SİTEDE BİR KEZ. Giriş yapıldıktan sonra adres değişiyor (/panel,
-  // /dashboard…) ama alan adı aynı kalıyor; eski hâlde bu "yeni eşleşme"
-  // sayılıp KENDİLİĞİNDEN tekrar doldurulmaya çalışılıyordu ve imleç neredeyse
-  // oraya — bildirilen örnekte giriş sonrası arama kutusuna — yazıyordu.
-  // Kullanıcı kısayola basarsa yine doldurur; engellenen yalnızca kendiliğinden
-  // tekrar.
-  // Kendiliğinden doldurma için ALAN ADI YETMEZ, yol da uymalı.
-  if ($('otoDoldur').checked && !gorunur && host !== otoDoldurulanHost
-      && yolUyar(eslesme.url, h.url)) {
-    otoDoldurulanHost = host;
-    await doldur(true);
-    return;
-  }
+  // KENDİLİĞİNDEN DOLDURMA KALDIRILDI — bilinçli karar.
+  //
+  // Uygulama klavye simülasyonuyla yazıyor ve sayfanın içini göremiyor: hangi
+  // alanın kullanıcı adı, hangisinin arama kutusu olduğunu ancak dolaylı
+  // işaretlerden çıkarabiliyor. Yol eşleşmesi, giriş formu yoklaması ve alan
+  // denetimi bu belirsizliği azalttı ama bitirmedi — kimse haber vermeden
+  // parolasının yanlış kutuya yazılmasını istemez.
+  //
+  // Tarayıcıda doğru yer ZATEN sayfanın içi: eklenti parola alanının altında
+  // kendi menüsünü açıyor ve hangi alan olduğunu GÖREREK dolduruyor.
+  // Uygulama artık yalnızca HABER VERİYOR; doldurma kullanıcının eylemiyle
+  // (kısayol ya da Doldur düğmesi) oluyor.
   if (!gorunur) bildir(eslesme.label, host);
 }
 
@@ -714,7 +713,6 @@ $('cikisDugme').onclick = async () => {
   location.reload();
 };
 $('enterBas').addEventListener('change', e => yerelYaz('kasaEnter', e.target.checked ? '1' : '0'));
-$('otoDoldur').addEventListener('change', e => yerelYaz('kasaOto', e.target.checked ? '1' : '0'));
 
 /* ── Erişilebilirlik izni ────────────────────────────────────────────
    İzin uygulamanın DIŞINDAN, Sistem Ayarları'ndan veriliyor. Rust tarafı

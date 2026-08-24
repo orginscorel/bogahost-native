@@ -540,6 +540,21 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
         return;
     }
 
+    // TARAYICIDA UYGULAMA YAZMAZ.
+    // Sayfanın içini göremediği için hangi alanın ne olduğunu ancak dolaylı
+    // işaretlerden çıkarabiliyor. Tarayıcıda bu işi eklenti yapıyor: parola
+    // alanının altında kendi menüsünü açıp GÖREREK dolduruyor. Kullanıcı
+    // yine de uygulamadan Doldur derse yazılır; kısayolun sessizce yazması
+    // engelleniyor.
+    if h.tarayici {
+        pencereyi_ac("");
+        let _ = uygulama.emit(
+            "kisayol-notu",
+            "alan:Tarayıcıda doldurmayı Bogahost Kasa eklentisi yapıyor — parola alanına tıklayınca sayfada menü açılır.".to_string(),
+        );
+        return;
+    }
+
     // GİRİŞ FORMU DOĞRULAMASI — hosting panellerinde yol eşleşmesi yetmiyor
     // (cPanel :2083, WHM :2087, WHMCS /whmcs/login.php çoğu zaman kökte).
     // Parola alanı yoksa burası giriş formu değildir; hiçbir şey yazmıyoruz.
