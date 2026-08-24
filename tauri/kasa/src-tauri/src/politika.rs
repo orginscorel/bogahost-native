@@ -496,6 +496,75 @@ pub fn eklenti_dosyasi_var() -> bool {
 /// yönetici hakkıyla koyuyor; buradaki yol ise yönetici hakkı istemez.
 const EKLENTI_ZIP: &str = "https://native.bogahost.com/eklenti/bogahost-kasa-eklenti.zip";
 
+/// Paketin açıldığı klasör. Hep AYNI yer olmalı: kullanıcı Chrome'a bu
+/// klasörü tanıtıyor, biz de güncellemede içindekileri değiştiriyoruz.
+/// Başka bir klasöre indirseydik her güncellemede yeniden tanıtmak gerekirdi.
+pub fn eklenti_klasoru() -> Option<std::path::PathBuf> {
+    let ev = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    Some(std::path::Path::new(&ev).join("Downloads").join("bogahost-kasa-eklenti"))
+}
+
+/// Klasördeki manifest.json'un sürümü — yani Chrome'un ŞU AN okuduğu sürüm.
+pub fn eklenti_yerel_surum() -> Option<String> {
+    let m = eklenti_klasoru()?.join("manifest.json");
+    let metin = std::fs::read_to_string(m).ok()?;
+    let j: serde_json::Value = serde_json::from_str(&metin).ok()?;
+    j["version"].as_str().map(|v| v.to_string())
+}
+
+/// Sunucudaki sürüm. `eklenti_surumu()` yalnız macOS'ta ve curl ile vardı;
+/// bu her iki platformda da çalışıyor.
+pub fn eklenti_uzak_surum() -> Option<String> {
+    let metin = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .ok()?
+        .get(GUNCELLEME_URL)
+        .send()
+        .ok()?
+        .text()
+        .ok()?;
+    let bas = metin.find("version='")? + 9;
+    let kalan = &metin[bas..];
+    let son = kalan.find('\'')?;
+    Some(kalan[..son].to_string())
+}
+
+fn surum_kucuk_mu(a: &str, b: &str) -> bool {
+    let say = |s: &str| -> Vec<u32> { s.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
+    let (x, y) = (say(a), say(b));
+    for i in 0..x.len().max(y.len()) {
+        let (m, n) = (*x.get(i).unwrap_or(&0), *y.get(i).unwrap_or(&0));
+        if m != n {
+            return m < n;
+        }
+    }
+    false
+}
+
+/// PAKETLENMEMİŞ EKLENTİ KENDİ KENDİNE GÜNCELLENMEZ.
+///
+/// Bildirilen durum: uygulama güncellendi ama Chrome'daki eklenti eski
+/// göründü. Sebebi şu — "Paketlenmemiş öğe yükle" ile kurulan bir eklenti
+/// `update.xml`e hiç bakmaz; Chrome açılışta klasördeki DOSYALARI okur.
+/// Dosyalar değişmediği sürece sonsuza kadar eski sürüm çalışır.
+///
+/// Bu yüzden tazelemeyi uygulama üstleniyor: klasör varsa ve içindeki sürüm
+/// sunucudakinden eskiyse dosyalar sessizce değiştiriliyor. Kullanıcıya
+/// düşen tek şey Chrome'u kapatıp açmak.
+///
+/// Klasör YOKSA hiçbir şey yapılmıyor — eklentiyi bu yolla kurmamış birinin
+/// İndirilenler'ine kendiliğinden dosya bırakmak doğru olmaz.
+pub fn eklenti_tazele() -> Result<Option<String>, String> {
+    let Some(yerel) = eklenti_yerel_surum() else { return Ok(None) };
+    let Some(uzak) = eklenti_uzak_surum() else { return Ok(None) };
+    if !surum_kucuk_mu(&yerel, &uzak) {
+        return Ok(None);
+    }
+    eklenti_indir_sessiz()?;
+    Ok(Some(uzak))
+}
+
 /// Eklentiyi kullanıcının İndirilenler klasörüne indirir ve AÇAR.
 ///
 /// NEDEN AYRI BİR YOL VAR: zorunlu kurulum politikası ve harici kurulum
@@ -506,15 +575,20 @@ const EKLENTI_ZIP: &str = "https://native.bogahost.com/eklenti/bogahost-kasa-ekl
 ///
 /// Klasör her seferinde yenileniyor ki eski sürüm yüklenmesin.
 pub fn eklenti_indir() -> Result<String, String> {
-    let ev = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "Kullanıcı klasörü bulunamadı.".to_string())?;
-    let indirilenler = std::path::Path::new(&ev).join("Downloads");
+    let klasor = eklenti_indir_sessiz()?;
+    klasoru_goster(&klasor);
+    Ok(klasor.display().to_string())
+}
+
+/// İndirip açar ama klasörü AÇMAZ — arka plandaki tazeleme bunu kullanıyor.
+/// Kullanıcı bir şey istemediği hâlde ekranına pencere açmak rahatsızlıktır.
+fn eklenti_indir_sessiz() -> Result<std::path::PathBuf, String> {
+    let klasor = eklenti_klasoru().ok_or("Kullanıcı klasörü bulunamadı.")?;
+    let indirilenler = klasor.parent().ok_or("İndirilenler klasörü bulunamadı.")?.to_path_buf();
     std::fs::create_dir_all(&indirilenler)
         .map_err(|e| format!("İndirilenler klasörü açılamadı: {e}"))?;
 
     let zip = indirilenler.join("bogahost-kasa-eklenti.zip");
-    let klasor = indirilenler.join("bogahost-kasa-eklenti");
 
     let bayt = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -536,8 +610,7 @@ pub fn eklenti_indir() -> Result<String, String> {
     std::fs::create_dir_all(&klasor).map_err(|e| format!("Klasör açılamadı: {e}"))?;
 
     ac_arsiv(&zip, &klasor)?;
-    klasoru_goster(&klasor);
-    Ok(klasor.display().to_string())
+    Ok(klasor)
 }
 
 #[cfg(target_os = "macos")]

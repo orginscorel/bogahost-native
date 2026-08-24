@@ -296,6 +296,30 @@ fn kopru_durum() -> serde_json::Value {
     kopru::durum()
 }
 
+/// Chrome'daki eklenti kaç numaralı sürüm, sunucuda kaç numaralı?
+///
+/// NEDEN GEREKLİ: "Paketlenmemiş öğe yükle" ile kurulan eklenti kendi kendine
+/// GÜNCELLENMEZ — Chrome açılışta klasördeki dosyaları okur, `update.xml`e
+/// hiç bakmaz. Bildirilen durum buydu: uygulama güncellendi, eklenti eski
+/// kaldı. Artık iki sürüm de ekranda yazıyor.
+#[tauri::command(async)]
+fn eklenti_surum_durum() -> serde_json::Value {
+    let yerel = politika::eklenti_yerel_surum();
+    let uzak = politika::eklenti_uzak_surum();
+    let guncel = match (&yerel, &uzak) {
+        (Some(y), Some(u)) => y == u,
+        _ => false,
+    };
+    let klasor = politika::eklenti_klasoru().map(|k| k.display().to_string());
+    serde_json::json!({ "yerel": yerel, "uzak": uzak, "guncel": guncel, "klasor": klasor })
+}
+
+/// Klasördeki eklentiyi sunucudaki sürümle değiştirir.
+#[tauri::command(async)]
+fn eklenti_tazele() -> Result<Option<String>, String> {
+    politika::eklenti_tazele()
+}
+
 /// Yüklü profili kaldır — güncellemede eskisini elle silmek gerekmesin.
 #[tauri::command(async)]
 fn politika_profil_kaldir() -> Result<politika::Durum, String> {
@@ -513,7 +537,7 @@ pub fn run() {
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
             eklenti_kur, eklenti_kaldir, eklenti_dosyasi_var, eklenti_indir,
-            kopru_durum,
+            eklenti_surum_durum, eklenti_tazele, kopru_durum,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
@@ -526,6 +550,7 @@ pub fn run() {
 
             // Eklenti köprüsü — tarayıcı eklentisi ayrıca giriş yapmasın diye.
             kopru::baslat(uygulama.handle().clone());
+            eklenti_tazele_arkada(uygulama.handle());
 
             kisayol_kur(uygulama.handle())?;
             hedef_izle(uygulama.handle());
@@ -696,6 +721,23 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
             let _ = uygulama.emit("kisayol-notu", format!("yazma-hatasi:{e}"));
         }
     }
+}
+
+/// Açılışta eklentiyi sessizce tazeler.
+///
+/// Uygulama kendini güncelliyor ama Chrome'a "Paketlenmemiş öğe yükle" ile
+/// tanıtılan eklenti güncellenmiyordu: Chrome o klasördeki DOSYALARI okur ve
+/// dosyalar değişmedikçe eski sürüm sonsuza kadar çalışır. Kullanıcının bunu
+/// bilmesi ve her sürümde elle indirmesi beklenemez.
+///
+/// Ağ işi olduğu için ayrı iplikte; klasör yoksa hiçbir şey yapmıyor.
+fn eklenti_tazele_arkada(uygulama: &tauri::AppHandle) {
+    let u = uygulama.clone();
+    std::thread::spawn(move || {
+        if let Ok(Some(surum)) = politika::eklenti_tazele() {
+            let _ = u.emit("eklenti-guncellendi", surum);
+        }
+    });
 }
 
 /// Erişilebilirlik iznini arka planda izler ve DEĞİŞTİĞİNDE arayüze haber verir.

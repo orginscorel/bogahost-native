@@ -284,6 +284,12 @@
   <div class="bosluk"><b>Yeni sürüm hazır:</b> <span id="guncelSurum"></span></div>
   <button id="guncelUygula">Şimdi güncelle</button>
 </div>
+<!-- ══ Eklenti tazelendi — Chrome'un dosyaları yeniden okuması gerekiyor ══ -->
+<div class="serit bilgi gizli" id="eklentiSerit">
+  <div class="bosluk"><b>Chrome eklentisi güncellendi</b> (<span id="eklentiYeniSurum"></span>) —
+    Chrome'u tamamen kapatıp açın.</div>
+  <button id="eklentiSeritKapat">Tamam</button>
+</div>
 <!-- ══ İzin şeridi — doldurma tamamen durduğu için üstte ══ -->
 <div class="serit hata gizli" id="izinSerit">
   <div class="bosluk"><b>Erişilebilirlik izni yok</b> — doldurma çalışmaz.</div>
@@ -397,6 +403,7 @@ const $ = (id) => document.getElementById(id);
 let kayitlar = [], acikId = null, adimIki = false, kategori = 'hepsi';
 let formId = null, denetleniyor = false;
 let guncelDurum = null, izinDurum = null, politikaDurum = null, kopruDurum = null;
+let eklentiSurum = null;
 
 function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
 function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
@@ -480,6 +487,7 @@ async function kasayiAc(){
   izinSeridi();
   politikaDurum = await invoke('politika_durum').catch(function(){ return null; });
   kopruDurum = await invoke('kopru_durum').catch(function(){ return null; });
+  eklentiSurum = await invoke('eklenti_surum_durum').catch(function(){ return null; });
   uyariSayisi();
 }
 
@@ -688,6 +696,7 @@ function uyariSayisi(){
   if(izinDurum&&!izinDurum.erisilebilirlik) n++;
   if(politikaDurum&&politikaDurum.kurulabilir
      &&!(politikaDurum.kasa_kapali&&politikaDurum.eklenti_zorunlu)) n++;
+  if(eklentiSurum&&eklentiSurum.yerel&&!eklentiSurum.guncel) n++;
   const e=$('ayarSay'); e.textContent=n; e.classList.toggle('gizli', n===0);
 }
 function izinSeridi(){
@@ -721,10 +730,10 @@ function ayarCiz(){
           :((politikaDurum&&politikaDurum.kasa_kapali?'✓':'✕')+' parola kasası kapalı &nbsp;·&nbsp; '
             +(politikaDurum&&politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu'),
         '<button class="ikincil" id="aPolKur">Kur</button>')
-  + sat(null,'Chrome eklentisi',
-        'Kurulu değilse: <b>İndir</b> paketi bilgisayara alır, Chrome’da '
-        + '<code>chrome://extensions</code> → “Geliştirici modu” → “Paketlenmemiş öğe yükle”.',
-        '<button class="ikincil" id="aEklentiIndir">İndir</button>'
+  + sat(eklentiSurum ? !!eklentiSurum.guncel : null, 'Chrome eklentisi', eklentiNotu(),
+        (eklentiSurum && eklentiSurum.yerel && !eklentiSurum.guncel
+          ? '<button class="ikincil" id="aEklentiTazele">Güncelle</button>'
+          : '<button class="ikincil" id="aEklentiIndir">İndir</button>')
         + '<button class="ikincil" id="aEklenti" style="margin-left:8px">Kur</button>')
   + sat(null,'Yapılandırma profili','Güncellemeden sonra eskisini temizlemek için.',
         '<button class="ikincil" id="aProfilSil">Kaldır</button>')
@@ -736,7 +745,8 @@ function ayarCiz(){
   if($('aIzin')) $('aIzin').onclick=function(){ invoke('izin_ayarlarini_ac').catch(function(){}); };
   $('aPolKur').onclick=politikaKur;
   $('aEklenti').onclick=eklentiKur;
-  $('aEklentiIndir').onclick=eklentiIndir;
+  if($('aEklentiIndir')) $('aEklentiIndir').onclick=eklentiIndir;
+  if($('aEklentiTazele')) $('aEklentiTazele').onclick=eklentiTazele;
   $('aProfilSil').onclick=profilKaldir;
   $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
 }
@@ -764,6 +774,38 @@ async function politikaKur(){
       : 'Kurulamadı: '+e, 'uyari');
   }
 }
+/* PAKETLENMEMİŞ EKLENTİ KENDİ KENDİNE GÜNCELLENMEZ.
+   Chrome açılışta klasördeki dosyaları okur; update.xml'e hiç bakmaz. Bu
+   yüzden Chrome'daki sürümü de sunucudakini de açıkça yazıyoruz — "neden
+   hâlâ eski görünüyor" sorusu ekranda cevaplansın. */
+function eklentiNotu(){
+  const klasor = eklentiSurum && eklentiSurum.klasor ? esc(eklentiSurum.klasor) : '';
+  if(!eklentiSurum || !eklentiSurum.yerel){
+    return '<b>İndir</b> paketi bilgisayara alır, Chrome’da <code>chrome://extensions</code> → '
+         + '“Geliştirici modu” → “Paketlenmemiş öğe yükle”.';
+  }
+  if(eklentiSurum.guncel){
+    return 'Chrome’daki sürüm ' + esc(eklentiSurum.yerel) + ' — güncel.<br>'
+         + '<code>' + klasor + '</code>';
+  }
+  return 'Chrome’daki sürüm <b>' + esc(eklentiSurum.yerel) + '</b>, sunucuda <b>'
+       + esc(eklentiSurum.uzak || '?') + '</b>. Paketlenmemiş eklenti kendi kendine '
+       + 'güncellenmez; <b>Güncelle</b>’ye basıp Chrome’u tamamen kapatıp açın.<br>'
+       + 'Chrome’a tanıttığınız klasör bu olmalı: <code>' + klasor + '</code>';
+}
+
+async function eklentiTazele(){
+  const b=$('aEklentiTazele'); b.disabled=true; b.textContent='Güncelleniyor…';
+  try{
+    const yeni=await invoke('eklenti_tazele');
+    eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
+    uyariSayisi(); ayarCiz();
+    durumYaz($('ayarDurum'), yeni
+      ? ('Eklenti ' + yeni + ' sürümüne güncellendi. Chrome’u tamamen kapatıp açın.')
+      : 'Zaten güncel.', 'iyi');
+  }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Güncellenemedi: '+e,'hata'); }
+}
+
 async function eklentiKur(){
   const b=$('aEklenti'); b.disabled=true; b.textContent='Kuruluyor…';
   try{ await invoke('eklenti_kur'); ayarCiz();
@@ -774,7 +816,8 @@ async function eklentiIndir(){
   const b=$('aEklentiIndir'); b.disabled=true; b.textContent='İndiriliyor…';
   try{
     const yol=await invoke('eklenti_indir');
-    ayarCiz();
+    eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
+    uyariSayisi(); ayarCiz();
     durumYaz($('ayarDurum'),'İndirildi: '+yol+' — klasör açıldı. Chrome’da chrome://extensions sayfasında “Paketlenmemiş öğe yükle” ile klasörü seçin.','iyi');
   }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'İndirilemedi: '+e,'hata'); }
 }
@@ -827,6 +870,13 @@ listen('izin-durumu', function(o){
   izinSeridi(); uyariSayisi();
 });
 $('izinAc').onclick=function(){ invoke('izin_ayarlarini_ac').catch(function(){}); };
+
+listen('eklenti-guncellendi', function(o){
+  $('eklentiYeniSurum').textContent = o.payload || '';
+  $('eklentiSerit').classList.remove('gizli');
+  invoke('eklenti_surum_durum').then(function(d){ eklentiSurum=d; uyariSayisi(); }).catch(function(){});
+});
+$('eklentiSeritKapat').onclick=function(){ $('eklentiSerit').classList.add('gizli'); };
 
 listen('kisayol-dolduruldu', function(){ yenile(); });
 
