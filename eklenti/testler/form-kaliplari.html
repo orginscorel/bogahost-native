@@ -1,0 +1,53 @@
+<!doctype html><meta charset="utf-8"><title>Form kaliplari</title>
+<style>body{font:14px system-ui;padding:20px;max-width:760px;margin:auto}
+fieldset{margin:0 0 18px;border:1px solid #ccc;border-radius:8px;padding:12px}
+legend{font-weight:600}input{display:block;margin:6px 0;padding:7px;width:280px}</style>
+
+<fieldset id="f1"><legend>1 · klasik giriş</legend>
+  <input type="text" name="username" placeholder="Kullanıcı adı" id="k1">
+  <input type="password" name="password" id="p1">
+</fieldset>
+
+<fieldset id="f2"><legend>2 · araya arama kutusu girmiş</legend>
+  <form>
+    <input type="text" name="q" placeholder="Sitede ara" id="ara2">
+    <input type="email" name="email" autocomplete="username" id="k2">
+    <input type="text" name="coupon" placeholder="Kupon kodu" id="kup2">
+    <input type="password" autocomplete="current-password" id="p2">
+  </form>
+</fieldset>
+
+<fieldset id="f3"><legend>3 · iki adımlı giriş (parola alanı YOK)</legend>
+  <form><input type="email" name="loginfmt" autocomplete="username" placeholder="E-posta" id="k3"></form>
+</fieldset>
+
+<fieldset id="f4"><legend>4 · kayıt formu (yeni parola)</legend>
+  <form>
+    <input type="email" name="email" id="k4">
+    <input type="password" autocomplete="new-password" placeholder="Yeni şifre" id="p4">
+    <input type="password" autocomplete="new-password" placeholder="Şifre tekrar" id="p4b">
+  </form>
+</fieldset>
+
+<fieldset id="f5"><legend>5 · OTP sayfası</legend>
+  <form><input type="text" autocomplete="one-time-code" maxlength="6" placeholder="Kod" id="o5"></form>
+</fieldset>
+
+<fieldset id="f6"><legend>6 · yalnız arama (giriş yok)</legend>
+  <input type="search" placeholder="Ara" id="ara6">
+  <input type="text" name="city" placeholder="Şehir" id="c6">
+</fieldset>
+
+<script>
+  window.chrome = { runtime: {
+    id:'x', lastError:undefined,
+    getManifest:function(){return{version:'1.5.0'}},
+    onMessage:{addListener:function(){},removeListener:function(){}},
+    sendMessage:function(m,cb){
+      if(m.type==='eslesenler') cb({ok:true,kayitlar:[{id:1,etiket:'Test',kullanici:'ali@ornek.com',alan:'ornek.com'}]});
+      else if(m.type==='doldur') cb({ok:true,kullanici:'ali@ornek.com',parola:'GizliParola123'});
+      else if(cb) cb({ok:true});
+    }
+  }};
+</script>
+<script src="autofill.js"></script>

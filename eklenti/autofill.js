@@ -59,23 +59,141 @@
     var s = getComputedStyle(el);
     return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
   }
-  function sifreAlanlari() {
+  function sifreAlanlari(kok) {
     return Array.prototype.filter.call(
-      document.querySelectorAll('input[type=password]'), gorunur);
+      (kok || document).querySelectorAll('input[type=password]'), gorunur);
   }
-  /** Şifre alanından ÖNCEKİ son metin kutusu — kullanıcı adı odur. */
+
+  /* KAPSAM: BİR ALAN HANGİ FORMA AİT?
+     Bunu sayfa geneline bakarak yapmak yanlış sonuç veriyordu. Gerçek
+     sayfalarda giriş formunun yanında bülten kaydı, arama kutusu ve
+     "şifremi değiştir" formu bir arada durabiliyor. Sayfada dört parola
+     alanı görünce "burası kayıt formu" demek, giriş formunu da kapatıyordu.
+     Artık her alan KENDİ formunun içinde değerlendiriliyor. */
+  function kapsam(el) {
+    if (!el) return document;
+    if (el.form) return el.form;
+    var k = null;
+    try { k = el.closest('form, fieldset, [role="form"], section, article'); } catch (e) {}
+    return k || document;
+  }
+  /* ── ALAN TESPİT MOTORU ───────────────────────────────────────────────
+     Önceki sürüm iki varsayıma dayanıyordu:
+       1. Sayfada bir `input[type=password]` VARDIR.
+       2. Kullanıcı adı, ondan ÖNCEKİ son metin kutusudur.
+
+     İkisi de sık sık yanlış. İki adımlı girişlerde (önce e-posta, sonra
+     şifre) ilk adımda parola alanı YOK — eklenti hiç açılmıyordu. "Sonraki
+     metin kutusu" kuralı da arama kutusunu, kupon kodunu, ülke seçimini
+     kullanıcı adı sanabiliyor.
+
+     Artık alanlar PUANLANIYOR: autocomplete, type, name, id, placeholder,
+     aria-label ve etiket metni birlikte değerlendiriliyor. `autocomplete`
+     en güçlü işaret çünkü sayfa yazarının açık beyanı. */
+
+  function nitelikler(el) {
+    var p = [
+      el.getAttribute('autocomplete'), el.getAttribute('name'), el.id,
+      el.getAttribute('placeholder'), el.getAttribute('aria-label'),
+      el.getAttribute('data-testid'),
+    ];
+    // Bağlı etiketin metni de bir işaret — `<label for=...>` ya da sarmalayan label.
+    try {
+      if (el.id) {
+        var lb = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+        if (lb) p.push(lb.textContent);
+      }
+      var sarma = el.closest('label');
+      if (sarma) p.push(sarma.textContent);
+    } catch (e) {}
+    return p.filter(Boolean).join(' ').toLowerCase();
+  }
+
+  var KULLANICI_ISARET = /(user|kullanic|kullanıc|login|giris|giriş|email|e-mail|eposta|e-posta|mail|account|hesap|uye|üye|tckn|phone|telefon|msisdn)/;
+  var KULLANICI_KARSI = /(search|ara|arama|coupon|kupon|promo|zip|posta.?kod|city|sehir|şehir|address|adres|card|kart|cvv|amount|tutar|quantity|adet|comment|yorum|subject|konu|otp|code|kod)/;
+  var YENI_PAROLA = /(new.?pass|yeni.?[sş]ifre|yeni.?parola|confirm|tekrar|repeat|again|retype|dogrula|doğrula|register|kayit|kayıt|signup|sign-up)/;
+
+  /** Bir alanın kullanıcı-adı olma puanı. Negatif = değil. */
+  function kullaniciPuani(el) {
+    var t = (el.getAttribute('type') || 'text').toLowerCase();
+    if (['password', 'hidden', 'checkbox', 'radio', 'submit', 'button', 'file', 'range', 'color'].indexOf(t) >= 0) return -100;
+    if (!gorunur(el)) return -100;
+
+    var n = nitelikler(el);
+    var ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    var puan = 0;
+
+    // Sayfa yazarının açık beyanı en güçlü işaret.
+    if (ac === 'username' || ac === 'email') puan += 60;
+    else if (ac === 'off' || ac === 'new-password') puan -= 10;
+    if (ac.indexOf('one-time-code') >= 0) return -100;   // OTP kutusu
+
+    if (t === 'email') puan += 30;
+    else if (t === 'tel') puan += 8;
+    else if (t === 'text' || t === '') puan += 4;
+    else return -100;                                    // number, date, url…
+
+    if (KULLANICI_ISARET.test(n)) puan += 25;
+    if (KULLANICI_KARSI.test(n)) puan -= 45;
+
+    // Bir formun içinde olmak iyi işaret; sayfanın tepesindeki serbest
+    // arama kutusu genelde formsuz durur.
+    if (el.form) puan += 6;
+    if (el.getAttribute('maxlength') === '1') return -100;  // OTP hücresi
+    return puan;
+  }
+
+  /** Şifre alanı gerçekten GİRİŞ parolası mı, yoksa yeni parola mı? */
+  function yeniParolaMi(pw) {
+    var ac = (pw.getAttribute('autocomplete') || '').toLowerCase();
+    if (ac === 'new-password') return true;
+    if (ac === 'current-password') return false;
+    if (YENI_PAROLA.test(nitelikler(pw))) return true;
+    // AYNI FORMDA iki görünür parola alanı = kayıt ya da parola değiştirme.
+    // Sayfa geneline bakmak, yandaki kayıt formu yüzünden giriş formunu da
+    // kapatıyordu.
+    return sifreAlanlari(kapsam(pw)).length >= 2;
+  }
+
+  /**
+   * Şifre alanına ait kullanıcı adı kutusu.
+   *
+   * Şifreden ÖNCE gelen adaylar arasından en yüksek puanlı olan seçiliyor.
+   * "En sondaki metin kutusu" kuralı, araya giren bir arama ya da kupon
+   * kutusunu kullanıcı adı sanıyordu.
+   */
   function kullaniciAlani(pw) {
-    var kapsam = pw.form || document;
-    var liste = kapsam.querySelectorAll('input, select');
-    var bulunan = null;
+    var liste = kapsam(pw).querySelectorAll('input');
+    var eniyi = null, eniyiPuan = 0;
     for (var i = 0; i < liste.length; i++) {
       var c = liste[i];
       if (c === pw) break;
-      var t = (c.getAttribute('type') || 'text').toLowerCase();
-      if ((t === 'text' || t === 'email' || t === 'tel' || t === '') && gorunur(c)) bulunan = c;
+      var p = kullaniciPuani(c);
+      if (p > eniyiPuan) { eniyiPuan = p; eniyi = c; }
     }
-    return bulunan;
+    return eniyi;
   }
+
+  /**
+   * İKİ ADIMLI GİRİŞ: sayfada parola alanı yok ama net bir kullanıcı adı
+   * kutusu var. Google, Microsoft ve pek çok panel böyle çalışıyor;
+   * önceki sürüm bu adımda hiç açılmıyordu.
+   *
+   * Eşik yüksek tutuldu (40): şüphede kalınca AÇMAMAK doğru davranış —
+   * her metin kutusunda menü açan bir eklenti, kapatılan bir eklentidir.
+   */
+  function tekBasinaKullaniciAlani(el) {
+    var k = kapsam(el);
+    if (sifreAlanlari(k).length) return null;
+    var liste = k.querySelectorAll('input');
+    var eniyi = null, eniyiPuan = 39;
+    for (var i = 0; i < liste.length; i++) {
+      var p = kullaniciPuani(liste[i]);
+      if (p > eniyiPuan) { eniyiPuan = p; eniyi = liste[i]; }
+    }
+    return eniyi;
+  }
+
   function deger(el, v) {
     try {
       var proto = el.tagName === 'TEXTAREA'
@@ -267,26 +385,59 @@
 
   // ── doldurma ───────────────────────────────────────────────────────────
   function doldur(alan, kayit) {
-    var pw = alan.type === 'password' ? alan : (sifreAlanlari()[0] || null);
-    if (!pw) { bildir('Sayfada şifre alanı bulunamadı', false); return; }
+    var pw = alan.type === 'password' ? alan : (sifreAlanlari(kapsam(alan))[0] || null);
     panelKapat();
     gonder({ type: 'doldur', id: kayit.id, url: location.href }, function (r) {
       if (!r || !r.ok) { bildir('Kasa: ' + hataMetni(r), false); return; }
-      kaydetme(pw);
-      var u = kullaniciAlani(pw);
-      if (u && r.kullanici) deger(u, r.kullanici);
-      if (r.parola) deger(pw, r.parola);
-      dolduruldu = true;           // bu sayfada işimiz bitti
-      bildir('✓ ' + (kayit.etiket || 'Giriş') + ' dolduruldu', true);
+
+      if (pw) {
+        kaydetme(pw);
+        var u = kullaniciAlani(pw);
+        if (u && r.kullanici) deger(u, r.kullanici);
+        if (r.parola) deger(pw, r.parola);
+        dolduruldu = true;
+        bildir('✓ ' + (kayit.etiket || 'Giriş') + ' dolduruldu', true);
+        return;
+      }
+
+      /* İKİ ADIMLI GİRİŞİN BİRİNCİ ADIMI — parola alanı yok.
+         YALNIZ kullanıcı adı yazılıyor. `dolduruldu` işaretlenmiyor:
+         ikinci adımda parola kutusu geldiğinde menü yine açılmalı. */
+      if (r.kullanici) {
+        deger(alan, r.kullanici);
+        bildir('✓ Kullanıcı adı dolduruldu — parola bir sonraki adımda', true);
+      } else {
+        bildir('Bu kayıtta kullanıcı adı yok', false);
+      }
     });
   }
 
   // ── akış ───────────────────────────────────────────────────────────────
   function ilgiliAlan(el) {
     if (!el || el.tagName !== 'INPUT' || !gorunur(el)) return null;
-    if (el.type === 'password') return el;
-    var pw = sifreAlanlari()[0];
-    return (pw && kullaniciAlani(pw) === el) ? el : null;
+
+    if (el.type === 'password') {
+      /* YENİ PAROLA FORMUNDA DOLDURMA ÖNERMİYORUZ.
+         Kayıt olurken ya da parola değiştirirken mevcut parolayı basmak
+         yanlış: kullanıcı YENİ bir parola koyuyor. Orada doğru davranış
+         üreteci sunmak — Faz 4. Şimdilik karışmıyoruz. */
+      return yeniParolaMi(el) ? null : el;
+    }
+
+    // KENDİ FORMUNDAKİ parola alanı — sayfadaki ilki değil.
+    var pw = sifreAlanlari(kapsam(el))[0];
+    if (pw) {
+      /* KAYIT FORMUNDA KULLANICI ADI DA SUNULMUYOR.
+         Parola alanları "yeni parola" diye reddediliyordu ama aynı formun
+         e-posta kutusu hâlâ menü açıyordu. Yarım bir kural: kullanıcı
+         e-postasını doldurup sonra parola kutusunda menüyü bulamıyor.
+         Kayıt formu kayıt formudur — orada mevcut bir hesabı sunmuyoruz. */
+      if (yeniParolaMi(pw)) return null;
+      return kullaniciAlani(pw) === el ? el : null;
+    }
+
+    // İki adımlı giriş: bu formda parola alanı yok, kullanıcı adı kutusu var.
+    return tekBasinaKullaniciAlani(el) === el ? el : null;
   }
 
   function odaklandi(e) {
