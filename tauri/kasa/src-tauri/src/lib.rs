@@ -451,7 +451,13 @@ fn diger_cihazlari_kapat(uygulama: tauri::AppHandle) -> Result<i64, String> {
 /// göstermektense doğruyu söylemek daha iyi.
 #[tauri::command(async)]
 fn kilit_durumu(uygulama: tauri::AppHandle) -> serde_json::Value {
-    let mut a = uygulama.state::<KilitDurum>().0.lock().unwrap();
+    // `State` ÖNCE BİR DEĞİŞKENE BAĞLANMALI.
+    // Tek satırda yazılınca geçici `State` ifadenin sonunda düşüyor, ama
+    // ondan alınan kilit sonraki satırlarda hâlâ kullanılıyor (E0716).
+    // Kodun geri kalanında bu desen tek ifadede bitiyor, o yüzden sorun
+    // çıkarmıyordu; burada kilit ifadeyi aşıyor.
+    let durum = uygulama.state::<KilitDurum>();
+    let mut a = durum.0.lock().unwrap();
     serde_json::json!({
         "acik": a.acik_mi(),
         "kalan_sn": a.kalan_sn(),
