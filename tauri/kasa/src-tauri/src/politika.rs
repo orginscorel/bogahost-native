@@ -162,13 +162,21 @@ pub fn kur() -> Result<(), String> {
 
     if !c.status.success() {
         let hata = String::from_utf8_lossy(&c.stderr);
+        // Kullanıcı yönetici penceresini kapattıysa devam etmenin anlamı yok.
         if hata.contains("-128") {
             return Err("İptal edildi.".into());
         }
-        return Err(format!("Kurulamadı: {}", hata.trim()));
+        // BAŞARISIZLIK BURADA ÖLÜMCÜL DEĞİL — ve eskiden öyle sayılıyordu.
+        //
+        // Modern macOS /Library/Managed Preferences altına dosya OLUŞTURMUYOR;
+        // `defaults write` sessizce yazmıyor, ardından `chmod` "No such file or
+        // directory" veriyor ve zincir kopuyordu. Kod bunu hata sayıp geri
+        // dönüyordu, yani ASIL ÇÖZÜM olan profil yoluna hiç ulaşılmıyordu.
+        // Artık bu yol yalnızca eski sürümler için "denenir"; tutmazsa aşağı
+        // düşülür.
     }
 
-    // Yazma tuttuysa iş bitti.
+    // Yazma tuttuysa iş bitti (eski macOS).
     if durum().tamam() {
         return Ok(());
     }
@@ -178,7 +186,15 @@ pub fn kur() -> Result<(), String> {
     //    profillerden üretilir; elle yazılan dosya yok sayılır. Profil
     //    kullanıcı onayı ister ve `profiles install` artık MDM dışında
     //    kullanılamıyor, bu yüzden dosya açılıp Sistem Ayarları'na düşürülür.
-    let yol = std::env::temp_dir().join("Bogahost-Kasa-Tarayici-Korumasi.mobileconfig");
+    // İndirilenler'e yazılıyor, geçici dizine değil: otomatik açılma bir
+    // sebeple çalışmazsa kullanıcının dosyayı BULABİLMESİ gerekiyor. Geçici
+    // dizin macOS'ta süreç başına ve okunaksız bir yol.
+    let yol = std::env::var("HOME")
+        .map(|h| std::path::PathBuf::from(h).join("Downloads"))
+        .ok()
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Bogahost-Kasa-Tarayici-Korumasi.mobileconfig");
     let mut f = std::fs::File::create(&yol).map_err(|e| format!("Profil yazılamadı: {e}"))?;
     f.write_all(profil_metni().as_bytes())
         .map_err(|e| format!("Profil yazılamadı: {e}"))?;

@@ -828,7 +828,7 @@ $('politikaKur').onclick = async () => {
     // uygulama bir yapılandırma profili açıyor ve onay kullanıcıya kalıyor.
     if (String(e).includes('PROFIL_ONAYI')) {
       durumYaz($('durum'),
-        'Sistem Ayarları açıldı: Genel → VPN ve Cihaz Yönetimi (veya Profiller) → "Bogahost Kasa — Tarayıcı Koruması" → Yükle. Sonra Chrome’u tamamen kapatıp açın.',
+        'Profil İndirilenler klasörüne kaydedildi ve Sistem Ayarları açıldı: Genel → VPN ve Cihaz Yönetimi (veya Profiller) → "Bogahost Kasa — Tarayıcı Koruması" → Yükle. Ayarlar açılmadıysa İndirilenler’deki dosyaya çift tıklayın. Sonra Chrome’u tamamen kapatıp açın.',
         'uyari');
     } else {
       durumYaz($('durum'), 'Kurulamadı: ' + e, 'hata');
