@@ -208,6 +208,18 @@
   .ayarMetin{flex:1;min-width:0}
   .ayarAd{font-weight:600;font-size:13.5px}
   .ayarNot{font-size:12px;color:var(--silik);margin-top:2px}
+  .lSatir{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--cizgi)}
+  .lSatir:last-child{border-bottom:0}
+  .lMetin{flex:1;min-width:0}
+  .lAd{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lAlt{font-size:11.5px;color:var(--silik);margin-top:2px}
+  .lRozet{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:3px 8px;border-radius:20px;
+          background:var(--iyi-yumusak);color:var(--iyi);flex:none}
+  .lEylem{display:flex;gap:6px;flex:none}
+  .lEylem button{padding:6px 11px;font-size:12px;border:1px solid var(--cizgi);
+                 border-radius:9px;background:var(--kart);transition:border-color .15s}
+  .lEylem button:hover:not(:disabled){border-color:var(--vurgu)}
+  .lEylem button.teh:hover:not(:disabled){border-color:var(--hata);color:var(--hata)}
   .isik{width:9px;height:9px;border-radius:50%;flex:none}
   .isik.acik{background:var(--iyi);box-shadow:0 0 0 3px var(--iyi-yumusak)}
   .isik.kapali{background:var(--hata);box-shadow:0 0 0 3px var(--hata-yumusak)}
@@ -379,6 +391,23 @@
   </div>
 </div>
 
+<!-- ══ Liste penceresi — cihazlar / çöp kutusu / kayıt geçmişi ══
+     Üçü de "başlık + satırlar + satır başına eylem" biçiminde. Üç ayrı
+     pencere yazmak üç kez aynı hatayı yapmak olurdu. -->
+<div class="katman gizli" id="listeKatman">
+  <div class="kart" style="max-width:520px">
+    <div class="kBaslik">
+      <span id="listeBaslik">—</span>
+      <button class="ikon" id="listeKapat"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="kGovde" id="listeGovde"></div>
+    <div class="kAyak">
+      <button class="ana" id="listeTamam">Kapat</button>
+      <button class="ikincil gizli" id="listeEkEylem"></button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ Ayarlar ══ -->
 <div class="katman gizli" id="ayarKatman">
   <div class="kart" style="max-width:450px">
@@ -492,7 +521,16 @@ async function kasayiAc(){
 }
 
 async function yenile(){
-  try{ kayitlar = await invoke('kayitlar'); }catch(e){ kayitlar=[]; }
+  try{ kayitlar = await invoke('kayitlar'); }
+  catch(e){
+    kayitlar=[];
+    // JETON ARTIK SÜRELİ. Süresi dolduysa "kasa boş" göstermek yanıltıcı
+    // olur — kullanıcıya yeniden giriş yapması gerektiği söyleniyor.
+    if(String(e).indexOf('süresi doldu')>=0){
+      await invoke('oturumu_kapat').catch(function(){});
+      location.reload(); return;
+    }
+  }
   ciz();
 }
 
@@ -617,12 +655,15 @@ function bagla(){
       durumYaz(d,'Şifre kopyalandı — '+sn+' sn sonra silinecek.','iyi'); }
     catch(err){ durumYaz(d,String(err),'hata'); }
   };});
+  her('[data-gecmis]', function(b){ b.onclick=function(e){
+    e.stopPropagation(); gecmisAc(bul(b.dataset.gecmis));
+  };});
   her('[data-duzenle]', function(b){ b.onclick=function(e){
     e.stopPropagation(); formAc(bul(b.dataset.duzenle));
   };});
   her('[data-sil]', function(b){ b.onclick=async function(e){
     e.stopPropagation(); const k=bul(b.dataset.sil);
-    if(!confirm('"'+k.label+'" silinsin mi? Bu geri alınamaz.')) return;
+    if(!confirm('"'+k.label+'" çöp kutusuna taşınsın mı? Ayarlar → Çöp kutusu\'ndan geri alabilirsiniz.')) return;
     try{ await invoke('kayit_sil',{id:k.id}); acikId=null; await yenile(); }
     catch(err){ durumYaz($('d'+k.id),String(err),'hata'); }
   };});
@@ -735,6 +776,12 @@ function ayarCiz(){
           ? '<button class="ikincil" id="aEklentiTazele">Güncelle</button>'
           : '<button class="ikincil" id="aEklentiIndir">İndir</button>')
         + '<button class="ikincil" id="aEklenti" style="margin-left:8px">Kur</button>')
+  + sat(null,'Cihazlar',
+        'Bu hesapla açık oturumlar. Kaybolan bir bilgisayarın erişimi buradan kesilir.',
+        '<button class="ikincil" id="aCihazlar">Aç</button>')
+  + sat(null,'Çöp kutusu',
+        'Sildiğiniz kayıtlar burada bekler; kalıcı silme ayrı bir adım.',
+        '<button class="ikincil" id="aCop">Aç</button>')
   + sat(null,'Yapılandırma profili','Güncellemeden sonra eskisini temizlemek için.',
         '<button class="ikincil" id="aProfilSil">Kaldır</button>')
   + sat(null,'Sürüm','<span id="surumAyar">—</span>',
@@ -747,6 +794,8 @@ function ayarCiz(){
   $('aEklenti').onclick=eklentiKur;
   if($('aEklentiIndir')) $('aEklentiIndir').onclick=eklentiIndir;
   if($('aEklentiTazele')) $('aEklentiTazele').onclick=eklentiTazele;
+  $('aCihazlar').onclick=cihazlariAc;
+  $('aCop').onclick=copAc;
   $('aProfilSil').onclick=profilKaldir;
   $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
 }
@@ -831,6 +880,146 @@ async function profilKaldir(){
   catch(e){ ayarCiz(); durumYaz($('ayarDurum'),String(e),'uyari'); }
 }
 
+/* ══ Liste penceresi ════════════════════════════════════════════════
+   Cihazlar, çöp kutusu ve kayıt geçmişi aynı iskeleti kullanıyor:
+   başlık + satırlar + satır başına eylem. */
+function listeAc(baslik, ekEylem){
+  $('listeBaslik').textContent=baslik;
+  $('listeGovde').innerHTML='<div class="durum">Yükleniyor…</div>';
+  const e=$('listeEkEylem');
+  if(ekEylem){ e.textContent=ekEylem.ad; e.onclick=ekEylem.calistir; e.classList.remove('gizli'); }
+  else { e.classList.add('gizli'); e.onclick=null; }
+  $('listeKatman').classList.remove('gizli');
+}
+function listeKapat(){ $('listeKatman').classList.add('gizli'); }
+$('listeKapat').onclick=listeKapat;
+$('listeTamam').onclick=listeKapat;
+
+function listeBos(metin){
+  $('listeGovde').innerHTML='<div class="bos" style="padding:34px 10px"><b>'+esc(metin)+'</b></div>';
+}
+function listeHata(e){
+  $('listeGovde').innerHTML='<div class="durum hata">'+esc(String(e))+'</div>';
+}
+/** satirlar: [{ad, alt, rozet, eylemler:[{ad, tehlike, calistir}]}] */
+function listeCiz(satirlar){
+  $('listeGovde').innerHTML = satirlar.map(function(r,i){
+    return '<div class="lSatir">'
+      + '<div class="lMetin"><div class="lAd">'+esc(r.ad)+'</div>'
+      +   (r.alt?'<div class="lAlt">'+esc(r.alt)+'</div>':'')+'</div>'
+      + (r.rozet?'<span class="lRozet">'+esc(r.rozet)+'</span>':'')
+      + '<div class="lEylem">'
+      +   (r.eylemler||[]).map(function(a,j){
+            return '<button data-r="'+i+'" data-a="'+j+'"'+(a.tehlike?' class="teh"':'')+'>'
+                 + esc(a.ad)+'</button>'; }).join('')
+      + '</div></div>';
+  }).join('') + '<div class="durum" id="listeDurum" style="margin-top:12px"></div>';
+
+  Array.prototype.forEach.call($('listeGovde').querySelectorAll('[data-r]'), function(b){
+    b.onclick=function(){
+      const a=satirlar[Number(b.dataset.r)].eylemler[Number(b.dataset.a)];
+      b.disabled=true; a.calistir(b);
+    };
+  });
+}
+
+/* ── Cihazlar ── */
+function tarih(iso){
+  if(!iso) return '—';
+  const g=gecen(iso.replace(' ','T'));
+  return g||iso;
+}
+async function cihazlariAc(){
+  listeAc('Cihazlar', { ad:'Diğerlerini kapat', calistir: digerCihazlar });
+  try{
+    const d=await invoke('cihazlar');
+    const c=d.cihazlar||[];
+    if(!c.length){ listeBos('Açık cihaz yok'); return; }
+    listeCiz(c.map(function(x){
+      return {
+        ad: x.ad || 'Adsız cihaz',
+        alt: [x.platform, x.son_ip, 'son kullanım: '+tarih(x.son_kullanim),
+              x.sona_erme?('süre: '+String(x.sona_erme).slice(0,10)):null]
+             .filter(Boolean).join('  ·  '),
+        rozet: x.bu_cihaz ? 'BU CİHAZ' : null,
+        eylemler: [{ ad:'Erişimi kes', tehlike:true, calistir: async function(b){
+          const soru = x.bu_cihaz
+            ? 'Bu cihazın erişimi kesilsin mi? Oturumunuz kapanır.'
+            : '"'+(x.ad||'cihaz')+'" erişimi kesilsin mi?';
+          if(!confirm(soru)){ b.disabled=false; return; }
+          try{
+            await invoke('cihaz_iptal',{id:x.id});
+            if(x.bu_cihaz){ await invoke('oturumu_kapat').catch(function(){}); location.reload(); return; }
+            cihazlariAc();
+          }catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+        }}]
+      };
+    }));
+  }catch(e){ listeHata(e); }
+}
+async function digerCihazlar(b){
+  if(!confirm('Bu cihaz dışındaki tüm oturumlar kapatılsın mı?')){ b.disabled=false; return; }
+  try{
+    const n=await invoke('diger_cihazlari_kapat');
+    await cihazlariAc();
+    durumYaz($('listeDurum'), n+' cihazın erişimi kesildi.','iyi');
+  }catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+}
+
+/* ── Çöp kutusu ── */
+async function copAc(){
+  listeAc('Çöp kutusu', null);
+  try{
+    const d=await invoke('cop');
+    const c=d.kayitlar||[];
+    if(!c.length){ listeBos('Çöp kutusu boş'); return; }
+    listeCiz(c.map(function(x){
+      return {
+        ad: x.label || '(adsız)',
+        alt: [x.username, x.domain, 'silinme: '+tarih(x.deleted_at),
+              (x.kalan_gun!==null&&x.kalan_gun!==undefined)?(x.kalan_gun+' gün sonra kalıcı silinir'):null]
+             .filter(Boolean).join('  ·  '),
+        eylemler: [
+          { ad:'Geri al', calistir: async function(b){
+              try{ await invoke('cop_geri',{id:x.id}); await yenile(); copAc(); }
+              catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); } } },
+          { ad:'Kalıcı sil', tehlike:true, calistir: async function(b){
+              if(!confirm('"'+(x.label||'kayıt')+'" KALICI olarak silinsin mi? Bu geri alınamaz.')){
+                b.disabled=false; return; }
+              try{ await invoke('cop_kalici_sil',{id:x.id}); copAc(); }
+              catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); } } }
+        ]
+      };
+    }));
+  }catch(e){ listeHata(e); }
+}
+
+/* ── Kayıt geçmişi ── */
+async function gecmisAc(kayit){
+  listeAc('Geçmiş — ' + (kayit.label||''), null);
+  try{
+    const d=await invoke('gecmis',{id:kayit.id});
+    const c=d.surumler||[];
+    if(!c.length){ listeBos('Bu kaydın geçmişi yok'); return; }
+    listeCiz(c.map(function(x){
+      const ne = x.degisen==='parola' ? 'parola değişti'
+               : x.degisen==='geri-alma' ? 'geri alındı' : 'bilgi değişti';
+      return {
+        ad: tarih(x.created_at) + ' — ' + ne,
+        alt: [x.username, x.url, x.parola_var?'parola saklandı':'parola yok']
+             .filter(Boolean).join('  ·  '),
+        eylemler: kayit.benim ? [{ ad:'Bu sürüme dön', calistir: async function(b){
+          if(!confirm('Kayıt bu sürüme döndürülsün mü? Mevcut hâli geçmişe yazılır.')){
+            b.disabled=false; return; }
+          try{ await invoke('surume_don',{id:kayit.id, revizyon:x.id});
+               await yenile(); gecmisAc(kayit); }
+          catch(e){ b.disabled=false; durumYaz($('listeDurum'),String(e),'hata'); }
+        }}] : []
+      };
+    }));
+  }catch(e){ listeHata(e); }
+}
+
 /* ══ Güncelleme ═════════════════════════════════════════════════════ */
 async function surumYaz(){
   try{
@@ -885,6 +1074,7 @@ listen('kisayol-dolduruldu', function(){ yenile(); });
 /* ══ Klavye ═════════════════════════════════════════════════════════ */
 document.addEventListener('keydown', function(e){
   if(!$('formKatman').classList.contains('gizli')){ if(e.key==='Escape') formKapat(); return; }
+  if(!$('listeKatman').classList.contains('gizli')){ if(e.key==='Escape') listeKapat(); return; }
   if(!$('ayarKatman').classList.contains('gizli')){
     if(e.key==='Escape') $('ayarKatman').classList.add('gizli'); return;
   }

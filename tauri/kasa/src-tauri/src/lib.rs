@@ -360,6 +360,54 @@ fn kayit_sil(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
     kasa::kayit_sil(&uygulama.state::<Durum>(), id)
 }
 
+// ── Faz 1: çöp kutusu, kayıt geçmişi, cihazlar ─────────────────────────────
+//
+// Üçü de denetimde çıkan somut kayıp/erişim risklerinin karşılığı:
+//   Y-3  silme kalıcıydı        → çöp kutusu
+//   O-2  eski parola kayboluyordu → kayıt geçmişi
+//   K-3  jeton süresizdi         → cihaz listesi + iptal
+
+#[tauri::command(async)]
+fn cop(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    kasa::cop(&uygulama.state::<Durum>())
+}
+
+#[tauri::command(async)]
+fn cop_geri(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
+    kasa::cop_geri(&uygulama.state::<Durum>(), id)
+}
+
+/// Kalıcı silme — geri dönüşü yok, o yüzden ayrı komut.
+#[tauri::command(async)]
+fn cop_kalici_sil(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
+    kasa::cop_kalici_sil(&uygulama.state::<Durum>(), id)
+}
+
+#[tauri::command(async)]
+fn gecmis(uygulama: tauri::AppHandle, id: i64) -> Result<serde_json::Value, String> {
+    kasa::gecmis(&uygulama.state::<Durum>(), id)
+}
+
+#[tauri::command(async)]
+fn surume_don(uygulama: tauri::AppHandle, id: i64, revizyon: i64) -> Result<(), String> {
+    kasa::surume_don(&uygulama.state::<Durum>(), id, revizyon)
+}
+
+#[tauri::command(async)]
+fn cihazlar(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    kasa::cihazlar(&uygulama.state::<Durum>())
+}
+
+#[tauri::command(async)]
+fn cihaz_iptal(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
+    kasa::cihaz_iptal(&uygulama.state::<Durum>(), id)
+}
+
+#[tauri::command(async)]
+fn diger_cihazlari_kapat(uygulama: tauri::AppHandle) -> Result<i64, String> {
+    kasa::diger_cihazlari_kapat(&uygulama.state::<Durum>())
+}
+
 // ── Parola üreteci ─────────────────────────────────────────────────────────
 
 /// Güçlü parola üret. Rastgelelik işletim sisteminden gelir.
@@ -538,6 +586,8 @@ pub fn run() {
             politika_durum, politika_kur, politika_profil_kaldir,
             eklenti_kur, eklenti_kaldir, eklenti_dosyasi_var, eklenti_indir,
             eklenti_surum_durum, eklenti_tazele, kopru_durum,
+            cop, cop_geri, cop_kalici_sil, gecmis, surume_don,
+            cihazlar, cihaz_iptal, diger_cihazlari_kapat,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])

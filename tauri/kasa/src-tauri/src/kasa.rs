@@ -534,3 +534,72 @@ pub fn parola_gucu(p: &str) -> u8 {
         3
     }
 }
+
+// ── Faz 1: çöp kutusu, kayıt geçmişi, cihazlar ─────────────────────────────
+//
+// Üçü de aynı deseni izliyor: sunucu karar veriyor, uygulama yalnız gösteriyor.
+// Yetki kontrolü burada TEKRARLANMIYOR — istemcide yapılan denetim, denetim
+// değil süstür; sunucu zaten reddediyor.
+
+/// Ortak GET — JSON döner, `ok:false` gelirse hata mesajına çevirir.
+fn getir(durum: &Durum, yol: &str) -> Result<serde_json::Value, String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .get(format!("{SUNUCU}{yol}"))
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    yaniti_coz(y)
+}
+
+/// Ortak POST/DELETE — gövdesiz eylemler için.
+fn eylem(durum: &Durum, metot: &str, yol: &str) -> Result<serde_json::Value, String> {
+    let t = jeton_of(durum)?;
+    let c = istemci();
+    let istek = match metot {
+        "DELETE" => c.delete(format!("{SUNUCU}{yol}")),
+        _ => c.post(format!("{SUNUCU}{yol}")),
+    };
+    let y = istek
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    yaniti_coz(y)
+}
+
+/// Çöp kutusundaki kayıtlar. Silinen kayıt yok olmuyor; burada bekliyor.
+pub fn cop(durum: &Durum) -> Result<serde_json::Value, String> {
+    getir(durum, "/vault/api/cop")
+}
+
+pub fn cop_geri(durum: &Durum, id: i64) -> Result<(), String> {
+    eylem(durum, "POST", &format!("/vault/api/cop/{id}/geri")).map(|_| ())
+}
+
+pub fn cop_kalici_sil(durum: &Durum, id: i64) -> Result<(), String> {
+    eylem(durum, "DELETE", &format!("/vault/api/cop/{id}")).map(|_| ())
+}
+
+/// Kayıt geçmişi — PAROLA İÇERMEZ, yalnız ne zaman ne değişti.
+pub fn gecmis(durum: &Durum, id: i64) -> Result<serde_json::Value, String> {
+    getir(durum, &format!("/vault/api/items/{id}/gecmis"))
+}
+
+pub fn surume_don(durum: &Durum, id: i64, revizyon: i64) -> Result<(), String> {
+    eylem(durum, "POST", &format!("/vault/api/items/{id}/surum/{revizyon}")).map(|_| ())
+}
+
+/// Bu hesabın açık cihazları. Kaybolan bir dizüstü buradan kesiliyor.
+pub fn cihazlar(durum: &Durum) -> Result<serde_json::Value, String> {
+    getir(durum, "/vault/api/cihazlar")
+}
+
+pub fn cihaz_iptal(durum: &Durum, id: i64) -> Result<(), String> {
+    eylem(durum, "DELETE", &format!("/vault/api/cihazlar/{id}")).map(|_| ())
+}
+
+/// Bu cihaz HARİÇ hepsini kapat.
+pub fn diger_cihazlari_kapat(durum: &Durum) -> Result<i64, String> {
+    let j = eylem(durum, "POST", "/vault/api/cihazlar/digerlerini-kapat")?;
+    Ok(j["kapatilan"].as_i64().unwrap_or(0))
+}
