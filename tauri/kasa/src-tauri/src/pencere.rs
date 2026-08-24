@@ -45,7 +45,7 @@ pub struct Hedef {
 
 #[cfg(windows)]
 mod win {
-    use super::Hedef;
+    use super::{tarayici_mi, Hedef};
     use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, MAX_PATH, TRUE};
     use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
     use windows::Win32::System::Threading::{
@@ -165,7 +165,7 @@ mod win {
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::Hedef;
+    use super::{tarayici_mi, Hedef};
 
     fn osa(betik: &str) -> Option<String> {
         let c = std::process::Command::new("osascript").arg("-e").arg(betik).output().ok()?;
