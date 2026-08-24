@@ -358,6 +358,26 @@ pub fn doldurmak_icin_ac(durum: &Durum, id: i64) -> Result<(String, String), Str
 /// doğrudan yazan bir yol dururken panoya almak, yapıştırıldığı her yerde düz
 /// metin göstermek demektir. Karar sunucuda verilir — istemcinin düğmeyi
 /// gizlemesine güvenilmez.
+/// YALNIZCA KULLANICI ADINI getirir.
+///
+/// DÜZELTİLEN HATA: "Kullanıcıyı kopyala" düğmesi `ac()` üzerinden gidiyordu
+/// ve o `amac=goster` gönderiyor. Sunucu, adresi ya da IP'si olan kayıtlarda
+/// kopyalamayı reddettiği için ADRESİ OLAN HER KAYITTA kullanıcı adı da
+/// kopyalanamıyordu — oysa reddedilmek istenen şey paroladır. Kullanıcı adı
+/// ile parolanın gizliliği aynı değil; artık ayrı uçtan ve ayrı izinle
+/// (`kullanici_kopyala`) geçiyorlar.
+pub fn kullanici_ac(durum: &Durum, id: i64) -> Result<String, String> {
+    let t = jeton_of(durum)?;
+    let y = istemci()
+        .post(format!("{SUNUCU}/vault/api/reveal/{id}"))
+        .query(&[("amac", "kullanici")])
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
+    let j = yaniti_coz(y)?;
+    Ok(j["username"].as_str().unwrap_or("").to_string())
+}
+
 pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
     let t = jeton_of(durum)?;
     let y = istemci()

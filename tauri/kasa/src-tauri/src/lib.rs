@@ -450,9 +450,13 @@ fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, Str
 }
 
 /// Yalnızca kullanıcı adını döndürür — parola için ayrı komut yok, bilerek.
+///
+/// Sunucuda da ayrı uç ve ayrı izin: parolayı göremeyen bir kullanıcı da
+/// kullanıcı adını kopyalayabilir. Eskiden ikisi aynı kapıdan geçtiği için
+/// adresi olan her kayıtta kullanıcı adı kopyalanamıyordu.
 #[tauri::command(async)]
 fn kullanici_adi(uygulama: tauri::AppHandle, id: i64) -> Result<String, String> {
-    kasa::ac(&uygulama.state::<Durum>(), id).map(|(k, _)| k)
+    kasa::kullanici_ac(&uygulama.state::<Durum>(), id)
 }
 
 /// Parolayı panoya koyar ve süre sonunda temizler.

@@ -583,8 +583,15 @@ function kayitHtml(k){
   const ad=k.label||'(adsız)';
   const acik=acikId===k.id;
   const guc=(k.guc===null||k.guc===undefined)?null:k.guc;
-  const gorunur=k.gosterilebilir!==false;
+  // DÜĞMELER SUNUCUDAN GELEN ETKİN İZİNLERE GÖRE.
+  // Eskiden "benim mi" ve "gizli mi" diye iki bayrağa bakılıyordu; artık
+  // sunucu kayıt başına hesaplanmış izin kümesini gönderiyor. Burada düğme
+  // söndürmek yalnız boşuna denemeyi önlüyor — asıl karar sunucuda, her uç
+  // aynı kümeyi yeniden soruyor.
+  const iz = Array.isArray(k.izinler) ? k.izinler : null;
+  const izinli = function(ad, eski){ return iz ? iz.indexOf(ad)>=0 : eski; };
   const benim=!!k.benim;
+  const gorunur = izinli('parola_gor', k.gosterilebilir!==false);
   // Doldurulabilir kayıt = adresi ya da IP'si var. Bunlarda parola panoya
   // alınmıyor, hedefe doğrudan yazılıyor. Kararı sunucu da uyguluyor.
   const kopyalanamaz=!!(k.url||k.ip);
@@ -612,6 +619,7 @@ function kayitHtml(k){
       + (guc!==null?'<div class="dSatir"><div class="dEt">Güç</div><div class="dDg">'+esc(gucAd)
           +'<div class="gucCubuk"><i style="width:'+((guc+1)*25)+'%;background:'+gucRenk+'"></i></div></div></div>':'')
       + ds('Son kullanım', gecen(k.son_kullanim)||'hiç kullanılmadı')
+      + (iz ? ds('Yetkiniz', yetkiOzeti(iz)) : '')
       + '<div class="eylem">'
       +   '<button class="ana" data-doldur="'+k.id+'">Doldur</button>'
       +   '<button class="ikincil" data-kadi="'+k.id+'"'+(gorunur?'':' disabled')+'>Kullanıcıyı kopyala</button>'
@@ -625,6 +633,19 @@ function kayitHtml(k){
   }
   return h+'</div>';
 }
+/* Sönük bir düğme "neden" sorusunu doğurur. Etkin yetki tek cümleyle
+   yazılıyor ki kullanıcı yanıtı aramak zorunda kalmasın. */
+function yetkiOzeti(iz){
+  const v=function(a){ return iz.indexOf(a)>=0; };
+  if(v('parola_gor')&&v('duzenle')) return 'tam yetki';
+  const p=[];
+  if(v('doldur')) p.push('doldurabilirsiniz');
+  if(v('parola_gor')) p.push('parolayı görebilirsiniz');
+  else if(v('doldur')) p.push('parolayı göremezsiniz');
+  if(v('duzenle')) p.push('düzenleyebilirsiniz');
+  return p.join(', ') || 'yalnızca görüntüleme';
+}
+
 function ds(e,d,sinif){
   return '<div class="dSatir"><div class="dEt">'+esc(e)+'</div>'
        + '<div class="dDg '+(sinif||'')+'">'+esc(d)+'</div></div>';
