@@ -6,6 +6,11 @@ name: Android (APK + AAB)
 
 on:
   workflow_dispatch:
+    inputs:
+      app:
+        description: 'Hangi uygulama derlensin? (hepsi / finans / dcim / chat / task / muh)'
+        required: false
+        default: 'hepsi'
   push:
     branches:
       - native-apps
@@ -33,8 +38,86 @@ permissions:
   contents: read
 
 jobs:
+  # Hangi uygulamalar derlenecek?
+  #
+  # NEDEN: burada sabit bir matris vardı ve HER İTMEDE beş uygulama birden
+  # derleniyordu. Yalnız masaüstü Kasa'ya dokunan bir commit bile beş Android
+  # derlemesi başlatıyordu — tamamı boşuna. macOS ve Windows akışlarındaki
+  # denetimin aynısı buraya da geldi.
+  #
+  # Kasa listede YOK: küresel kısayol, öndeki pencereyi okuma ve başka
+  # programa tuş gönderme gerektiriyor; mobilde bu yetenekler yok.
+  degisenler:
+    name: Değişenleri belirle
+    runs-on: ubuntu-latest
+    outputs:
+      liste: ${{ steps.hesapla.outputs.liste }}
+      var: ${{ steps.hesapla.outputs.var }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Hesapla
+        id: hesapla
+        shell: bash
+        run: |
+          TUM='["finans","dcim","chat","task","muh"]'
+
+          # ELLE TETİKLEMEDE TEK UYGULAMA SEÇİLEBİLİR.
+          SEC='${{ github.event.inputs.app }}'
+          if [ -n "$SEC" ] && [ "$SEC" != "hepsi" ]; then
+            case "$SEC" in
+              finans|dcim|chat|task|muh)
+                echo "Elle tetikleme → yalnız $SEC"
+                echo "liste=[\"$SEC\"]" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              kasa)
+                echo "::error title=Kasa mobilde yok::Kasa yalnız masaüstüdür."; exit 1 ;;
+              *)
+                echo "::error title=Bilinmeyen uygulama::'$SEC' diye bir uygulama yok."; exit 1 ;;
+            esac
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+          || [ "${{ github.event_name }}" = "workflow_call" ] \
+          || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "Elle tetikleme / sürüm etiketi → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
+            echo "Kıyaslanacak önceki commit yok → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          FARK=$(git diff --name-only HEAD~1 HEAD)
+          echo "Değişen dosyalar:"; echo "$FARK" | sed 's/^/  /'
+
+          # Ortak dosyalar hepsini etkiliyor. Başka platformun akış dosyası
+          # ETKİLEMİYOR — bu yüzden yalnız kendi dosyamıza bakıyoruz.
+          if echo "$FARK" | grep -qE '^(scripts/|apps\.config\.json|package\.json|assets/|pwa-enhancements/|\.github/workflows/android\.yml)'; then
+            echo "Ortak dosya değişti → hepsi"
+            echo "liste=$TUM" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          SECIM=""
+          for A in finans dcim chat task muh; do
+            if echo "$FARK" | grep -q "^capacitor/$A/"; then SECIM="$SECIM \"$A\""; fi
+          done
+          SECIM=$(echo $SECIM | tr ' ' ',')
+
+          if [ -z "$SECIM" ]; then
+            echo "::notice title=Derleme yok::Hiçbir mobil uygulama klasörü değişmedi; Android derlemesi atlandı."
+            echo "liste=[]" >> "$GITHUB_OUTPUT"; echo "var=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Derlenecek: [$SECIM]"
+            echo "liste=[$SECIM]" >> "$GITHUB_OUTPUT"; echo "var=1" >> "$GITHUB_OUTPUT"
+          fi
+
   build-android:
     name: Android · ${{ matrix.app }}
+    needs: degisenler
+    if: needs.degisenler.outputs.var == '1'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -45,7 +128,7 @@ jobs:
       # ama düşen derleme yeniden koşturmaktan ucuz.
       max-parallel: 2
       matrix:
-        app: [finans, dcim, chat, task, muh]
+        app: ${{ fromJson(needs.degisenler.outputs.liste) }}
 
     env:
       # Play Console her yüklemede ARTAN bir versionCode ister. run_number workflow
@@ -199,8 +282,10 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-android:
     name: Yayınla · Android
-    needs: build-android
-    if: always()
+    needs: [degisenler, build-android]
+    # always(): imzasız/kısmi derlemelerde de elde olanı yayınlıyoruz.
+    # Ama HİÇBİR uygulama derlenmediyse yayınlanacak bir şey de yok.
+    if: always() && needs.degisenler.outputs.var == '1' 
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
