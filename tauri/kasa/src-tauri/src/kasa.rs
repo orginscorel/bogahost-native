@@ -67,9 +67,23 @@ pub struct Durum {
 }
 
 fn istemci() -> reqwest::blocking::Client {
+    /* ACCEPT BAŞLIĞI EKSİKTİ — GERÇEK BİR HATA.
+       Bu başlık olmadan Laravel doğrulama hatalarında JSON yerine bir HTML
+       sayfasına 302 yönlendiriyordu; uygulama da bunu "Yanıt okunamadı"
+       diye gösteriyordu. Yani kullanıcı, hangi alanın neden reddedildiğini
+       HİÇBİR ZAMAN göremiyordu.
+       Sunucu tarafında da kapatıldı (vault/api artık HTML dönmüyor); ikisi
+       birlikte, çünkü sahada eski istemci sürümleri kalmaya devam ediyor. */
+    let mut basliklar = reqwest::header::HeaderMap::new();
+    basliklar.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/json"),
+    );
+
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .user_agent("BogahostKasa/1.10 (Tauri)")
+        .user_agent("BogahostKasa/1.19 (Tauri)")
+        .default_headers(basliklar)
         .build()
         .expect("HTTP istemcisi kurulamadi")
 }

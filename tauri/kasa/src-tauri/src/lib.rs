@@ -24,6 +24,7 @@ mod alan;
 mod guncelleme;
 mod kasa;
 mod kopru;
+mod kripto;
 mod politika;
 mod pencere;
 
