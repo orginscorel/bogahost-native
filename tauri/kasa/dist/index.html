@@ -232,9 +232,10 @@
 </div>
 <div class="serit uyari gizli" id="politikaSerit">
   <div class="bosluk">
-    <b>Tarayıcı koruması kurulu değil</b>
-    <div class="alt">Chrome parolayı kendi kasasına kaydedebilir ve eklenti kurulmaz.</div>
+    <b>Tarayıcı koruması eksik</b>
+    <div class="alt" id="politikaNot">Chrome parolayı kendi kasasına kaydedebilir ve eklenti kurulmaz.</div>
   </div>
+  <button id="politikaDenetleDugme" style="background:transparent;color:var(--uyari);border:1px solid var(--uyari)">Yeniden denetle</button>
   <button id="politikaKur">Kur</button>
 </div>
 
@@ -600,8 +601,24 @@ function genelBakisCiz(){
           + 'bu kayıtlar yalnızca elle kullanılabilir.</div>'
         : '')
     + '<div class="durum" id="durum" style="margin-top:16px"></div>'
-    + '<div class="durum" id="kisayolIpucu" style="opacity:.75"></div>';
+    + '<div class="durum" id="kisayolIpucu" style="opacity:.75"></div>'
+    // SÜRÜM VE GÜNCELLEME BURADA DA OLMALI. Eskiden yalnız giriş kartındaydı;
+    // oturum açıkken sürümü görmenin ya da elle denetlemenin yolu yoktu.
+    + '<div class="surumSatir" style="text-align:left;margin-top:18px">'
+    +   '<span id="surumMetin2">Bogahost Kasa</span> · '
+    +   '<button id="guncelAra2">güncellemeleri denetle</button>'
+    + '</div>';
   ipucuYaz();
+  surumYaz();
+  $('guncelAra2').onclick = ()=>guncellemeAra($('durum'));
+}
+
+/* Sürüm metni iki yerde: giriş kartı ve genel bakış. */
+async function surumYaz(){
+  try{
+    const v = await window.__TAURI__.app.getVersion();
+    ['surumMetin','surumMetin2'].forEach(id=>{ const e=$(id); if(e) e.textContent='Bogahost Kasa '+v; });
+  }catch(e){}
 }
 
 function detayCiz(){
@@ -885,12 +902,32 @@ listen('kisayol-notu', o=>{
 });
 
 /* ══ Tarayıcı koruması ══════════════════════════════════════════════ */
-async function politikaDenetle(){
+/* HANGİ PARÇA EKSİK — tek bir "kurulu değil" yazısı teşhise yaramıyordu.
+   İki ayrı şey var: tarayıcının kendi parola kasasının kapatılması ve
+   eklentinin zorunlu kurulum listesine girmesi. Profil yüklendiği hâlde
+   eklenti gelmiyorsa hangisinin tuttuğunu görmek gerekiyor. */
+async function politikaDenetle(sessiz){
   let d=null;
   try{ d = await invoke('politika_durum'); }catch(e){ return; }
   if(!d||!d.kurulabilir) return;
-  $('politikaSerit').classList.toggle('gizli', !!(d.kasa_kapali&&d.eklenti_zorunlu));
+
+  const tamam = !!(d.kasa_kapali && d.eklenti_zorunlu);
+  $('politikaSerit').classList.toggle('gizli', tamam);
+  if(tamam){
+    if(!sessiz){ const s=$('durum'); if(s) durumYaz(s,'Tarayıcı koruması etkin.','iyi'); }
+    return;
+  }
+
+  const parcalar = [];
+  parcalar.push((d.kasa_kapali?'✓':'✕')+' tarayıcı parola kasası kapalı');
+  parcalar.push((d.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu kurulumda');
+  let not = parcalar.join('  ·  ');
+  if(d.eklenti_zorunlu && !tamam){
+    not += ' — politika okundu; eklenti hâlâ yoksa Chrome’u tamamen kapatıp açın (chrome://policy ile doğrulayın).';
+  }
+  $('politikaNot').textContent = not;
 }
+$('politikaDenetleDugme').onclick = ()=>politikaDenetle(false);
 $('politikaKur').onclick = async ()=>{
   const b=$('politikaKur'); b.disabled=true; b.textContent='Kuruluyor…';
   const d=$('durum');
@@ -927,22 +964,24 @@ $('guncelUygula').onclick = async ()=>{
     const d=$('kasa').classList.contains('gizli')?$('girisDurum'):$('durum');
     if(d) durumYaz(d,'Güncellenemedi: '+e,'hata'); }
 };
-$('guncelAra').onclick = async ()=>{
+/* Elle denetim — hem giriş kartından hem genel bakıştan çağrılıyor. */
+async function guncellemeAra(durumEl){
   if(denetleniyor) return; denetleniyor=true;
-  const b=$('guncelAra'), eski=b.textContent; b.textContent='denetleniyor…';
   try{
     const g = await invoke('guncelleme_ara'); guncellemeYaz(g);
-    if(!g.var) durumYaz($('girisDurum'),'Güncel sürümü kullanıyorsunuz.');
-  }catch(e){ durumYaz($('girisDurum'),'Denetlenemedi: '+e,'hata'); }
-  finally{ denetleniyor=false; b.textContent=eski; }
+    if(durumEl) durumYaz(durumEl, g.var ? ('Yeni sürüm hazır: '+g.surum) : 'Güncel sürümü kullanıyorsunuz.', g.var?'iyi':'');
+  }catch(e){ if(durumEl) durumYaz(durumEl,'Denetlenemedi: '+e,'hata'); }
+  finally{ denetleniyor=false; }
+}
+$('guncelAra').onclick = async ()=>{
+  const b=$('guncelAra'), eski=b.textContent; b.textContent='denetleniyor…';
+  await guncellemeAra($('girisDurum'));
+  b.textContent=eski;
 };
 
 /* ══ Açılış ═════════════════════════════════════════════════════════ */
 (async ()=>{
-  try{
-    const v = await window.__TAURI__.app.getVersion();
-    $('surumMetin').textContent = 'Bogahost Kasa '+v;
-  }catch(e){}
+  await surumYaz();
 
   // BENİ HATIRLA: jeton işletim sistemi kasasında (imzasız derlemede yedek
   // dosyada) duruyor. Kullanıcı "hatırlama" dediyse oturum sorulmadan
