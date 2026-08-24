@@ -754,16 +754,23 @@ fn yol_al(u: &str) -> String {
 /// adres değişip yeni yol parçaları eklenince kayıt hâlâ "eşleşti" sayılıyor
 /// ve oradaki alanlara yazılıyordu.
 ///
+/// YOL TAM UYMALI — ALT YOLLAR ARTIK GEÇMİYOR.
+/// Önceki sürüm `hedef_yol.starts_with("{kayit_yol}/")` ile alt yolları da
+/// kabul ediyordu. Bildirilen durum tam olarak buydu: `/giris` kaydı giriş
+/// yapıldıktan sonraki `/giris/panel`, `/giris/ayarlar` sayfalarında da
+/// "eşleşti" sayılıyor, doldurma menüsü içeride de açılıyordu. Bir giriş
+/// sayfasının alt yolu artık giriş sayfası değildir; sonundaki ekleri yok
+/// saymanın savunulacak bir tarafı yok.
+///
 /// Kayıtta yol yoksa (yalnız alan adı girilmişse) alan adı eşleşmesi yeterli
-/// sayılır — kullanıcı bilerek geniş bırakmıştır.
+/// sayılır — kullanıcı orayı bilerek geniş bırakmıştır.
 pub(crate) fn yol_uyar(kayit_url: &Option<String>, hedef_url: &str) -> bool {
     let Some(k) = kayit_url else { return true };
     let kayit_yol = yol_al(k);
     if kayit_yol.is_empty() {
         return true;
     }
-    let hedef_yol = yol_al(hedef_url);
-    hedef_yol == kayit_yol || hedef_yol.starts_with(&format!("{kayit_yol}/"))
+    yol_al(hedef_url) == kayit_yol
 }
 
 /// Kısa sistem bildirimi — pencere açmadığımız için tek geri bildirim bu.
