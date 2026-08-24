@@ -32,7 +32,14 @@ yaz() {
   defaults write "$plist" AutofillAddressEnabled -bool false
   defaults write "$plist" AutofillCreditCardEnabled -bool false
   if [ "$eklenti" = "evet" ]; then
-    defaults write "$plist" ExtensionInstallForcelist -array "${EKLENTI_ID};${GUNCELLEME}"
+    # MAGAZA DISI EKLENTI: ExtensionSettings sart. ExtensionInstallForcelist
+    # tek basina yetmiyor — chrome://policy sayfasinda "[BLOCKED]" gorunuyor.
+    /usr/libexec/PlistBuddy -c "Delete :ExtensionSettings" "$plist.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :ExtensionSettings dict" "$plist.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :ExtensionSettings:${EKLENTI_ID} dict" "$plist.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :ExtensionSettings:${EKLENTI_ID}:installation_mode string force_installed" "$plist.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :ExtensionSettings:${EKLENTI_ID}:update_url string ${GUNCELLEME}" "$plist.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :ExtensionSettings:${EKLENTI_ID}:override_update_url bool true" "$plist.plist" 2>/dev/null || true
     # Kendi barındırdığımız .crx'in kurulabilmesi için kaynak izni.
     defaults write "$plist" ExtensionInstallSources -array "https://native.bogahost.com/*"
   fi

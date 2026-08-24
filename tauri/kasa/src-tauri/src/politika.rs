@@ -60,7 +60,10 @@ pub fn durum() -> Durum {
     Durum {
         // `defaults` mantıksal değeri 0/1 olarak yazdırır.
         kasa_kapali: oku("PasswordManagerEnabled").map(|v| v == "0").unwrap_or(false),
-        eklenti_zorunlu: oku("ExtensionInstallForcelist")
+        // ExtensionSettings asil mekanizma; forcelist yalnizca eski
+        // kurulumlar icin geriye donuk kontrol ediliyor.
+        eklenti_zorunlu: oku("ExtensionSettings")
+            .or_else(|| oku("ExtensionInstallForcelist"))
             .map(|v| v.contains(EKLENTI_ID))
             .unwrap_or(false),
         kurulabilir: true,
@@ -105,8 +108,21 @@ fn profil_metni() -> String {
       <key>PasswordManagerEnabled</key><false/>
       <key>AutofillAddressEnabled</key><false/>
       <key>AutofillCreditCardEnabled</key><false/>
-      <key>ExtensionInstallForcelist</key>
-      <array><string>{id};{url}</string></array>
+      <!-- MAĞAZA DIŞI EKLENTİ İÇİN DOĞRU MEKANİZMA BU.
+           ExtensionInstallForcelist tek başına yetmiyor: chrome://policy
+           sayfasında girdi "[BLOCKED]" olarak görünüyor ve durum "Hata, Uyarı"
+           oluyordu. Chrome, Web Mağazası dışından zorunlu kurulumu ancak
+           ExtensionSettings içinde override_update_url ile açıkça izin
+           verildiğinde yapıyor. -->
+      <key>ExtensionSettings</key>
+      <dict>
+        <key>{id}</key>
+        <dict>
+          <key>installation_mode</key><string>force_installed</string>
+          <key>update_url</key><string>{url}</string>
+          <key>override_update_url</key><true/>
+        </dict>
+      </dict>
       <key>ExtensionInstallSources</key>
       <array><string>{kaynak}</string></array>
     </dict>
@@ -232,7 +248,9 @@ pub fn durum() -> Durum {
         kasa_kapali: reg_oku(ANAHTAR, "PasswordManagerEnabled")
             .map(|v| v.contains("0x0"))
             .unwrap_or(false),
-        eklenti_zorunlu: reg_oku(&format!("{ANAHTAR}\\ExtensionInstallForcelist"), "1")
+        // ExtensionSettings asil mekanizma (bkz. kur()); forcelist geriye donuk.
+        eklenti_zorunlu: reg_oku(ANAHTAR, "ExtensionSettings")
+            .or_else(|| reg_oku(&format!("{ANAHTAR}\\ExtensionInstallForcelist"), "1"))
             .map(|v| v.contains(EKLENTI_ID))
             .unwrap_or(false),
         kurulabilir: true,
@@ -243,15 +261,22 @@ pub fn durum() -> Durum {
 pub fn kur() -> Result<(), String> {
     // PowerShell `-Verb RunAs` UAC penceresini açar; yönetici hakkı olmadan
     // HKLM\SOFTWARE\Policies yazılamaz.
+    // ExtensionSettings TEK SATIRLIK JSON olarak yazılır. Mağaza dışı zorunlu
+    // kurulumun çalıştığı tek yol bu: ExtensionInstallForcelist girdisi
+    // chrome://policy sayfasında "[BLOCKED]" görünüyor ve kurulum yapılmıyor.
+    let ayarlar = format!(
+        r#"{{\"{id}\":{{\"installation_mode\":\"force_installed\",\"update_url\":\"{url}\",\"override_update_url\":true}}}}"#,
+        id = EKLENTI_ID,
+        url = GUNCELLEME_URL,
+    );
     let komut = format!(
         "reg add \"{k}\" /v PasswordManagerEnabled /t REG_DWORD /d 0 /f; \
          reg add \"{k}\" /v AutofillAddressEnabled /t REG_DWORD /d 0 /f; \
          reg add \"{k}\" /v AutofillCreditCardEnabled /t REG_DWORD /d 0 /f; \
-         reg add \"{k}\\ExtensionInstallForcelist\" /v 1 /t REG_SZ /d \"{id};{url}\" /f; \
+         reg add \"{k}\" /v ExtensionSettings /t REG_SZ /d \"{ayarlar}\" /f; \
          reg add \"{k}\\ExtensionInstallSources\" /v 1 /t REG_SZ /d \"{kaynak}\" /f",
         k = ANAHTAR,
-        id = EKLENTI_ID,
-        url = GUNCELLEME_URL,
+        ayarlar = ayarlar,
         kaynak = KAYNAK,
     );
 

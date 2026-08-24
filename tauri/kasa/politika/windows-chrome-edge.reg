@@ -18,9 +18,11 @@ Windows Registry Editor Version 5.00
 "PasswordManagerEnabled"=dword:00000000
 "AutofillAddressEnabled"=dword:00000000
 "AutofillCreditCardEnabled"=dword:00000000
+; MAGAZA DISI EKLENTI ICIN DOGRU MEKANIZMA: ExtensionSettings.
+; ExtensionInstallForcelist tek basina yetmiyor — chrome://policy sayfasinda
+; girdi "[BLOCKED]" gorunuyor ve kurulum yapilmiyor.
+"ExtensionSettings"="{\"nfoohkianbefpbobbbgfikiiicnghjeh\":{\"installation_mode\":\"force_installed\",\"update_url\":\"https://native.bogahost.com/eklenti/update.xml\",\"override_update_url\":true}}"
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
-"1"="nfoohkianbefpbobbbgfikiiicnghjeh;https://native.bogahost.com/eklenti/update.xml"
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallSources]
 "1"="https://native.bogahost.com/*"
