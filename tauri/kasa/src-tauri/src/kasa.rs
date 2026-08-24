@@ -28,6 +28,12 @@ pub struct Kayit {
     pub username: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
+    /// Sunucu gönderiyordu ama yapıda yoktu, arayüze hiç ulaşmıyordu.
+    #[serde(default)]
+    pub ip: Option<String>,
+    /// Kayıt bu kullanıcıya mı ait? Düzenleme/silme buna bağlı.
+    #[serde(default)]
+    pub benim: bool,
     /// Gizli kayıt: paylaşılan kişi DOLDURABİLİR ama göremez/kopyalayamaz.
     #[serde(default)]
     pub gizli: bool,
@@ -58,20 +64,87 @@ fn istemci() -> reqwest::blocking::Client {
 
 // ── İşletim sistemi kasası ─────────────────────────────────────────────────
 
+/// Yedek jeton dosyası.
+///
+/// NEDEN GEREKLİ: macOS Anahtar Zinciri kaydı uygulamanın KOD İMZASINA bağlı.
+/// İmzasız/ad-hoc derlemede her yeni sürüm farklı bir uygulama sayılır ve
+/// önceki kaydı OKUYAMAZ — "beni hatırla" her güncellemede bozuluyordu.
+/// (Erişilebilirlik izniyle aynı kök neden.)
+///
+/// DÜRÜST TAKAS: dosya, Anahtar Zinciri kadar güvenli değildir; kullanıcı
+/// hesabıyla çalışan başka bir program okuyabilir. Buna karşılık oturum
+/// güncellemeler boyunca korunur. Uygulama Developer ID ile imzalandığında
+/// Anahtar Zinciri yolu zaten tutar ve dosyaya hiç düşülmez.
+fn yedek_yol() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    let taban = std::env::var("HOME")
+        .ok()
+        .map(|h| std::path::PathBuf::from(h).join("Library/Application Support"));
+    #[cfg(windows)]
+    let taban = std::env::var("APPDATA").ok().map(std::path::PathBuf::from);
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let taban: Option<std::path::PathBuf> = std::env::var("HOME")
+        .ok()
+        .map(|h| std::path::PathBuf::from(h).join(".config"));
+
+    let d = taban?.join("Bogahost Kasa");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d.join("oturum"))
+}
+
+fn yedek_yaz(jeton: &str) {
+    let Some(p) = yedek_yol() else { return };
+    if std::fs::write(&p, jeton).is_err() {
+        return;
+    }
+    // Yalnız sahibi okuyabilsin.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+    }
+}
+
+fn yedek_oku() -> Option<String> {
+    let p = yedek_yol()?;
+    let s = std::fs::read_to_string(p).ok()?;
+    let s = s.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+fn yedek_sil() {
+    if let Some(p) = yedek_yol() {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 pub fn jeton_kaydet(jeton: &str) -> Result<(), String> {
-    keyring::Entry::new(SERVIS, HESAP)
-        .and_then(|g| g.set_password(jeton))
-        .map_err(|e| format!("Oturum kaydedilemedi: {e}"))
+    // Önce işletim sisteminin kasası — imzalı kurulumda en doğru yer.
+    let kasa_sonucu = keyring::Entry::new(SERVIS, HESAP).and_then(|g| g.set_password(jeton));
+    // Yedek her hâlükârda yazılır: kasa yazsa bile bir sonraki SÜRÜM onu
+    // okuyamayabilir (imza değişir), oturum yine de sürsün.
+    yedek_yaz(jeton);
+
+    kasa_sonucu.map_err(|e| format!("Oturum kaydedilemedi: {e}"))?;
+    Ok(())
 }
 
 pub fn jeton_oku() -> Option<String> {
-    keyring::Entry::new(SERVIS, HESAP).ok()?.get_password().ok()
+    keyring::Entry::new(SERVIS, HESAP)
+        .ok()
+        .and_then(|g| g.get_password().ok())
+        .or_else(yedek_oku)
 }
 
 pub fn jeton_sil() {
     if let Ok(g) = keyring::Entry::new(SERVIS, HESAP) {
         let _ = g.delete_credential();
     }
+    yedek_sil();
 }
 
 // ── Giriş: iki adım ────────────────────────────────────────────────────────
@@ -344,4 +417,101 @@ pub fn kayit_sil(durum: &Durum, id: i64) -> Result<(), String> {
         .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
     yaniti_coz(y)?;
     Ok(())
+}
+
+// ── Parola üreteci ─────────────────────────────────────────────────────────
+//
+// NEDEN İSTEMCİDE: üretilen parola sunucuya "üretim isteği" olarak gitmiyor,
+// yalnızca kaydedilirken gidiyor. Ağda bir tur daha dolaşmasının anlamı yok.
+//
+// Rastgelelik işletim sisteminden alınıyor (getrandom). Kendi karıştırıcımızı
+// yazmak, parola üretiminde yapılabilecek en kötü şeydir.
+
+const BUYUK: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ"; // I ve O yok
+const KUCUK: &[u8] = b"abcdefghijkmnopqrstuvwxyz"; // l yok
+const RAKAM: &[u8] = b"23456789"; // 0 ve 1 yok
+const SIMGE: &[u8] = b"!@#$%^&*()-_=+[]{}<>?";
+
+/// İşletim sisteminden rastgele bayt.
+fn rastgele(n: usize) -> Vec<u8> {
+    let mut b = vec![0u8; n];
+    getrandom::getrandom(&mut b).expect("isletim sistemi rastgeleligi alinamadi");
+    b
+}
+
+/// Yanlılıksız aralık seçimi.
+///
+/// `bayt % uzunluk` yaygın ama YANLI: 256 uzunluğa tam bölünmediğinde baştaki
+/// karakterler daha sık çıkar. Aralık dışını atıp yeniden çekiyoruz.
+fn sec(havuz: &[u8]) -> u8 {
+    let n = havuz.len();
+    let sinir = 256 - (256 % n);
+    loop {
+        let b = rastgele(1)[0] as usize;
+        if b < sinir {
+            return havuz[b % n];
+        }
+    }
+}
+
+pub fn parola_uret(uzunluk: usize, rakam: bool, simge: bool) -> String {
+    let uzunluk = uzunluk.clamp(8, 128);
+    let mut havuz: Vec<u8> = Vec::new();
+    havuz.extend_from_slice(BUYUK);
+    havuz.extend_from_slice(KUCUK);
+    if rakam {
+        havuz.extend_from_slice(RAKAM);
+    }
+    if simge {
+        havuz.extend_from_slice(SIMGE);
+    }
+
+    // Her seçilen sınıftan EN AZ BİR karakter garanti edilir; yoksa "rakam
+    // içersin" dendiği hâlde rakamsız parola çıkabiliyor.
+    let mut c: Vec<u8> = vec![sec(BUYUK), sec(KUCUK)];
+    if rakam {
+        c.push(sec(RAKAM));
+    }
+    if simge {
+        c.push(sec(SIMGE));
+    }
+    while c.len() < uzunluk {
+        c.push(sec(&havuz));
+    }
+
+    // Fisher-Yates: garanti karakterler hep başta durmasın.
+    for i in (1..c.len()).rev() {
+        let j = (sec(b"0123456789abcdefghijklmnopqrstuvwxyz") as usize) % (i + 1);
+        c.swap(i, j);
+    }
+
+    String::from_utf8_lossy(&c).to_string()
+}
+
+/// Parola gücü: 0 zayıf, 1 orta, 2 iyi, 3 güçlü.
+///
+/// Kaba ama dürüst bir ölçü: uzunluk ve karakter çeşitliliği. "Entropi" diye
+/// kesin bir sayı vermiyoruz — parola bir sözlük kelimesiyse hesaplanan entropi
+/// yalan söyler.
+pub fn parola_gucu(p: &str) -> u8 {
+    let u = p.chars().count();
+    let cesit = [
+        p.chars().any(|c| c.is_ascii_lowercase()),
+        p.chars().any(|c| c.is_ascii_uppercase()),
+        p.chars().any(|c| c.is_ascii_digit()),
+        p.chars().any(|c| !c.is_ascii_alphanumeric()),
+    ]
+    .iter()
+    .filter(|x| **x)
+    .count();
+
+    if u < 8 || cesit < 2 {
+        0
+    } else if u < 12 || cesit < 3 {
+        1
+    } else if u < 16 {
+        2
+    } else {
+        3
+    }
 }

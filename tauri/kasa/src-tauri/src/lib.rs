@@ -139,6 +139,31 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         };
     }
 
+    // HEDEF ↔ KAYIT EŞLEŞMESİ — parola yanlış siteye ASLA gitmesin.
+    //
+    // Eskiden burada hiçbir kontrol yoktu: kullanıcı A kaydını seçip B sitesine
+    // Doldur diyebiliyordu ve parola B'ye yazılıyordu. Hedefin adresi
+    // okunabiliyorsa (tarayıcı) kaydın adresiyle karşılaştırılıyor; uymuyorsa
+    // yazılmıyor.
+    //
+    // Masaüstü programlarında adres diye bir şey yok, karşılaştıracak bir
+    // şey de yok — orada kullanıcının kaydı seçip Doldur demesi zaten açık
+    // niyet beyanıdır ve engellenmiyor.
+    if let Some(hedef_url) = h.url.clone() {
+        let kayitlar = kasa::liste(&uygulama.state::<Durum>()).unwrap_or_default();
+        if let Some(k) = kayitlar.iter().find(|k| k.id == id) {
+            if !yol_uyar(&k.url, &hedef_url) {
+                return DoldurSonuc {
+                    tamam: false,
+                    mesaj: format!(
+                        "\"{}\" bu adrese ait değil ({}). Parola yazılmadı.",
+                        k.label, hedef_url
+                    ),
+                };
+            }
+        }
+    }
+
     // Doldurma /fill ucundan geçer: gizli kayıtta görüntüleme kapalı olsa
     // bile yazma çalışır ve her yazım denetime düşer.
     let (kullanici, sifre) = match kasa::doldurmak_icin_ac(&uygulama.state::<Durum>(), id) {
@@ -241,6 +266,20 @@ fn kayit_guncelle(
 #[tauri::command(async)]
 fn kayit_sil(uygulama: tauri::AppHandle, id: i64) -> Result<(), String> {
     kasa::kayit_sil(&uygulama.state::<Durum>(), id)
+}
+
+// ── Parola üreteci ─────────────────────────────────────────────────────────
+
+/// Güçlü parola üret. Rastgelelik işletim sisteminden gelir.
+#[tauri::command(async)]
+fn parola_uret(uzunluk: usize, rakam: bool, simge: bool) -> String {
+    kasa::parola_uret(uzunluk, rakam, simge)
+}
+
+/// Parola gücü: 0 zayıf … 3 güçlü. Arayüzdeki çubuk bunu gösterir.
+#[tauri::command(async)]
+fn parola_gucu(parola: String) -> u8 {
+    kasa::parola_gucu(&parola)
 }
 
 // ── Otomatik güncelleme ────────────────────────────────────────────────────
@@ -405,7 +444,8 @@ pub fn run() {
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur,
-            kayit_ekle, kayit_guncelle, kayit_sil
+            kayit_ekle, kayit_guncelle, kayit_sil,
+            parola_uret, parola_gucu
         ])
         .setup(|uygulama| {
             // Kayıtlı oturumu belleğe al (geçerliliği arayüz açılışında sorulur)
