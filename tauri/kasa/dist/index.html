@@ -783,10 +783,13 @@ function ayarCiz(){
         izinVar?'Doldurma çalışıyor.'
           :'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listeden “−” ile kaldırıp “+” ile yeniden ekleyin.',
         izinVar?'':'<button class="ikincil" id="aIzin">Aç</button>')
-  + sat(kopruVar,'Tarayıcı bağlantısı',
-        kopruVar
-          ? 'Eklenti bu bilgisayardaki oturumu kullanıyor (yerel port '+kopruDurum.port+'). Ayrıca giriş yapmaz.'
-          : 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.', '')
+  + sat(kopruVar && kopruDurum.eklenti_bagli, 'Tarayıcı bağlantısı',
+        !kopruVar
+          ? 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.'
+          : (kopruDurum.eklenti_bagli
+              ? 'Eklenti bağlı (yerel port '+kopruDurum.port+'). Panelden tıkladığınız kayıt tarayıcıda eklenti tarafından doldurulur.'
+              : 'Köprü açık (port '+kopruDurum.port+') ama eklenti son iki dakikadır uğramadı — kurulu değil ya da kapalı.'),
+        '')
   + sat(polVar,'Tarayıcı koruması',
         polVar?'Parola kasası kapalı, eklenti zorunlu kurulumda.'
           :((politikaDurum&&politikaDurum.kasa_kapali?'✓':'✕')+' parola kasası kapalı &nbsp;·&nbsp; '

@@ -193,6 +193,79 @@ if (chrome.runtime.onUpdateAvailable) {
   chrome.runtime.onUpdateAvailable.addListener(function () { chrome.runtime.reload(); });
 }
 
+/* ── UYGULAMADAN GELEN İŞLER ──────────────────────────────────────────────
+   Masaüstü panelinden bir kayda tıklandığında iş köprüye bırakılıyor ve
+   buraya geliyor. Eskiden panel tarayıcı hedefinde "doldurmayı eklenti
+   yapıyor" diye bir metin gösteriyordu — kullanıcı tıklıyor, hiçbir şey
+   olmuyordu.
+
+   UZUN YOKLAMA: köprü isteği iş çıkana kadar (en fazla 25 sn) açık tutuyor.
+   Dakikada bir sormak, tıkladıktan sonra bir dakikaya kadar beklemek
+   demekti; o da "çalışmıyor" demektir.
+
+   PAROLA BU YOLDAN GEÇMİYOR: gelen şey yalnız "şu kaydı şu adreste doldur".
+   Parolayı yine sayfadaki betik `doldur` isteğiyle kendi alıyor. */
+let olayDinleniyor = false;
+
+async function olaylariDinle() {
+  if (olayDinleniyor) return;
+  olayDinleniyor = true;
+  try {
+    for (;;) {
+      const k = await kopru();
+      if (!k) return;                       // uygulama kapalı — alarm tekrar dener
+
+      let d = null;
+      try {
+        const c = new AbortController();
+        // Köprünün beklemesinden biraz uzun: kendi tarafımızdan kesmeyelim.
+        const zaman = setTimeout(() => c.abort(), 30000);
+        const y = await fetch(adres(k.port, '/olay'), {
+          headers: { 'X-Kasa': KIMLIK }, cache: 'no-store', signal: c.signal,
+        });
+        clearTimeout(zaman);
+        d = await y.json();
+      } catch (e) {
+        PORT = null;
+        return;                             // bağlantı koptu; alarm yeniden başlatır
+      }
+
+      if (d && d.ok && d.olay && d.olay.tur === 'doldur') {
+        await isiUygula(d.olay);
+      }
+    }
+  } finally {
+    olayDinleniyor = false;
+  }
+}
+
+/** Gelen işi DOĞRU SEKMEDE uygula. */
+async function isiUygula(olay) {
+  let sekmeler = [];
+  try { sekmeler = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }); }
+  catch (e) { return; }
+
+  /* ADRES EŞLEŞMESİ ŞART.
+     Uygulama "şu adreste doldur" diyor; biz de o adresteki sekmeyi
+     buluyoruz. Etkin sekmeye körlemesine doldurmak, kullanıcı arada başka
+     bir sekmeye geçtiyse parolayı yanlış sayfaya göndermek olurdu. */
+  var hedef = null;
+  for (const t of sekmeler) {
+    if (!t.url) continue;
+    try {
+      if (new URL(t.url).href === new URL(olay.url).href) { hedef = t; break; }
+      if (!hedef && new URL(t.url).host === new URL(olay.url).host) hedef = t;
+    } catch (e) {}
+  }
+  if (!hedef) return;
+
+  try { await chrome.tabs.update(hedef.id, { active: true }); } catch (e) {}
+  try {
+    chrome.tabs.sendMessage(hedef.id, { type: 'kasa-doldur', id: olay.id },
+      function () { void chrome.runtime.lastError; });
+  } catch (e) {}
+}
+
 /* Rozet: kasa kapalıysa ya da oturum yoksa kullanıcı bunu eklenti simgesinden
    görsün — sayfada hiçbir şey çıkmamasının nedenini aramasın. */
 async function rozet() {
@@ -209,7 +282,7 @@ async function rozet() {
     chrome.action.setBadgeText({ text: '' });
     chrome.action.setTitle({ title: 'Bogahost Kasa' });
   }
-  if (k) kendiniYenile(k.durum);
+  if (k) { kendiniYenile(k.durum); olaylariDinle(); }
 }
 
 chrome.runtime.onInstalled.addListener(function () {
@@ -218,9 +291,12 @@ chrome.runtime.onInstalled.addListener(function () {
 if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(zamanla);
 function zamanla() {
   // Dakikada bir: tek bir 127.0.0.1 isteği. Diskteki paket değiştiği anda
-  // eklentinin kendini yenilemesi için bundan seyrek olamaz.
+  // eklentinin kendini yenilemesi için bundan seyrek olamaz. Aynı alarm
+  // kopan olay dinleyicisini de yeniden başlatıyor — servis işçisi
+  // uyutulduğunda uzun yoklama düşüyor.
   if (chrome.alarms) chrome.alarms.create('kasaDurum', { periodInMinutes: 1 });
   rozet();
+  olaylariDinle();
 }
 zamanla();
 if (chrome.alarms) {

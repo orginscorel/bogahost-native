@@ -39,11 +39,65 @@ const EN_BUYUK_GOVDE: usize = 8 * 1024;
 /// köprü hiç açılamadıysa `None` kalır ve satır kırmızı yanar.
 static PORT: std::sync::Mutex<Option<u16>> = std::sync::Mutex::new(None);
 
+/// UYGULAMADAN EKLENTİYE İŞ KUYRUĞU.
+///
+/// Panel tarayıcı hedefinde "doldurmayı eklenti yapıyor" diye bir metin
+/// gösteriyordu. Bu bir cevap değil, bahane: kullanıcı paneli görüyor,
+/// kaydı görüyor, ama tıklayınca bir şey olmuyordu.
+///
+/// Artık panel tıklandığında iş buraya bırakılıyor; eklenti köprüyü zaten
+/// dinliyor ve saniyeler içinde alıp sayfada dolduruyor. Parola bu kuyruktan
+/// GEÇMİYOR — yalnız hangi kaydın hangi adreste doldurulacağı yazıyor;
+/// eklenti sonra her zamanki gibi `/doldur` diyerek kendi alıyor.
+static OLAYLAR: std::sync::Mutex<Vec<serde_json::Value>> = std::sync::Mutex::new(Vec::new());
+
+/// Uzun yoklamanın en fazla bekleyeceği süre.
+///
+/// Tarayıcı ve işletim sistemi boşta duran bağlantıları kesiyor; ayrıca
+/// eklentinin servis işçisi uzun süre yanıt beklerken uyutulabiliyor. 25
+/// saniye, "anında gelsin" ile "bağlantı kopmasın" arasında duruyor.
+const OLAY_BEKLEME_SN: u64 = 25;
+
+/// Eklenti son zamanlarda köprüye uğradı mı?
+///
+/// Eklenti dakikada bir durum soruyor ve olay ucunu sürekli açık tutuyor.
+/// İki dakikadır ses yoksa kurulu değil ya da kapalı demektir — bu durumda
+/// panelden "iletildi" demek yalan olurdu, iş kuyrukta çürürdü.
+static SON_TEMAS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+pub fn eklenti_bagli() -> bool {
+    SON_TEMAS
+        .lock()
+        .unwrap()
+        .map(|t| t.elapsed() < std::time::Duration::from_secs(150))
+        .unwrap_or(false)
+}
+
+fn temas_kaydet() {
+    *SON_TEMAS.lock().unwrap() = Some(std::time::Instant::now());
+}
+
+pub fn olay_ekle(olay: serde_json::Value) {
+    let mut k = OLAYLAR.lock().unwrap();
+    // Kuyruk birikmesin: eklenti kapalıyken tıklanan her şey sonsuza kadar
+    // beklerse, açıldığı an arka arkaya doldurmaya kalkar.
+    if k.len() > 8 {
+        k.remove(0);
+    }
+    k.push(olay);
+}
+
+fn olay_al() -> Option<serde_json::Value> {
+    OLAYLAR.lock().unwrap().pop()
+}
+
 /// Köprünün durumu — arayüz için.
 pub fn durum() -> serde_json::Value {
     match *PORT.lock().unwrap() {
-        Some(p) => serde_json::json!({"calisiyor": true, "port": p}),
-        None => serde_json::json!({"calisiyor": false, "port": 0}),
+        Some(p) => serde_json::json!({
+            "calisiyor": true, "port": p, "eklenti_bagli": eklenti_bagli(),
+        }),
+        None => serde_json::json!({"calisiyor": false, "port": 0, "eklenti_bagli": false}),
     }
 }
 
@@ -175,6 +229,9 @@ fn isle(uygulama: tauri::AppHandle, mut akis: TcpStream) -> std::io::Result<()> 
         return Ok(());
     }
 
+    // Buraya gelen istek kimlik denetimini geçti; yani eklenti ayakta.
+    temas_kaydet();
+
     if istek.yontem == "OPTIONS" {
         yanit(&mut akis, 204, "No Content", "");
         return Ok(());
@@ -187,6 +244,7 @@ fn isle(uygulama: tauri::AppHandle, mut akis: TcpStream) -> std::io::Result<()> 
 
     let cevap = match yol {
         "/durum" => durum_cevabi(&uygulama),
+        "/olay" => olay_cevabi(),
         "/eslesenler" => eslesenler_cevabi(&uygulama, &sorgu_al(sorgu, "url")),
         "/doldur" => doldur_cevabi(&uygulama, &istek.govde),
         _ => serde_json::json!({"ok": false, "hata": "bilinmeyen uc"}),
@@ -194,6 +252,24 @@ fn isle(uygulama: tauri::AppHandle, mut akis: TcpStream) -> std::io::Result<()> 
 
     yanit(&mut akis, 200, "OK", &cevap.to_string());
     Ok(())
+}
+
+/// UZUN YOKLAMA: iş çıkana kadar bekle, çıkmazsa boş dön.
+///
+/// Eklenti bu ucu sürekli açık tutuyor. Sıradan bir yoklama (her dakika sor)
+/// kullanıcıyı bir dakikaya kadar bekletirdi; tıkladıktan sonra bir dakika
+/// beklemek "çalışmıyor" demektir.
+fn olay_cevabi() -> serde_json::Value {
+    let bitis = std::time::Instant::now() + std::time::Duration::from_secs(OLAY_BEKLEME_SN);
+    loop {
+        if let Some(o) = olay_al() {
+            return serde_json::json!({ "ok": true, "olay": o });
+        }
+        if std::time::Instant::now() >= bitis {
+            return serde_json::json!({ "ok": true, "olay": serde_json::Value::Null });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
 }
 
 /// `url=https%3A%2F%2F…` → çözülmüş değer.

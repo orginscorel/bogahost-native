@@ -23,6 +23,10 @@ use zeroize::Zeroize;
 pub const VARSAYILAN_KILIT_DK: u64 = 15;
 
 pub struct Anahtarlik {
+    /// Kilit anahtarı YALNIZ ana parola değişiminde gerekiyor (özel anahtarı
+    /// yeniden sarmak için). Kurtarma anahtarıyla açıldığında elimizde
+    /// olmuyor — o yüzden `Option`. "Kurtarmayla girdim ama kilit anahtarım
+    /// var" gibi bir yalan söylemektense yokluğunu taşımak doğru.
     kilit_anahtari: Option<[u8; 32]>,
     ozel_anahtar: Option<[u8; 32]>,
     /// Açılmış kasa anahtarları — her kasa için bir kez mühür açılıyor.
@@ -49,9 +53,10 @@ impl Anahtarlik {
         }
     }
 
-    /// Kilidi aç — kilit anahtarı ve özel anahtar belleğe alınıyor.
-    pub fn ac(&mut self, kilit: [u8; 32], ozel: [u8; 32]) {
-        self.kilit_anahtari = Some(kilit);
+    /// Kilidi aç. `kilit` yoksa (kurtarma anahtarıyla girildi) yalnız özel
+    /// anahtar tutuluyor; ana parola değişimi o durumda yeni kilit üretecek.
+    pub fn ac(&mut self, kilit: Option<[u8; 32]>, ozel: [u8; 32]) {
+        self.kilit_anahtari = kilit;
         self.ozel_anahtar = Some(ozel);
         self.kasa_anahtarlari.clear();
         self.son_kullanim = Some(Instant::now());
@@ -172,7 +177,7 @@ mod testler {
     fn acilinca_anahtarlar_gelir() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         assert!(a.acik_mi());
         assert_eq!(a.ozel(), Some(o));
         assert_eq!(a.kilit(), Some(k));
@@ -182,7 +187,7 @@ mod testler {
     fn kilitlenince_hicbir_sey_donmez() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         a.kasa_koy(3, [1u8; 32]);
         a.kilitle();
         assert!(!a.acik_mi());
@@ -195,7 +200,7 @@ mod testler {
     fn kasa_anahtarlari_saklanir_ve_dusurulur() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         a.kasa_koy(3, [1u8; 32]);
         a.kasa_koy(4, [2u8; 32]);
         assert_eq!(a.kasa_al(3), Some([1u8; 32]));
@@ -210,9 +215,9 @@ mod testler {
     fn yeniden_acmak_kasalari_temizler() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         a.kasa_koy(3, [1u8; 32]);
-        a.ac([8u8; 32], [6u8; 32]);
+        a.ac(Some([8u8; 32]), [6u8; 32]);
         assert!(a.kasa_al(3).is_none());
     }
 
@@ -220,7 +225,7 @@ mod testler {
     fn sure_dolunca_kendiliginden_kilitlenir() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         // Süreyi geçmişe çekmek yerine süreyi sıfıra yakın yapıyoruz.
         a.kilit_suresi = Some(Duration::from_millis(40));
         assert!(a.acik_mi());
@@ -233,7 +238,7 @@ mod testler {
     fn kullanim_sureyi_yeniler() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(15);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         a.kilit_suresi = Some(Duration::from_millis(120));
         for _ in 0..4 {
             std::thread::sleep(Duration::from_millis(50));
@@ -245,7 +250,7 @@ mod testler {
     fn sifir_dakika_kendiliginden_kilitlemez() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(0);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         assert!(a.kalan_sn().is_none());
         std::thread::sleep(Duration::from_millis(30));
         assert!(a.acik_mi());
@@ -255,7 +260,7 @@ mod testler {
     fn kalan_sure_azalir() {
         let (k, o) = ornek();
         let mut a = Anahtarlik::yeni(1);
-        a.ac(k, o);
+        a.ac(Some(k), o);
         let ilk = a.kalan_sn().unwrap();
         std::thread::sleep(Duration::from_millis(1100));
         let sonra = a.kalan_sn().unwrap();

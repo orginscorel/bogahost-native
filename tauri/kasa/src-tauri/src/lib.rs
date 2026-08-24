@@ -187,15 +187,38 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
        Eklenti sayfayı GÖRÜYOR: parola alanını bulur, altında menüsünü açar,
        oraya yazar. Doğru iş bölümü bu. */
     if h.tarayici {
+        /* PANELDEN TIKLANINCA EKLENTİYİ TETİKLİYORUZ.
+           Eskiden burada "doldurmayı eklenti yapıyor" yazan bir metin
+           dönüyordu. Bu bir cevap değil bahaneydi: kullanıcı paneli görüyor,
+           kaydı görüyor, tıklıyor ve hiçbir şey olmuyordu.
+           Parola bu yoldan GEÇMİYOR — köprüye yalnız "şu kaydı şu adreste
+           doldur" yazılıyor; eklenti sonra her zamanki gibi kendi isteyip
+           alıyor ve sayfayı GÖREREK dolduruyor. */
+        let Some(url) = h.url.clone() else {
+            return DoldurSonuc {
+                tamam: false,
+                mesaj: "Tarayıcının adresi okunamadı. Sekmeye tıklayıp tekrar deneyin.".into(),
+            };
+        };
+
+        if !kopru::eklenti_bagli() {
+            return DoldurSonuc {
+                tamam: false,
+                mesaj: "Tarayıcıda doldurmayı eklenti yapıyor ama eklenti bağlı değil. \
+                        Ayarlar → Chrome eklentisi'nden kurun."
+                    .into(),
+            };
+        }
+
+        kopru::olay_ekle(serde_json::json!({
+            "tur": "doldur", "id": id, "url": url,
+        }));
+        dolduruldu_isaretle(&url);
+
         if let Some(p) = uygulama.get_webview_window("hizli") {
             let _ = p.hide();
         }
-        return DoldurSonuc {
-            tamam: false,
-            mesaj: "Tarayıcıda doldurmayı Bogahost Kasa eklentisi yapıyor — \
-                    parola kutusuna tıklayın, kutunun altında kayıtlarınız açılır."
-                .into(),
-        };
+        return DoldurSonuc { tamam: true, mesaj: "Eklentiye iletildi.".into() };
     }
 
     // Doldurma /fill ucundan geçer: gizli kayıtta görüntüleme kapalı olsa

@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Bogahost Kasa",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs5mv5euMOsNS6F81R97j7RGdns0LKoEdmBlgddOIUak9pOufAAXBh7ihdwTo5K0sfOPsc2epmbTAxJ4JZAz6MW/yiI60o51M171fPgVkB7LSWpVqheH9w7rKioMj2EaVYitMv5nkqlCrE/ESUmMjapVXpqF7TRWcg+87uK1Z3cT7SGwlojrczfTtzN31mZ6MtJr1ZpvqLgnGqirZZlrrkkc02L+oyTpbB+07Mtu3Z6ywKR57Ch9tYj0LLY3b3sdiPnB4hEt9/yiru0J1FJsCtExxzWbc5DClewJHs1LM/ng6e1ef4gs6O+i5aMHTZQdvetOTrVmLSN01gJRL6GTykQIDAQAB",
     "description": "Bogahost Bilgi Kasasi — bu bilgisayardaki Kasa uygulamasina baglanir, acilan siteye guvenli giris yapar. Tarayici bu sifreleri asla kaydetmez.",
     "permissions": [

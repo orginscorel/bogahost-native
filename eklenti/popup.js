@@ -29,7 +29,11 @@ function bilgi(baslik, metin) {
     return;
   }
 
-  $('baglanti').textContent = 'uygulamaya bağlı · ' + (d.surum || '');
+  /* KENDİ SÜRÜMÜMÜZ DE YAZIYOR.
+     "İndirdim ama 1.2.2 diyor" karışıklığı buradan doğdu: Chrome'da birden
+     fazla kayıt olabiliyor ve hangisinin yüklü olduğu görünmüyordu. */
+  var benim = chrome.runtime.getManifest().version;
+  $('baglanti').textContent = 'eklenti ' + benim + ' · uygulama ' + (d.surum || '—');
   $('ayak').textContent = 'Kimlik bu bilgisayardaki Kasa uygulamasından geliyor.';
 
   if (!d.oturum) {

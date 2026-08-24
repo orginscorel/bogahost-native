@@ -96,6 +96,7 @@
   .altCubuk label{display:flex;align-items:center;gap:6px;cursor:pointer}
   .altCubuk input{accent-color:var(--vurgu);margin:0;width:13px;height:13px}
   .bosluk{flex:1}
+  .gizli{display:none !important}
   kbd{font:600 10px/1 ui-monospace,monospace;background:var(--kart3);border:1px solid var(--cizgi);
       border-radius:4px;padding:2px 4px;color:var(--sonuk)}
 </style>
@@ -116,7 +117,8 @@
   <div class="durum" id="durum"></div>
 
   <div class="altCubuk">
-    <label><input type="checkbox" id="enterKutu" checked> Doldurunca Enter’a bas</label>
+    <label id="enterSatir"><input type="checkbox" id="enterKutu" checked> Doldurunca Enter’a bas</label>
+    <span id="eklentiNot" class="gizli">Tarayıcıda eklenti dolduruyor</span>
     <div class="bosluk"></div>
     <span><kbd>↑↓</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd></span>
   </div>
@@ -162,6 +164,9 @@ function hedefYaz(h){
     return;
   }
   n.className='nokta canli';
+  // Tarayıcıda Enter'ı eklenti değil sayfa yönetiyor; kutu anlamsız kalıyor.
+  $('enterSatir').classList.toggle('gizli', !!h.tarayici);
+  $('eklentiNot').classList.toggle('gizli', !h.tarayici);
   $('hedefAd').textContent = h.program;
   $('hedefAlt').textContent = h.url ? alanAdi(h.url)
     : ((h.baslik||'').trim()!==h.program ? (h.baslik||'').slice(0,48) : '');
@@ -170,17 +175,13 @@ function hedefYaz(h){
 function ciz(){
   const l=$('liste');
 
-  /* TARAYICIDA BU PANEL DOLDURMAZ.
-     Sayfanın içini göremeyen bir program hangi kutunun ne olduğunu ancak
-     tahmin edebilir; parolanın yanlış kutuya düşmesinin kökü buydu.
-     Eklenti sayfayı GÖRÜYOR — orada iş onun. */
-  if(hedefSon && hedefSon.tarayici){
-    l.innerHTML='<div class="bos"><b>Tarayıcıda doldurmayı eklenti yapıyor</b>'
-      + 'Parola kutusuna tıklayın; kutunun altında kayıtlarınız açılır.</div>';
-    gosterilen=[]; secili=null;
-    return;
-  }
-
+  /* TARAYICIDA DA TIKLANIR — İŞİ EKLENTİYE İLETİYORUZ.
+     Bu panel tarayıcı hedefinde "doldurmayı eklenti yapıyor" diye bir metin
+     gösteriyordu. Cevap değil bahaneydi: kullanıcı paneli görüyor, kaydı
+     görüyor, tıklıyor ve hiçbir şey olmuyordu.
+     Uygulama hâlâ tarayıcıya TUŞ GÖNDERMİYOR — sayfanın içini göremeyen bir
+     program hangi kutunun ne olduğunu ancak tahmin eder. Tıklama köprüye
+     iş bırakıyor, eklenti sayfayı GÖREREK dolduruyor. */
   if(!gosterilen.length){
     l.innerHTML='<div class="bos"><b>Bu pencereye uyan kayıt yok</b>'
       + 'Kasada bu adrese ait bir kayıt bulunamadı.</div>';
@@ -254,12 +255,12 @@ async function tazele(){
   try{ hedefYaz(await invoke('hedef')); }catch(e){}
   gosterilen=[]; secili=null; durumYaz('');
 
-  if(hedefSon && hedefSon.url && !hedefSon.tarayici){
+  if(hedefSon && hedefSon.url){
     try{
       const uyan = await invoke('eslesenler',{url:hedefSon.url});
       gosterilen = (uyan||[]).filter(function(k){ return yolUyar(k.url, hedefSon.url); }).slice(0,12);
     }catch(e){ gosterilen=[]; }
-  } else if(hedefSon && !hedefSon.url && !hedefSon.tarayici){
+  } else if(hedefSon && !hedefSon.url){
     /* Masaüstü programında adres yok — eşleştirilecek bir şey de yok.
        Burada kullanıcının seçmesi gerekiyor, o yüzden hepsini gösteriyoruz. */
     try{ gosterilen = (await invoke('kayitlar')).slice(0,12); }catch(e){ gosterilen=[]; }
