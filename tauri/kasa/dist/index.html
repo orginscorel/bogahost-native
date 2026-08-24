@@ -805,14 +805,16 @@ function cizSistem(){
     h += kartHtml('uyari',iUyari,'Tarayıcı koruması eksik',
       (politikaDurum.kasa_kapali?'✓':'✕')+' tarayıcı parola kasası kapalı &nbsp;·&nbsp; '
       +(politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu kurulumda',
-      '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>'
+      '<button class="ikincilDugme" id="sEklentiKur">Eklentiyi kur</button>'
+      + '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>'
       + '<button class="ikincilDugme" id="sPolDenetle">Yeniden denetle</button>'
       + '<button id="sPolKur">Kur</button>');
   }
   if(!h){
     h = kartHtml('iyi',iTik,'Her şey yolunda',
       'İzinler verilmiş, tarayıcı koruması etkin, sürüm güncel.',
-      '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>');
+      '<button class="ikincilDugme" id="sEklentiKur">Eklentiyi kur</button>'
+      + '<button class="ikincilDugme" id="sProfilSil">Profili kaldır</button>');
   }
 
   h += '<div class="bolum" style="margin-top:22px">Uygulama</div>'
@@ -832,6 +834,7 @@ function cizSistem(){
   if($('sPolKur')) $('sPolKur').onclick=politikaKur;
   if($('sPolDenetle')) $('sPolDenetle').onclick=()=>politikaDenetle(false);
   if($('sProfilSil')) $('sProfilSil').onclick=profilKaldir;
+  if($('sEklentiKur')) $('sEklentiKur').onclick=eklentiKur;
   $('sDenetle').onclick=()=>guncellemeAra($('durum'));
 }
 function kartHtml(sinif,ikon,baslik,metin,dugmeler){
@@ -1007,6 +1010,23 @@ async function politikaDenetle(sessiz){
    da kullanıcıdan elle silmesini istiyor; Sistem Ayarları'nda o yeri bulmak
    da kolay değil. Kur düğmesi zaten önce kaldırmayı deniyor, bu düğme ise
    ayrıca elle temizlemek isteyen için. */
+/* EKLENTİYİ DOĞRUDAN KUR — politikadan bağımsız ikinci yol.
+   Zorunlu kurulum politikası Chrome'un iznine bağlı ve mağaza dışı
+   eklentilerde Chrome zorluk çıkarıyor ("[BLOCKED]"). Bu düğme CRX'i makineye
+   indirip Chrome'un harici eklenti klasörüne bir kayıt bırakıyor; Chrome bir
+   sonraki açılışta kuruyor. İki yol çakışmaz, birbirini tamamlar. */
+async function eklentiKur(){
+  const b=$('sEklentiKur');
+  if(b){ b.disabled=true; b.textContent='Kuruluyor…'; }
+  try{
+    await invoke('eklenti_kur');
+    durumYaz($('durum'),'Eklenti paketi kuruldu. Chrome’u tamamen kapatıp açın — eklenti açılışta yüklenecek.','iyi');
+  }catch(e){
+    durumYaz($('durum'), String(e).includes('İptal') ? 'İptal edildi.' : ('Kurulamadı: '+e),
+      String(e).includes('İptal') ? 'uyari' : 'hata');
+  }finally{ if(b){ b.disabled=false; b.textContent='Eklentiyi kur'; } }
+}
+
 async function profilKaldir(){
   const b=$('sProfilSil');
   if(!confirm('Yüklü tarayıcı koruması profili kaldırılsın mı? Chrome ayarları eski hâline döner.')) return;

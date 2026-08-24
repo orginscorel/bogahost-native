@@ -366,3 +366,126 @@ pub fn durum() -> Durum {
 pub fn kur() -> Result<(), String> {
     Err("Bu platformda desteklenmiyor.".into())
 }
+
+// ── Eklentinin İKİNCİ kurulum yolu (macOS) ─────────────────────────────────
+//
+// NEDEN İKİNCİ BİR YOL: zorunlu kurulum politikası Chrome'un iznine bağlı ve
+// mağaza dışı eklentilerde Chrome zorluk çıkarıyor ("[BLOCKED]"). macOS'ta
+// Chrome'un bir de "harici eklenti" mekanizması var: belirli bir klasöre
+// eklentinin kimliğiyle adlandırılmış küçük bir JSON konursa Chrome onu bir
+// sonraki açılışta kuruyor.
+//
+// İkisi ÇAKIŞMAZ, birbirini tamamlar: politika yolu kullanıcı silince geri
+// getiriyor, harici yol ilk kurulumu daha güvenilir yapıyor.
+
+/// CRX'in makinede duracağı yer. Chrome dosyayı buradan okuyacağı için
+/// kullanıcının indirilenler klasörü uygun değil — orası silinebilir.
+#[cfg(target_os = "macos")]
+const CRX_YOL: &str = "/Library/Application Support/Bogahost/bogahost-kasa.crx";
+
+#[cfg(target_os = "macos")]
+const HARICI_DIZIN: &str = "/Library/Application Support/Google/Chrome/External Extensions";
+
+/// Eklentiyi Chrome'un harici eklenti klasörü üzerinden kurar.
+///
+/// CRX sunucudan indirilip makineye konuyor, sonra kimlik adında bir JSON
+/// yazılıyor. Yönetici hakkı ister (sistem klasörüne yazılıyor).
+#[cfg(target_os = "macos")]
+pub fn eklenti_kur() -> Result<(), String> {
+    let crx_url = "https://native.bogahost.com/eklenti/bogahost-kasa.crx";
+    // Sürüm update.xml ile aynı olmalı; Chrome ikisini karşılaştırıyor.
+    let surum = eklenti_surumu().unwrap_or_else(|| "1.2.1".to_string());
+
+    let komutlar = format!(
+        "mkdir -p '/Library/Application Support/Bogahost' && \
+         mkdir -p '{dizin}' && \
+         /usr/bin/curl -fsSL '{crx_url}' -o '{crx}' && \
+         chmod 644 '{crx}' && \
+         printf '%s' '{{\\\"external_crx\\\": \\\"{crx}\\\", \\\"external_version\\\": \\\"{surum}\\\"}}' > '{dizin}/{id}.json' && \
+         chmod 644 '{dizin}/{id}.json' && \
+         echo tamam",
+        dizin = HARICI_DIZIN,
+        crx = CRX_YOL,
+        crx_url = crx_url,
+        surum = surum,
+        id = EKLENTI_ID,
+    );
+
+    let kacisli = komutlar.replace('\\', "\\\\").replace('"', "\\\"");
+    let betik = format!("do shell script \"{kacisli}\" with administrator privileges");
+
+    let c = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&betik)
+        .output()
+        .map_err(|e| format!("osascript çalıştırılamadı: {e}"))?;
+
+    if c.status.success() {
+        return Ok(());
+    }
+    let hata = String::from_utf8_lossy(&c.stderr);
+    if hata.contains("-128") {
+        return Err("İptal edildi.".into());
+    }
+    Err(format!("Eklenti kurulamadı: {}", hata.trim()))
+}
+
+/// update.xml'deki sürümü okur — harici kurulum JSON'u aynı sürümü yazmalı,
+/// yoksa Chrome dosyayı yok sayıyor.
+#[cfg(target_os = "macos")]
+fn eklenti_surumu() -> Option<String> {
+    let c = std::process::Command::new("/usr/bin/curl")
+        .args(["-fsSL", "--max-time", "15", GUNCELLEME_URL])
+        .output()
+        .ok()?;
+    if !c.status.success() {
+        return None;
+    }
+    let metin = String::from_utf8_lossy(&c.stdout);
+    let bas = metin.find("version='")? + 9;
+    let kalan = &metin[bas..];
+    let son = kalan.find('\'')?;
+    Some(kalan[..son].to_string())
+}
+
+/// Harici kurulumu geri alır — eklentiyi tamamen temizlemek isteyen için.
+#[cfg(target_os = "macos")]
+pub fn eklenti_kaldir() -> Result<(), String> {
+    let komut = format!(
+        "rm -f '{dizin}/{id}.json' '{crx}'; echo tamam",
+        dizin = HARICI_DIZIN,
+        id = EKLENTI_ID,
+        crx = CRX_YOL,
+    );
+    let kacisli = komut.replace('\\', "\\\\").replace('"', "\\\"");
+    let betik = format!("do shell script \"{kacisli}\" with administrator privileges");
+    let c = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&betik)
+        .output()
+        .map_err(|e| format!("osascript çalıştırılamadı: {e}"))?;
+    if c.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Kaldırılamadı: {}", String::from_utf8_lossy(&c.stderr).trim()))
+    }
+}
+
+/// Harici kurulum dosyası yerinde mi?
+#[cfg(target_os = "macos")]
+pub fn eklenti_dosyasi_var() -> bool {
+    std::path::Path::new(&format!("{HARICI_DIZIN}/{EKLENTI_ID}.json")).exists()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn eklenti_kur() -> Result<(), String> {
+    Err("Bu platformda harici eklenti kurulumu yok; politika kullanılıyor.".into())
+}
+#[cfg(not(target_os = "macos"))]
+pub fn eklenti_kaldir() -> Result<(), String> {
+    Err("Bu platformda harici eklenti kurulumu yok.".into())
+}
+#[cfg(not(target_os = "macos"))]
+pub fn eklenti_dosyasi_var() -> bool {
+    false
+}

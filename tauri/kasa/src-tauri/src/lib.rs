@@ -231,6 +231,28 @@ fn politika_durum() -> politika::Durum {
     politika::durum()
 }
 
+/// Eklentiyi Chrome'un HARİCİ EKLENTİ mekanizmasıyla kur.
+///
+/// Zorunlu kurulum politikası Chrome'un iznine bağlı ve mağaza dışı
+/// eklentilerde Chrome zorluk çıkarıyor. Bu ikinci yol, CRX'i makineye indirip
+/// Chrome'un okuduğu klasöre bir kayıt dosyası bırakıyor; Chrome bir sonraki
+/// açılışta kuruyor. İkisi çakışmaz, birbirini tamamlar.
+#[tauri::command(async)]
+fn eklenti_kur() -> Result<(), String> {
+    politika::eklenti_kur()
+}
+
+#[tauri::command(async)]
+fn eklenti_kaldir() -> Result<(), String> {
+    politika::eklenti_kaldir()
+}
+
+/// Harici kurulum dosyası yerinde mi? Arayüz buna göre düğme gösteriyor.
+#[tauri::command(async)]
+fn eklenti_dosyasi_var() -> bool {
+    politika::eklenti_dosyasi_var()
+}
+
 /// Yüklü profili kaldır — güncellemede eskisini elle silmek gerekmesin.
 #[tauri::command(async)]
 fn politika_profil_kaldir() -> Result<politika::Durum, String> {
@@ -447,6 +469,7 @@ pub fn run() {
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
+            eklenti_kur, eklenti_kaldir, eklenti_dosyasi_var,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
@@ -750,6 +773,69 @@ fn hedef_izle(uygulama: &tauri::AppHandle) {
         }
 
         *durum.0.lock().unwrap() = h.clone();
-        let _ = u.emit("hedef-degisti", h);
+        let _ = u.emit("hedef-degisti", h.clone());
+
+        // EŞLEŞİNCE PANEL KENDİLİĞİNDEN EKRANA GELİR.
+        //
+        // Kullanıcının isteği: "eşleşme yapınca bilgisayar ekranına otomatik
+        // düşmeli". Kısayola basmayı beklemek, doldurmanın önündeki asıl
+        // engeldi — kimse her seferinde tuş kombinasyonu hatırlamak zorunda
+        // kalmamalı.
+        //
+        // ODAK ÇALINMIYOR: panel `show()` ile geliyor ama `set_focus()`
+        // çağrılmıyor. Kullanıcı yazmaya devam edebilsin diye; panele geçmek
+        // isterse tıklar ya da kısayola basar. Odağı almak, kullanıcının o an
+        // yazdığı şeyi bölmek demekti.
+        panel_belirt(&u, &h);
     });
+}
+
+/// Hedefte eşleşen kayıt varsa hızlı paneli gösterir, yoksa gizler.
+///
+/// Sunucuya sorulan tek şey eşleşme listesi; parola burada hiç görünmüyor.
+/// Ağ işi zaten arka plan ipliğinde, kullanıcı arayüzünü bekletmiyor.
+fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
+    let Some(panel) = uygulama.get_webview_window("hizli") else { return };
+
+    let acik = panel.is_visible().unwrap_or(false);
+
+    // Panel kullanıcının elindeyse (odakta) hiç karışma.
+    if acik && panel.is_focused().unwrap_or(false) {
+        return;
+    }
+
+    // Adresi okunamayan hedefte (masaüstü programı) eşleştirecek bir şey yok.
+    // Panel açıksa KAPATILIR: başka bir programa geçildiğinde ekranda asılı
+    // kalması, yardım değil rahatsızlık olur.
+    let Some(url) = h.url.clone() else {
+        if acik {
+            let _ = panel.hide();
+        }
+        return;
+    };
+
+    // Yazma izni yoksa panel göstermek boşuna umut olur.
+    if !pencere::erisilebilirlik_izni_var() {
+        return;
+    }
+
+    let durum = uygulama.state::<Durum>();
+    let Ok(eslesenler) = kasa::eslesenler(&durum, &url) else { return };
+    let uyanlar: Vec<_> = eslesenler
+        .into_iter()
+        .filter(|k| yol_uyar(&k.url, &url))
+        .collect();
+
+    if uyanlar.is_empty() {
+        // Bu adres için kayıt yok — açıksa kapat, kapalıysa açma.
+        if acik {
+            let _ = panel.hide();
+        }
+        return;
+    }
+
+    if !acik {
+        let _ = panel.show();
+    }
+    let _ = uygulama.emit("hizli-goster", ());
 }
