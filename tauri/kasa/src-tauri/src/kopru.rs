@@ -39,6 +39,13 @@ const EN_BUYUK_GOVDE: usize = 8 * 1024;
 /// köprü hiç açılamadıysa `None` kalır ve satır kırmızı yanar.
 static PORT: std::sync::Mutex<Option<u16>> = std::sync::Mutex::new(None);
 
+/// Köprü açılamadıysa SEBEBİ.
+///
+/// Eskiden yalnız `eprintln!` ile stderr'a yazılıyordu; kullanıcı arayüzde
+/// "köprü açılamadı" görüyor ama NEDEN olduğunu öğrenemiyordu. Bir hatanın
+/// sebebini göstermeyen yazılım, kullanıcıyı tahmine mahkûm eder.
+static HATA: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 /// UYGULAMADAN EKLENTİYE İŞ KUYRUĞU.
 ///
 /// Panel tarayıcı hedefinde "doldurmayı eklenti yapıyor" diye bir metin
@@ -95,11 +102,16 @@ fn olay_al() -> Option<serde_json::Value> {
 
 /// Köprünün durumu — arayüz için.
 pub fn durum() -> serde_json::Value {
-    match *PORT.lock().unwrap() {
+    let port = *PORT.lock().unwrap();
+    let hata = HATA.lock().unwrap().clone();
+    match port {
         Some(p) => serde_json::json!({
-            "calisiyor": true, "port": p, "eklenti_bagli": eklenti_bagli(),
+            "calisiyor": true, "port": p, "eklenti_bagli": eklenti_bagli(), "hata": null,
         }),
-        None => serde_json::json!({"calisiyor": false, "port": 0, "eklenti_bagli": false}),
+        None => serde_json::json!({
+            "calisiyor": false, "port": 0, "eklenti_bagli": false,
+            "hata": hata, "denenen": format!("{}-{}", PORTLAR.start(), PORTLAR.end()),
+        }),
     }
 }
 
@@ -107,10 +119,15 @@ pub fn durum() -> serde_json::Value {
 /// köprü olmadan da uygulama tam çalışır, yalnız eklenti bağlanamaz.
 pub fn baslat(uygulama: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let Some((dinleyici, port)) = ac() else {
-            eprintln!("kasa: yerel köprü için boş port bulunamadı");
-            return;
+        let (dinleyici, port) = match ac() {
+            Ok(v) => v,
+            Err(e) => {
+                *HATA.lock().unwrap() = Some(e.clone());
+                eprintln!("kasa: yerel köprü açılamadı — {e}");
+                return;
+            }
         };
+        *HATA.lock().unwrap() = None;
         *PORT.lock().unwrap() = Some(port);
         for baglanti in dinleyici.incoming() {
             let Ok(akis) = baglanti else { continue };
@@ -124,13 +141,21 @@ pub fn baslat(uygulama: tauri::AppHandle) {
     });
 }
 
-fn ac() -> Option<(TcpListener, u16)> {
+/// Boş port ara. Başarısızsa SON HATAYI döndür — "bulunamadı" demek yerine
+/// neden bulunamadığını söylemek, sorunu çözülebilir yapıyor.
+fn ac() -> Result<(TcpListener, u16), String> {
+    let mut son = String::from("bilinmeyen hata");
     for p in PORTLAR {
-        if let Ok(d) = TcpListener::bind((Ipv4Addr::LOCALHOST, p)) {
-            return Some((d, p));
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, p)) {
+            Ok(d) => return Ok((d, p)),
+            Err(e) => son = format!("{p}: {e}"),
         }
     }
-    None
+    Err(format!(
+        "{}-{} aralığındaki portların hiçbiri açılamadı. Son hata — {son}",
+        PORTLAR.start(),
+        PORTLAR.end()
+    ))
 }
 
 struct Istek {

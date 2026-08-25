@@ -424,10 +424,26 @@ pub fn eklenti_kur() -> Result<(), String> {
         return Ok(());
     }
     let hata = String::from_utf8_lossy(&c.stderr);
+    let cikti = String::from_utf8_lossy(&c.stdout);
+
+    /* HATAYI YUTMUYORUZ.
+       Bildirilen durum: "kur diyorum kurmuyor". Eskiden yalnız stderr'ın
+       kırpılmış hâli dönüyordu ve osascript bazı hatalarda stderr'a hiçbir
+       şey yazmıyor — kullanıcı boş bir hata mesajı görüyordu. Artık çıkış
+       kodu ve stdout da raporlanıyor.
+       -128 = kullanıcı yönetici penceresini iptal etti; bu bir hata değil,
+       o yüzden ayrı mesaj. */
     if hata.contains("-128") {
-        return Err("İptal edildi.".into());
+        return Err("Yönetici penceresi iptal edildi. Kurulum yapılmadı.".into());
     }
-    Err(format!("Eklenti kurulamadı: {}", hata.trim()))
+    let ayrinti = if !hata.trim().is_empty() {
+        hata.trim().to_string()
+    } else if !cikti.trim().is_empty() {
+        cikti.trim().to_string()
+    } else {
+        format!("osascript çıkış kodu {}", c.status.code().unwrap_or(-1))
+    };
+    Err(format!("Eklenti kurulamadı — {ayrinti}"))
 }
 
 /// update.xml'deki sürümü okur — harici kurulum JSON'u aynı sürümü yazmalı,

@@ -984,7 +984,10 @@ async function ayarCiz(){
   // ── Tarayıcı eklentisi ────────────────────────────────────────────
   let eklentiIcerik =
       satir(eklentiBagli, 'Bağlantı',
-            !kopruVar ? 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.'
+            !kopruVar ? ('Yerel köprü açılamadı; eklenti kasaya bağlanamaz.'
+                        + (kopruDurum && kopruDurum.hata
+                            ? '<br><code style="font-size:11px">'+esc(kopruDurum.hata)+'</code>'
+                            : ''))
             : (eklentiBagli
                 ? 'Eklenti bağlı (yerel port '+kopruDurum.port+'). Panelden tıkladığınız kayıt tarayıcıda doldurulur.'
                 : 'Köprü açık (port '+kopruDurum.port+') ama eklenti son iki dakikadır uğramadı — kurulu değil ya da kapalı.'),
@@ -1026,7 +1029,11 @@ async function ayarCiz(){
   // ── Uygulama ──────────────────────────────────────────────────────
   h += bolum('Uygulama', null,
       satir(null, 'Sürüm', '<span id="surumAyar">—</span>',
-            '<button class="ikincil" id="aGuncelle">Denetle</button>'));
+            '<button class="ikincil" id="aGuncelle">Denetle</button>')
+    + satir(null, 'Tanılama',
+            'Sistemin gerçek durumunu tek metinde toplar — parola ve jeton içermez. '
+            + 'Bir şey çalışmadığında bunu paylaşın.',
+            '<button class="ikincil" id="aTani">Kopyala</button>'));
 
   h += '<div class="durum" id="ayarDurum" style="margin-top:4px"></div>';
   $('ayarGovde').innerHTML = h;
@@ -1054,6 +1061,13 @@ async function ayarCiz(){
   $('aCihazlar').onclick=cihazlariAc;
   $('aCop').onclick=copAc;
   $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
+  $('aTani').onclick=async function(){
+    try{
+      const m=await invoke('tanilama');
+      await panoyaYaz(m);
+      durumYaz($('ayarDurum'),'Tanılama raporu panoya kopyalandı.','iyi');
+    }catch(e){ durumYaz($('ayarDurum'),String(e),'hata'); }
+  };
 }
 
 /* Ayar denetimleri DEĞİŞİR DEĞİŞMEZ kaydediliyor.

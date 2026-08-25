@@ -21,6 +21,16 @@
     <true/>
 
     <!--
+      YEREL KOPRU: uygulama 127.0.0.1'de dinleyen bir soket aciyor
+      (src/kopru.rs) ve Chrome eklentisi oraya baglaniyor. Dinleyen soket
+      acmak bir SUNUCU islemidir; bu anahtar olmadan bazi macOS
+      yapilandirmalarinda bind reddediliyor ve eklenti kasaya hic
+      baglanamiyor. Kullanicinin gordugu "kopru yok" durumu buydu.
+    -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!--
       Ondeki pencerenin uygulama adini ve baslik cubugunu okumak icin
       System Events'e AppleScript sorusu gonderilir (src/pencere.rs).
     -->

@@ -523,6 +523,81 @@ fn ayarlar_yaz(uygulama: tauri::AppHandle, ayar: ayarlar::Ayar) -> Result<ayarla
    "kilitle" düğmesi göstermek, hiç kilitlenmemiş bir kasayı kilitliyormuş
    gibi yapmak olurdu. Komutlar akış gelince buraya dönecek. */
 
+/// TANILAMA RAPORU — tek tıkla kopyalanabilir metin.
+///
+/// "Kırmızı yanan çok yer var, hata çok" gibi bir bildirim, hangi hatanın
+/// hangi sebeple olduğunu söylemiyor ve karşı taraf tahmin etmek zorunda
+/// kalıyor. Bu komut sistemin gerçek durumunu tek metinde topluyor:
+/// platform, izinler, köprü ve HATASI, eklenti, kripto, ayarlar.
+///
+/// PAROLA VE JETON İÇERMEZ. Rapor paylaşılmak için var; içine sır koymak
+/// onu paylaşılamaz yapardı.
+#[tauri::command(async)]
+fn tanilama(uygulama: tauri::AppHandle) -> String {
+    let mut r = String::new();
+    let ekle = |r: &mut String, k: &str, v: String| {
+        r.push_str(&format!("{k:<26}{v}\n"));
+    };
+
+    r.push_str("── Bogahost Kasa — tanılama ──\n");
+    ekle(&mut r, "uygulama sürümü", uygulama.package_info().version.to_string());
+    ekle(&mut r, "platform", if cfg!(target_os = "macos") { "macOS".into() }
+                             else if cfg!(windows) { "Windows".into() }
+                             else { "diğer".into() });
+    ekle(&mut r, "bilgisayar", bilgisayar_adi());
+
+    r.push_str("\n[izinler]\n");
+    ekle(&mut r, "erişilebilirlik", pencere::erisilebilirlik_izni_var().to_string());
+    ekle(&mut r, "otomasyon", pencere::otomasyon_izni_var().to_string());
+
+    r.push_str("\n[yerel köprü]\n");
+    let k = kopru::durum();
+    ekle(&mut r, "çalışıyor", k["calisiyor"].to_string());
+    ekle(&mut r, "port", k["port"].to_string());
+    ekle(&mut r, "eklenti bağlı", k["eklenti_bagli"].to_string());
+    if let Some(h) = k["hata"].as_str() {
+        ekle(&mut r, "HATA", h.to_string());
+    }
+
+    r.push_str("\n[eklenti]\n");
+    ekle(&mut r, "klasördeki sürüm",
+         politika::eklenti_yerel_surum().unwrap_or_else(|| "kurulu değil".into()));
+    ekle(&mut r, "yayındaki sürüm",
+         politika::eklenti_yayin_surum().unwrap_or_else(|| "okunamadı".into()));
+    ekle(&mut r, "klasör",
+         politika::eklenti_klasoru().map(|p| p.display().to_string())
+             .unwrap_or_else(|| "-".into()));
+    ekle(&mut r, "yönetici paketi", politika::eklenti_dosyasi_var().to_string());
+
+    r.push_str("\n[tarayıcı koruması]\n");
+    let pol = politika::durum();
+    ekle(&mut r, "kasa kapalı", pol.kasa_kapali.to_string());
+    ekle(&mut r, "eklenti zorunlu", pol.eklenti_zorunlu.to_string());
+
+    r.push_str("\n[kripto]\n");
+    match kasa::kripto_durum(&uygulama.state::<Durum>()) {
+        Ok(j) => {
+            ekle(&mut r, "ana parola kurulu", j["kurulu"].to_string());
+            ekle(&mut r, "taşınmamış kayıt", j["bekleyen_kayit"].to_string());
+            ekle(&mut r, "kurtarma anahtarı", j["kurtarma_var"].to_string());
+        }
+        Err(e) => ekle(&mut r, "HATA", e),
+    }
+    {
+        let kd = uygulama.state::<KilitDurum>();
+        let mut a = kd.0.lock().unwrap();
+        ekle(&mut r, "kilit açık", a.acik_mi().to_string());
+    }
+
+    r.push_str("\n[ayarlar]\n");
+    let ay = ayarlar::oku();
+    ekle(&mut r, "otomatik kilit (dk)", ay.otomatik_kilit_dk.to_string());
+    ekle(&mut r, "pano temizleme (sn)", ay.pano_temizleme_sn.to_string());
+    ekle(&mut r, "panel kendiliğinden", ay.panel_kendiliginden.to_string());
+
+    r
+}
+
 // ── Faz 3: ana parola, kilit açma, göç ─────────────────────────────────────
 //
 // Kripto kararlarının hepsi `kripto` ve `zarf` modüllerinde ve orada
@@ -968,7 +1043,7 @@ pub fn run() {
             kasalar, kasa_olustur, kasa_sil, kasa_uyeler,
             uye_ekle, uye_rol, uye_cikar,
             sistem, ayarlar_oku, ayarlar_yaz,
-            kripto_durum, ana_parola_kur, kilit_ac, kurtarma_ile_ac,
+            kripto_durum, ana_parola_kur, kilit_ac, kurtarma_ile_ac, tanilama,
             kilit_durumu, kilitle, kasa_goc,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
