@@ -31,6 +31,10 @@ pub struct Kayit {
     /// Sunucu gönderiyordu ama yapıda yoktu, arayüze hiç ulaşmıyordu.
     #[serde(default)]
     pub ip: Option<String>,
+    /// Otomatik doldurma eşleşme kuralı: alan | host | yol | kapali.
+    /// Kararı sunucu veriyor; bu alan istemcinin AYNI kuralı işletmesi için.
+    #[serde(default)]
+    pub eslesme: Option<String>,
     /// Kayıt bu kullanıcıya mı ait? Düzenleme/silme buna bağlı.
     #[serde(default)]
     pub benim: bool,

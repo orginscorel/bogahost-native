@@ -391,7 +391,7 @@ fn eslesenler_cevabi(uygulama: &tauri::AppHandle, url: &str) -> serde_json::Valu
         Ok(liste) => {
             let uyanlar: Vec<_> = liste
                 .into_iter()
-                .filter(|k| crate::yol_uyar(&k.url, url))
+                .filter(|k| crate::yol_uyar(k, url))
                 .map(|k| {
                     serde_json::json!({
                         "id": k.id,
@@ -431,7 +431,7 @@ fn doldur_cevabi(uygulama: &tauri::AppHandle, govde: &str) -> serde_json::Value 
     let uygun = kasa::eslesenler(&durum, &url)
         .map(|l| {
             l.into_iter()
-                .any(|k| k.id == id && crate::yol_uyar(&k.url, &url))
+                .any(|k| k.id == id && crate::yol_uyar(&k, &url))
         })
         .unwrap_or(false);
     if !uygun {

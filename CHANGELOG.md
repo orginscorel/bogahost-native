@@ -1,3 +1,26 @@
+## 1.25.3
+
+### Düzeltildi
+- **Adresinde yol taşıyan kayıtlar kendi giriş sayfalarında hiç çıkmıyordu.**
+  Yol denetimi TAM EŞİTLİK istiyordu; Grafana kaydı bir pano bağlantısı
+  (`/d/netops-v2/...`) olduğu için `/login` sayfasında, WHMCS yönetim kaydı
+  `/smeownerbogap` olduğu için `/smeownerbogap/login.php` sayfasında asla
+  önerilmedi. Yol kısıtı artık bir tahmin değil, kaydın beyanı: yalnız
+  `eslesme = "yol"` diyen kayıtlar yolu tutturmak zorunda ve bu tutturma
+  **segment sınırında** yapılıyor (`/smeownerbogap2` asla `/smeownerbogap`
+  kaydını yakalamaz).
+- **Ters alt alan tahmini doldurmaya sunulmuyor.** Ana alanda dururken o alanın
+  altındaki her panel öneriliyordu; `bogahost.com` ana sayfasında vCenter,
+  Plesk ve Observium kayıtları çıkıyordu.
+
+### Eklendi
+- Kayıt bazında **otomatik doldurma eşleşme kuralı** (`alan` · `host` · `yol` ·
+  `kapali`). Ana alanı hem halka açık site hem yönetim paneli olan kurumlarda
+  şart: aksi halde yönetici parolası o alanın her alt adresinde doldurulmaya
+  sunuluyor. Kural DCIM panelindeki kayıt formundan seçilir.
+- Eşleşme kararının **tek sahibi sunucu**. İstemci ikinci bir kural işletmiyor;
+  iki tarafın ayrı kural hesaplaması sessiz açık üreten şeydi.
+
 ## 1.6.0
 
 Sürüm bilgisi artık **her yerde** görünür. Önceki sürümlerde sürüm rozeti yalnızca

@@ -170,7 +170,7 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
     if let Some(hedef_url) = h.url.clone() {
         let kayitlar = kasa::liste(&uygulama.state::<Durum>()).unwrap_or_default();
         if let Some(k) = kayitlar.iter().find(|k| k.id == id) {
-            if !yol_uyar(&k.url, &hedef_url) {
+            if !yol_uyar(k, &hedef_url) {
                 return DoldurSonuc {
                     tamam: false,
                     mesaj: format!(
@@ -1167,7 +1167,7 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
     // yazılmasının sebebi buydu.
     let eslesenler: Vec<_> = eslesenler
         .into_iter()
-        .filter(|k| yol_uyar(&k.url, &url))
+        .filter(|k| yol_uyar(k, &url))
         .collect();
 
     // Tek aday yoksa karar kullanıcınındır.
@@ -1302,30 +1302,42 @@ fn yol_al(u: &str) -> String {
     p.trim_end_matches('/').to_string()
 }
 
-/// Kaydın adresi hedef adresle YOL DÜZEYİNDE uyuşuyor mu?
+/// Sayfa bu kayda uyuyor mu — KAYDIN BEYAN ETTİĞİ KURALA GÖRE.
 ///
-/// NEDEN GEREKLİ: eşleştirme alan adı düzeyinde yapılıyor; `ornek.com/giris`
-/// kaydı `ornek.com/panel/arama` ile de eşleşiyordu. Giriş yapıldıktan sonra
-/// adres değişip yeni yol parçaları eklenince kayıt hâlâ "eşleşti" sayılıyor
-/// ve oradaki alanlara yazılıyordu.
+/// GEÇMİŞ. Önce yol hiç bakılmıyordu: `ornek.com/giris` kaydı giriş yapıldıktan
+/// sonraki `/giris/panel` sayfasında da "eşleşti" sayılıp doldurma menüsünü
+/// açıyordu. Buna karşı yol TAM EŞİTLİK şartına bağlandı ve o şart her kayda
+/// uygulandı. İkinci sürüm birinciden farklı ama daha sinsi bir hata üretti:
+/// adresinde yol taşıyan hiçbir kayıt kendi GİRİŞ sayfasında çıkmaz oldu.
+/// Grafana kaydı bir pano bağlantısıydı (`/d/netops-v2/...`), giriş `/login`
+/// altındaydı; kayıt hiçbir zaman önerilmedi. Aynısı WHMCS yönetim klasörü ve
+/// PBX paneli için de geçerliydi — yani doğru kayıtlar sessizce kayboldu.
 ///
-/// YOL TAM UYMALI — ALT YOLLAR ARTIK GEÇMİYOR.
-/// Önceki sürüm `hedef_yol.starts_with("{kayit_yol}/")` ile alt yolları da
-/// kabul ediyordu. Bildirilen durum tam olarak buydu: `/giris` kaydı giriş
-/// yapıldıktan sonraki `/giris/panel`, `/giris/ayarlar` sayfalarında da
-/// "eşleşti" sayılıyor, doldurma menüsü içeride de açılıyordu. Bir giriş
-/// sayfasının alt yolu artık giriş sayfası değildir; sonundaki ekleri yok
-/// saymanın savunulacak bir tarafı yok.
+/// ŞİMDİ. Yol kısıtı bir TAHMİN değil, kaydın beyanı: yalnız `eslesme = "yol"`
+/// diyen kayıtlar yolu tutturmak zorunda, üstelik SEGMENT SINIRINDA
+/// (`/smeownerbogap2` asla `/smeownerbogap` kaydını yakalamaz). Alan/host
+/// ayrımını sunucu yapıyor; burada onu tekrar hesaplamıyoruz. İki tarafın ayrı
+/// kural işletmesi tam olarak sessiz açık üreten şeydi.
 ///
-/// Kayıtta yol yoksa (yalnız alan adı girilmişse) alan adı eşleşmesi yeterli
-/// sayılır — kullanıcı orayı bilerek geniş bırakmıştır.
-pub(crate) fn yol_uyar(kayit_url: &Option<String>, hedef_url: &str) -> bool {
-    let Some(k) = kayit_url else { return true };
-    let kayit_yol = yol_al(k);
-    if kayit_yol.is_empty() {
-        return true;
+/// Giriş sonrası menünün açık kalması artık yola değil, sayfada gerçekten
+/// parola alanı olup olmadığına ve doldurma sonrası alan adı susturmasına
+/// bağlı — URL tahmininden daha sağlam bir ölçüt.
+pub(crate) fn yol_uyar(kayit: &kasa::Kayit, hedef_url: &str) -> bool {
+    match kayit.eslesme.as_deref().unwrap_or("alan") {
+        "kapali" => false,
+        // Yol kısıtı YALNIZ kayıt bunu beyan ettiyse uygulanır.
+        "yol" => {
+            let Some(k) = kayit.url.as_ref() else { return true };
+            let kayit_yol = yol_al(k);
+            if kayit_yol.is_empty() {
+                return true;
+            }
+            let hedef_yol = yol_al(hedef_url);
+            hedef_yol == kayit_yol || hedef_yol.starts_with(&format!("{kayit_yol}/"))
+        }
+        // "alan" ve "host" ayrımı host düzeyinde, sunucuda yapılıyor.
+        _ => true,
     }
-    yol_al(hedef_url) == kayit_yol
 }
 
 /// Kısa sistem bildirimi — pencere açmadığımız için tek geri bildirim bu.
@@ -1514,7 +1526,7 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
     let Ok(eslesenler) = kasa::eslesenler(&durum, &url) else { return };
     let uyanlar: Vec<_> = eslesenler
         .into_iter()
-        .filter(|k| yol_uyar(&k.url, &url))
+        .filter(|k| yol_uyar(k, &url))
         .collect();
 
     if uyanlar.is_empty() {
