@@ -879,6 +879,19 @@ fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, Str
     kasa::eslesenler(&uygulama.state::<Durum>(), &url)
 }
 
+/// Paneli kapat ve BU HEDEFTE kendiliğinden bir daha açma.
+///
+/// Kapatmak bir cevaptır: "şimdi değil". Eskiden kapatılan panel bir sonraki
+/// turda (1,5 sn) geri geliyordu, çünkü eşleşme hâlâ duruyordu.
+#[tauri::command(async)]
+fn panel_reddet(uygulama: tauri::AppHandle) {
+    let h = uygulama.state::<HedefDurum>().0.lock().unwrap().clone();
+    *REDDEDILEN.lock().unwrap() = Some(hedef_anahtari(&h));
+    if let Some(p) = uygulama.get_webview_window("hizli") {
+        let _ = p.hide();
+    }
+}
+
 /// Masaüstü programına göre eşleşen kayıtlar.
 ///
 /// Tarayıcıda ölçüt adres; WinBox gibi programlarda adres diye bir şey yok.
@@ -1055,7 +1068,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
-            eslesenler_uygulama,
+            eslesenler_uygulama, panel_reddet,
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
@@ -1153,7 +1166,7 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
         if let Some(p) = uygulama.get_webview_window("hizli") {
             panel_yerlestir(&p);
             hedefe_gonder(&p);
-            let _ = uygulama.emit("hizli-goster", ());
+            let _ = uygulama.emit("hizli-goster", "elle");
         } else if let Some(p) = uygulama.get_webview_window("main") {
             hedefe_gonder(&p);
         }
@@ -1469,6 +1482,23 @@ fn panel_yerlestir(panel: &tauri::WebviewWindow) {
 /// çalışıyor; kullanıcı isterse kısayolla her zaman açabiliyor.
 static SON_DOLDURULAN: Mutex<Vec<(String, std::time::Instant)>> = Mutex::new(Vec::new());
 
+/// Kullanıcının ELİYLE kapattığı hedef.
+///
+/// BİLDİRİLEN RAHATSIZLIK: panel kapatılıyor, bir buçuk saniye sonra geri
+/// geliyordu — çünkü eşleşme hâlâ duruyor ve `panel_belirt` her turda "açık
+/// değilse aç" diyordu. Kapatmak bir cevaptır: "şimdi değil". Kullanıcı başka
+/// bir pencereye geçene kadar o hedefte panel kendiliğinden açılmaz; kısayol
+/// her zaman çalışmaya devam eder.
+static REDDEDILEN: Mutex<Option<String>> = Mutex::new(None);
+
+/// Panelin susturma/kapatma anahtarı: tarayıcıda alan adı, programda program adı.
+pub(crate) fn hedef_anahtari(h: &pencere::Hedef) -> String {
+    match &h.url {
+        Some(u) if !u.is_empty() => alan_adi(u),
+        _ => uygulama_anahtari(&h.program),
+    }
+}
+
 /// Doldurulan sitede panel ne kadar sessiz kalsın — AYARDAN.
 
 /// Adresin alan adı — `https://a.com/x?y` → `a.com`
@@ -1524,6 +1554,18 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
 
     let acik = panel.is_visible().unwrap_or(false);
 
+    /* Kullanıcı bu hedefte paneli eliyle kapattıysa geri getirme.
+       Başka bir pencereye geçildiği anda kayıt temizlenir. */
+    {
+        let anahtar = hedef_anahtari(h);
+        let mut red = REDDEDILEN.lock().unwrap();
+        match red.as_deref() {
+            Some(r) if r == anahtar => return,
+            Some(_) => *red = None,
+            None => {}
+        }
+    }
+
     // Panel kullanıcının elindeyse (odakta) hiç karışma.
     if acik && panel.is_focused().unwrap_or(false) {
         return;
@@ -1558,7 +1600,7 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
             panel_yerlestir(&panel);
             let _ = panel.show();
         }
-        let _ = uygulama.emit("hizli-goster", ());
+        let _ = uygulama.emit("hizli-goster", "oto");
         return;
     }
     let url = h.url.clone().unwrap_or_default();
@@ -1600,5 +1642,5 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
         panel_yerlestir(&panel);
         let _ = panel.show();
     }
-    let _ = uygulama.emit("hizli-goster", ());
+    let _ = uygulama.emit("hizli-goster", "oto");
 }

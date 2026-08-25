@@ -1,0 +1,5 @@
+[25-Aug-2026 17:16:47 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[HY000] [1045] Access denied for user 'xblog_xblog'@'localhost' (using password: YES) in /tmp/kontrol.php:8
+Stack trace:
+#0 /tmp/kontrol.php(8): PDO->__construct('mysql:host=loca...', 'xblog_xblog', '2020bogaB!', Array)
+#1 {main}
+  thrown in /tmp/kontrol.php on line 8

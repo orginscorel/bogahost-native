@@ -1,3 +1,19 @@
+## 1.26.1
+
+### Düzeltildi
+- **Panel artık yalnızca önerecek bir şey varken çıkıyor.** Üç ayrı yol onu
+  boşuna açıyordu:
+  1. Pencere değiştikçe kendiliğinden tazelenen panel, eşleşme bulamayınca
+     ekranda kalıp *"Bu pencereye uyan kayıt yok"* yazıyordu. Bir şey
+     önermeyecekse görünmesinin sebebi yok — kapanıyor.
+  2. Masaüstü programlarında eşleşme çıkmayınca kasadaki ilk on iki kayıt
+     listeleniyordu. Bu liste artık YALNIZ kullanıcı paneli kendisi açtığında
+     gösteriliyor; kendiliğinden açılışta yardım değil rahatsızlıktı.
+  3. Elle kapatılan panel bir buçuk saniye sonra geri geliyordu, çünkü eşleşme
+     hâlâ duruyordu. Kapatmak artık bir cevap: *"şimdi değil"*. O hedefte panel
+     kendiliğinden açılmıyor; başka bir pencereye geçince kayıt temizleniyor ve
+     kısayol her zaman çalışmaya devam ediyor.
+
 ## 1.26.0
 
 ### Eklendi

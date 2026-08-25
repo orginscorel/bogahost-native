@@ -156,7 +156,17 @@ function yolUyar(kayitUrl, hedefUrl){
   }catch(e){ return false; }
 }
 
-async function kapat(){ try{ await pencereApi.getCurrentWindow().hide(); }catch(e){} }
+/* Sadece gizle — "bu hedefte bir daha acma" demez. Bos liste yuzunden
+   kendiliginden kapanirken kullanilir. */
+async function gizle(){ try{ await pencereApi.getCurrentWindow().hide(); }catch(e){} }
+
+/* Kullanicinin ELIYLE kapatmasi bir cevaptir: "simdi degil". Bu hedefte
+   panel kendiliginden bir daha acilmaz; baska pencereye gecince kayit
+   temizlenir, kisayol her zaman calisir. */
+async function kapat(){
+  try{ await invoke('panel_reddet'); }
+  catch(e){ await gizle(); }
+}
 
 function hedefYaz(h){
   hedefSon = h;
@@ -253,7 +263,7 @@ async function pencereleriListele(){
     el.onclick=async function(){
       try{
         const h=await invoke('hedef_sec',{kimlik:el.dataset.kimlik});
-        if(h){ hedefYaz(h); await tazele(); }
+        if(h){ hedefYaz(h); await tazele('elle'); }
       }catch(e){ durumYaz(String(e),'hata'); }
     };
   });
@@ -300,7 +310,10 @@ document.addEventListener('keydown', function(e){
    YALNIZ EŞLEŞENLER GÖSTERİLİYOR: bu panel zaten "bu pencereye uyan kayıt
    var" diye açılıyor. Bütün kasayı listeleyip kullanıcıya aratmak, panelin
    varlık sebebini ortadan kaldırırdı — o iş ana pencerenin. */
-async function tazele(){
+async function tazele(kaynak){
+  /* 'oto' = pencere değiştiği için kendiliğinden tazelendi.
+     'elle' = kullanıcı kısayola bastı ya da paneli kendisi açtı. */
+  const otomatik = (kaynak !== 'elle');
   if(!ayarlar){
     try{ ayarlar = await invoke('ayarlar_oku'); }catch(e){ ayarlar = null; }
   }
@@ -325,16 +338,30 @@ async function tazele(){
         program: hedefSon.program || '', baslik: hedefSon.baslik || ''
       })) || [];
     }catch(e){ gosterilen = []; }
-    if(!gosterilen.length){
+    /* Eşleşme yoksa TÜM kasayı listelemek YALNIZ kullanıcı paneli kendisi
+       açtığında yapılır. Kendiliğinden açılışta böyle bir liste yardım
+       değil rahatsızlık: kullanıcı o an kasayla ilgilenmiyor. */
+    if(!gosterilen.length && !otomatik){
       try{ gosterilen = (await invoke('kayitlar')).slice(0,12); }catch(e){ gosterilen=[]; }
       if(gosterilen.length) durumYaz((hedefSon.program||'Bu program')+' için kayıtlı eşleşme yok — seçtiğinizde öğrenilecek.');
     }
   }
+
+  /* BOŞ PANEL KENDİLİĞİNDEN AÇIK KALMAZ.
+     Bildirilen rahatsızlık buydu: pencere değiştikçe panel açılıyor ve
+     "Bu pencereye uyan kayıt yok" yazıyordu. Bir şey önermeyecekse
+     görünmesinin bir sebebi yok; kullanıcı kısayola bastığında ise
+     cevapsız bırakmamak için ekran gösterilmeye devam ediyor. */
+  if(otomatik && !gosterilen.length){ gizle(); return; }
+
   ciz();
 }
 
-listen('hizli-goster', tazele);
-listen('hedef-degisti', function(o){ hedefYaz(o.payload); tazele(); });
+listen('hizli-goster', function(o){ tazele(o && o.payload === 'elle' ? 'elle' : 'oto'); });
+/* Hedef değişimi her zaman KENDİLİĞİNDEN bir tazelemedir. */
+listen('hedef-degisti', function(o){ hedefYaz(o.payload); tazele('oto'); });
 
-tazele();
+/* Ilk yukleme: panel gorunurlugune panel_belirt karar veriyor; burada
+   kapatmak yuklenmekte olan bir paneli oldururdu. */
+tazele('elle');
 </script>
