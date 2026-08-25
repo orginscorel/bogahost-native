@@ -119,12 +119,26 @@ pub fn durum() -> serde_json::Value {
 /// köprü olmadan da uygulama tam çalışır, yalnız eklenti bağlanamaz.
 pub fn baslat(uygulama: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let (dinleyici, port) = match ac() {
-            Ok(v) => v,
-            Err(e) => {
-                *HATA.lock().unwrap() = Some(e.clone());
-                eprintln!("kasa: yerel köprü açılamadı — {e}");
-                return;
+        /* BİR KEZ DENEYİP PES ETMİYORUZ.
+           Önceki hâl: portlar açılamazsa iplik ölüyordu ve köprü uygulama
+           kapanana kadar bir daha denenmiyordu. Oysa en olası sebep GEÇİCİ:
+           güncelleme sırasında eski sürüm hâlâ çalışıyor ve portu tutuyor.
+           Kullanıcının uygulamayı kapatıp açması gerekiyordu — üstelik
+           nedenini bilmeden.
+           Artık artan aralıklarla yeniden deneniyor; port boşaldığı anda
+           köprü kendiliğinden ayağa kalkıyor. */
+        let mut bekleme = 2u64;
+        let (dinleyici, port) = loop {
+            match ac() {
+                Ok(v) => break v,
+                Err(e) => {
+                    *HATA.lock().unwrap() = Some(format!(
+                        "{e} — {bekleme} sn sonra yeniden denenecek"
+                    ));
+                    eprintln!("kasa: yerel köprü açılamadı — {e}");
+                    std::thread::sleep(std::time::Duration::from_secs(bekleme));
+                    bekleme = (bekleme * 2).min(60);
+                }
             }
         };
         *HATA.lock().unwrap() = None;
