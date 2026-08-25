@@ -486,11 +486,11 @@ fn sistem() -> serde_json::Value {
         "platform": if cfg!(target_os = "macos") { "macos" }
                     else if cfg!(windows) { "windows" }
                     else { "diger" },
-        /// macOS'ta Erişilebilirlik izni gerekiyor; Windows'ta böyle bir izin yok.
+        // macOS'ta Erişilebilirlik izni gerekiyor; Windows'ta böyle bir izin yok.
         "izin_gerekli": cfg!(target_os = "macos"),
-        /// Yapılandırma profili yalnız macOS'ta var.
+        // Yapılandırma profili yalnız macOS'ta var.
         "profil_destegi": cfg!(target_os = "macos"),
-        /// Yönetici hakkıyla sistem geneli eklenti kurulumu — yalnız macOS.
+        // Yönetici hakkıyla sistem geneli eklenti kurulumu — yalnız macOS.
         "yonetici_kurulumu": cfg!(target_os = "macos"),
         "eklenti_zip": politika::eklenti_zip_adresi(),
     })
