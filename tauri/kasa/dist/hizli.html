@@ -131,6 +131,10 @@ const pencereApi = window.__TAURI__.window;
 
 const $ = (id) => document.getElementById(id);
 let gosterilen = [], secili = null, hedefSon = null, dolduruluyor = false;
+/* Enter tercihi ARTIK AYARDAN.
+   Kutu her açılışta işaretli başlıyordu; kullanıcı kapatsa bile panel bir
+   sonraki açılışta unutuyordu. Tercih diye tutulmayan şey tercih değildir. */
+let ayarlar = null;
 
 function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
 function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
@@ -183,6 +187,20 @@ function ciz(){
      program hangi kutunun ne olduğunu ancak tahmin eder. Tıklama köprüye
      iş bırakıyor, eklenti sayfayı GÖREREK dolduruyor. */
   if(!gosterilen.length){
+    /* HEDEF YOKSA KULLANICI SEÇSİN.
+       Öndeki pencere okunamadığında panel "hedef bekleniyor" deyip
+       duruyordu ve seçilecek hiçbir şey yoktu. Açık programları
+       listeleyip seçtirmek, çıkmaz sokağı bitiriyor. */
+    if(!hedefSon || !hedefSon.program){
+      l.innerHTML='<div class="bos"><b>Hedef pencere seçilmedi</b>'
+        + 'Doldurulacak program öndeyken kısayola basın ya da aşağıdan seçin.</div>'
+        + '<div style="padding:0 6px 6px"><button class="satir" id="pencereSec" style="justify-content:center">'
+        + '<span class="metin" style="flex:none"><span class="ad">Açık programları listele</span></span></button></div>';
+      const d=$('pencereSec');
+      if(d) d.onclick=pencereleriListele;
+      secili=null;
+      return;
+    }
     l.innerHTML='<div class="bos"><b>Bu pencereye uyan kayıt yok</b>'
       + 'Kasada bu adrese ait bir kayıt bulunamadı.</div>';
     secili=null;
@@ -217,6 +235,30 @@ function ciz(){
   });
 }
 
+/** Açık programları listele; seçilen hedef olur. */
+async function pencereleriListele(){
+  durumYaz('Pencereler okunuyor…');
+  let liste=[];
+  try{ liste = await invoke('pencereler'); }catch(e){ durumYaz(String(e),'hata'); return; }
+  if(!liste.length){ durumYaz('Açık pencere bulunamadı.','hata'); return; }
+  durumYaz('');
+  $('liste').innerHTML = liste.slice(0,20).map(function(h){
+    return '<button class="satir" data-kimlik="'+esc(h.kimlik)+'">'
+      + '<span class="avatar" style="background:'+renk(h.program||'?')+'">'
+      + esc(basHarf(h.program||'?'))+'</span>'
+      + '<span class="metin"><span class="ad">'+esc(h.program||'—')+'</span>'
+      + '<span class="alt">'+esc((h.baslik||'').slice(0,52))+'</span></span></button>';
+  }).join('');
+  Array.prototype.forEach.call($('liste').querySelectorAll('[data-kimlik]'), function(el){
+    el.onclick=async function(){
+      try{
+        const h=await invoke('hedef_sec',{kimlik:el.dataset.kimlik});
+        if(h){ hedefYaz(h); await tazele(); }
+      }catch(e){ durumYaz(String(e),'hata'); }
+    };
+  });
+}
+
 async function doldur(){
   if(dolduruluyor||!secili) return;
   dolduruluyor=true;
@@ -230,6 +272,13 @@ async function doldur(){
 }
 
 $('kapat').onclick=kapat;
+
+/* Kutu değiştirilince ayara yazılıyor; ana penceredeki ayarla aynı yeri
+   kullanıyor, iki yerde iki farklı tercih olmuyor. */
+$('enterKutu').onchange=async function(){
+  const yeni=Object.assign({}, ayarlar||{}, {doldurunca_enter:$('enterKutu').checked});
+  try{ ayarlar = await invoke('ayarlar_yaz',{ayar:yeni}); }catch(e){}
+};
 
 document.addEventListener('keydown', function(e){
   if(e.key==='Escape'){ e.preventDefault(); kapat(); return; }
@@ -252,6 +301,10 @@ document.addEventListener('keydown', function(e){
    var" diye açılıyor. Bütün kasayı listeleyip kullanıcıya aratmak, panelin
    varlık sebebini ortadan kaldırırdı — o iş ana pencerenin. */
 async function tazele(){
+  if(!ayarlar){
+    try{ ayarlar = await invoke('ayarlar_oku'); }catch(e){ ayarlar = null; }
+  }
+  if(ayarlar) $('enterKutu').checked = !!ayarlar.doldurunca_enter;
   try{ hedefYaz(await invoke('hedef')); }catch(e){}
   gosterilen=[]; secili=null; durumYaz('');
 

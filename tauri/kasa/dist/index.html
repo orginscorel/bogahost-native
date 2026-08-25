@@ -153,6 +153,7 @@
   .sag{display:flex;align-items:center;gap:8px;flex:none}
   .mini{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:3px 8px;border-radius:20px}
   .mini.gizliR{background:var(--uyari-yumusak);color:var(--uyari)}
+  .mini.yalnizR{background:var(--vurgu-yumusak);color:var(--vurgu)}
   .guc{display:flex;gap:3px}
   .guc i{width:5px;height:5px;border-radius:50%;background:var(--cizgi)}
   .guc.g0 i:nth-child(1){background:var(--hata)}
@@ -203,7 +204,19 @@
   .ikili{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .gucCubuk{height:6px;border-radius:6px;background:var(--kart3);overflow:hidden;margin-top:7px}
   .gucCubuk i{display:block;height:100%;border-radius:6px;transition:width .25s,background .25s}
-  .ayarSatir{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--cizgi)}
+  /* ── Ayarlar: bölümlü ──
+     Eskiden hepsi tek bir düz listeydi; durum satırlarıyla eylem satırları
+     karışıyordu. Artık başlıklı bölümler var ve her bölüm tek bir konuyu
+     anlatıyor. */
+  .bolum{margin:0 0 22px}
+  .bolum:last-child{margin-bottom:0}
+  .bolumAd{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+           color:var(--silik);margin-bottom:4px}
+  .bolumNot{font-size:12px;color:var(--silik);margin-bottom:8px;line-height:1.5}
+  .ayarSatir{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid var(--cizgi)}
+  /* Sağdaki denetimler başlıkla aynı hizada dursun; açıklama uzayınca
+     kaymasınlar. */
+  .ayarSatir > .ikincil,.ayarSatir > .sayiKutu,.ayarSatir > .anahtar{margin-top:1px}
   .ayarSatir:last-child{border-bottom:0}
   .ayarMetin{flex:1;min-width:0}
   .ayarAd{font-weight:600;font-size:13.5px}
@@ -220,7 +233,30 @@
                  border-radius:9px;background:var(--kart);transition:border-color .15s}
   .lEylem button:hover:not(:disabled){border-color:var(--vurgu)}
   .lEylem button.teh:hover:not(:disabled){border-color:var(--hata);color:var(--hata)}
-  .isik{width:9px;height:9px;border-radius:50%;flex:none}
+  /* Sayı ve açma/kapama denetimleri — dokunma hedefleri büyük. */
+  .sayiKutu{display:flex;align-items:center;gap:6px;flex:none}
+  .sayiKutu input{width:72px;padding:8px 10px;border:1px solid var(--cizgi);border-radius:10px;
+                  background:var(--kart2);outline:none;text-align:right;
+                  font-variant-numeric:tabular-nums}
+  .sayiKutu input:focus{border-color:var(--vurgu);box-shadow:0 0 0 3px var(--vurgu-yumusak)}
+  .sayiKutu span{font-size:12px;color:var(--silik)}
+  .anahtar{position:relative;width:42px;height:24px;flex:none;cursor:pointer}
+  .anahtar input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .anahtar i{position:absolute;inset:0;border-radius:20px;background:var(--kart3);
+             transition:background .18s}
+  .anahtar i::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;
+                    border-radius:50%;background:#fff;transition:transform .18s;
+                    box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .anahtar input:checked + i{background:var(--vurgu)}
+  .anahtar input:checked + i::after{transform:translateX(18px)}
+  .anahtar input:focus-visible + i{box-shadow:0 0 0 3px var(--vurgu-yumusak)}
+  /* Kopyalanabilir bağlantı */
+  .bag{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .bag code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+            font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+            background:var(--kart2);border:1px solid var(--cizgi);border-radius:9px;
+            padding:9px 11px;color:var(--sonuk)}
+  .isik{width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px}
   .isik.acik{background:var(--iyi);box-shadow:0 0 0 3px var(--iyi-yumusak)}
   .isik.kapali{background:var(--hata);box-shadow:0 0 0 3px var(--hata-yumusak)}
 
@@ -410,7 +446,7 @@
 
 <!-- ══ Ayarlar ══ -->
 <div class="katman gizli" id="ayarKatman">
-  <div class="kart" style="max-width:450px">
+  <div class="kart" style="max-width:520px">
     <div class="kBaslik">
       <span>Ayarlar</span>
       <button class="ikon" id="ayarKapat"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
@@ -432,7 +468,7 @@ const $ = (id) => document.getElementById(id);
 let kayitlar = [], acikId = null, adimIki = false, kategori = 'hepsi';
 let formId = null, denetleniyor = false;
 let guncelDurum = null, izinDurum = null, politikaDurum = null, kopruDurum = null;
-let eklentiSurum = null;
+let eklentiSurum = null, sistemBilgi = null, ayarlar = null;
 
 function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
 function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
@@ -604,7 +640,7 @@ function kayitHtml(k){
     +   '<div class="kMetin"><div class="kAd">'+esc(ad)+'</div>'
     +     '<div class="kAlt">'+esc([k.username,k.domain].filter(Boolean).join('  ·  ')||'—')+'</div></div>'
     +   '<div class="sag">'
-    +     (gorunur?'':'<span class="mini gizliR">GİZLİ</span>')
+    +     rozetHtml(k, gorunur)
     +     (guc!==null?'<span class="guc g'+guc+'" title="Parola gücü: '+gucAd+'"><i></i><i></i><i></i><i></i></span>':'')
     +     '<svg class="ok" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>'
     +   '</div></div>';
@@ -614,19 +650,26 @@ function kayitHtml(k){
       + ds('Kullanıcı', k.username||'—','mono')
       + ds('Adres', k.url||k.domain||'—')
       + (k.ip?ds('IP',k.ip,'mono'):'')
-      + ds('Şifre', !gorunur?'gizli — yalnızca doldurulabilir'
-          :(kopyalanamaz?'•••••••••• — kopyalanamaz, doldurulur':'••••••••••'),'mono')
+      + ds('Şifre', k.gizli ? 'gizli kayıt — kimse göremez, yalnızca doldurulur'
+          : (!gorunur ? 'görme yetkiniz yok — doldurabilirsiniz'
+          : (kopyalanamaz?'•••••••••• — kopyalanamaz, doldurulur':'••••••••••')),'mono')
       + (guc!==null?'<div class="dSatir"><div class="dEt">Güç</div><div class="dDg">'+esc(gucAd)
           +'<div class="gucCubuk"><i style="width:'+((guc+1)*25)+'%;background:'+gucRenk+'"></i></div></div></div>':'')
       + ds('Son kullanım', gecen(k.son_kullanim)||'hiç kullanılmadı')
       + (iz ? ds('Yetkiniz', yetkiOzeti(iz)) : '')
       + '<div class="eylem">'
       +   '<button class="ana" data-doldur="'+k.id+'">Doldur</button>'
-      +   '<button class="ikincil" data-kadi="'+k.id+'"'+(gorunur?'':' disabled')+'>Kullanıcıyı kopyala</button>'
-      +   '<button class="ikincil" data-sifre="'+k.id+'"'+((gorunur&&!kopyalanamaz)?'':' disabled')
+      /* DÜĞMELER SUNUCUDAN GELEN İZİNLERE BAĞLI.
+         Bu satırlar eski hâlinde kalmıştı: kullanıcı adı kopyalama PAROLA
+         GÖRME yetkisine bağlıydı. "Yalnız kullanan" rolündeki biri kullanıcı
+         adını da kopyalayamıyordu — oysa o yetkisi var. Geçmiş düğmesi de
+         hiç çizilmiyordu. */
+      +   '<button class="ikincil" data-kadi="'+k.id+'"'+(izinli('kullanici_kopyala',gorunur)?'':' disabled')+'>Kullanıcıyı kopyala</button>'
+      +   '<button class="ikincil" data-sifre="'+k.id+'"'+((izinli('parola_kopyala',gorunur)&&!kopyalanamaz)?'':' disabled')
       +     ' title="'+(kopyalanamaz?'Doldurulabilir kayıt — kopyalanamaz':'Şifreyi kopyala')+'">Şifreyi kopyala</button>'
-      +   '<button class="ikincil" data-duzenle="'+k.id+'"'+(benim?'':' disabled')+'>Düzenle</button>'
-      +   '<button class="ikincil" data-sil="'+k.id+'"'+(benim?'':' disabled')+'>Sil</button>'
+      +   '<button class="ikincil" data-gecmis="'+k.id+'"'+(izinli('gecmis_gor',true)?'':' disabled')+'>Geçmiş</button>'
+      +   '<button class="ikincil" data-duzenle="'+k.id+'"'+(izinli('duzenle',benim)?'':' disabled')+'>Düzenle</button>'
+      +   '<button class="ikincil" data-sil="'+k.id+'"'+(izinli('sil',benim)?'':' disabled')+'>Sil</button>'
       + '</div>'
       + '<div class="durum" id="d'+k.id+'" style="margin-top:8px"></div>'
       + '</div>';
@@ -644,6 +687,17 @@ function yetkiOzeti(iz){
   else if(v('doldur')) p.push('parolayı göremezsiniz');
   if(v('duzenle')) p.push('düzenleyebilirsiniz');
   return p.join(', ') || 'yalnızca görüntüleme';
+}
+
+/* ROZET İKİ FARKLI ŞEYİ ANLATIYOR — ÖNCEDEN İKİSİNE DE "GİZLİ" DENİYORDU.
+     gizli  = kaydın kendisi gizli işaretli (kimse göremez, doldurulur)
+     yetki  = kayıt gizli değil ama SİZİN parola görme yetkiniz yok
+   İkisine aynı etiketi vermek, kullanıcıya kaydın özelliğiymiş gibi
+   gösteriyordu; oysa ikincisi kendi yetkisiyle ilgili. */
+function rozetHtml(k, parolaGorunur){
+  if(k.gizli) return '<span class="mini gizliR">GİZLİ</span>';
+  if(!parolaGorunur) return '<span class="mini yalnizR">YALNIZ DOLDUR</span>';
+  return '';
 }
 
 function ds(e,d,sinif){
@@ -765,69 +819,178 @@ function izinSeridi(){
   $('izinSerit').classList.toggle('gizli', !(izinDurum && !izinDurum.erisilebilirlik));
 }
 
-function ayarCiz(){
-  const sat=function(isik,ad,not,dugme){
-    return '<div class="ayarSatir">'
-      + (isik===null?'':'<span class="isik '+(isik?'acik':'kapali')+'"></span>')
-      + '<div class="ayarMetin"><div class="ayarAd">'+ad+'</div>'
-      + (not?'<div class="ayarNot">'+not+'</div>':'')+'</div>'
-      + (dugme||'')+'</div>';
-  };
+/* ══ AYARLAR — BÖLÜMLÜ ═══════════════════════════════════════════════
+   Eskiden düz bir satır listesiydi: durum göstergeleri, eylem düğmeleri ve
+   bilgi metinleri aynı kefede duruyordu. Üstelik Windows'ta hiç çalışmayan
+   satırlar da gösteriliyordu (yapılandırma profili, yönetici kurulumu) ve
+   basılınca "bu platformda yok" hatası veriyordu. Çalışmayan bir düğme
+   göstermek, kullanıcıyı kendi hatası sanmaya iter.
 
+   Artık: konu başlıklı bölümler, gerçek denetimler (kaydırma anahtarı, sayı
+   kutusu) ve platforma göre görünürlük. */
+
+function bolum(ad, not, icerik){
+  return '<div class="bolum"><div class="bolumAd">'+esc(ad)+'</div>'
+       + (not?'<div class="bolumNot">'+not+'</div>':'')
+       + icerik + '</div>';
+}
+function satir(isik, ad, not, sag){
+  return '<div class="ayarSatir">'
+    + (isik===null||isik===undefined?'':'<span class="isik '+(isik?'acik':'kapali')+'"></span>')
+    + '<div class="ayarMetin"><div class="ayarAd">'+ad+'</div>'
+    + (not?'<div class="ayarNot">'+not+'</div>':'')+'</div>'
+    + (sag||'')+'</div>';
+}
+function anahtarKutu(id, acik){
+  return '<label class="anahtar"><input type="checkbox" id="'+id+'"'+(acik?' checked':'')+'><i></i></label>';
+}
+function sayiKutu(id, deger, birim, enAz, enCok){
+  return '<span class="sayiKutu"><input type="number" id="'+id+'" value="'+deger
+       + '" min="'+enAz+'" max="'+enCok+'"><span>'+esc(birim)+'</span></span>';
+}
+
+async function ayarCiz(){
+  // Platform bilgisi olmadan çizmek, çalışmayan düğme göstermek demek.
+  if(!sistemBilgi){
+    try{ sistemBilgi = await invoke('sistem'); }catch(e){ sistemBilgi = {platform:'diger'}; }
+  }
+  if(!ayarlar){
+    try{ ayarlar = await invoke('ayarlar_oku'); }catch(e){ ayarlar = null; }
+  }
+  // Yönetici paketi kurulu mu — düğmenin "kur" mu "kaldır" mı olacağını bu belirliyor.
+  let sistemPaketVar = false;
+  try{ sistemPaketVar = await invoke('eklenti_dosyasi_var'); }catch(e){}
+  const a = ayarlar || {otomatik_kilit_dk:15, pano_temizleme_sn:30,
+                        doldurunca_enter:true, panel_kendiliginden:true, sessizlik_dk:20};
+  const mac = sistemBilgi.platform === 'macos';
   const izinVar = !!(izinDurum && izinDurum.erisilebilirlik);
-  const polVar = !!(politikaDurum && politikaDurum.kasa_kapali && politikaDurum.eklenti_zorunlu);
   const kopruVar = !!(kopruDurum && kopruDurum.calisiyor);
+  const eklentiBagli = !!(kopruDurum && kopruDurum.eklenti_bagli);
+  const polVar = !!(politikaDurum && politikaDurum.kasa_kapali && politikaDurum.eklenti_zorunlu);
+  const zip = sistemBilgi.eklenti_zip || 'https://native.bogahost.com/eklenti/bogahost-kasa-eklenti.zip';
 
-  $('ayarGovde').innerHTML =
-    sat(izinVar,'Erişilebilirlik izni',
-        izinVar?'Doldurma çalışıyor.'
-          :'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listeden “−” ile kaldırıp “+” ile yeniden ekleyin.',
-        izinVar?'':'<button class="ikincil" id="aIzin">Aç</button>')
-  + sat(kopruVar && kopruDurum.eklenti_bagli, 'Tarayıcı bağlantısı',
-        !kopruVar
-          ? 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.'
-          : (kopruDurum.eklenti_bagli
-              ? 'Eklenti bağlı (yerel port '+kopruDurum.port+'). Panelden tıkladığınız kayıt tarayıcıda eklenti tarafından doldurulur.'
-              : 'Köprü açık (port '+kopruDurum.port+') ama eklenti son iki dakikadır uğramadı — kurulu değil ya da kapalı.'),
-        '')
-  + sat(polVar,'Tarayıcı koruması',
-        polVar?'Parola kasası kapalı, eklenti zorunlu kurulumda.'
-          :((politikaDurum&&politikaDurum.kasa_kapali?'✓':'✕')+' parola kasası kapalı &nbsp;·&nbsp; '
-            +(politikaDurum&&politikaDurum.eklenti_zorunlu?'✓':'✕')+' eklenti zorunlu'),
-        '<button class="ikincil" id="aPolKur">Kur</button>')
-  + sat(eklentiSurum ? !!eklentiSurum.guncel : null, 'Chrome eklentisi', eklentiNotu(),
-        (eklentiSurum && eklentiSurum.yerel && !eklentiSurum.guncel
-          ? '<button class="ikincil" id="aEklentiTazele">Güncelle</button>'
-          : '<button class="ikincil" id="aEklentiIndir">İndir</button>')
-        + '<button class="ikincil" id="aEklenti" style="margin-left:8px">Kur</button>')
-  + sat(null,'Kasalar',
-        'Kişisel kasanız yalnız sizindir. Ortak kasalarda kimin ne yapabileceğini rol belirler.',
-        '<button class="ikincil" id="aKasalar">Aç</button>')
-  + sat(null,'Cihazlar',
-        'Bu hesapla açık oturumlar. Kaybolan bir bilgisayarın erişimi buradan kesilir.',
-        '<button class="ikincil" id="aCihazlar">Aç</button>')
-  + sat(null,'Çöp kutusu',
-        'Sildiğiniz kayıtlar burada bekler; kalıcı silme ayrı bir adım.',
-        '<button class="ikincil" id="aCop">Aç</button>')
-  + sat(null,'Yapılandırma profili','Güncellemeden sonra eskisini temizlemek için.',
-        '<button class="ikincil" id="aProfilSil">Kaldır</button>')
-  + sat(null,'Sürüm','<span id="surumAyar">—</span>',
-        '<button class="ikincil" id="aGuncelle">Denetle</button>')
-  + '<div class="durum" id="ayarDurum" style="margin-top:12px"></div>';
+  let h = '';
+
+  // ── Doldurma ──────────────────────────────────────────────────────
+  h += bolum('Doldurma', 'Kayıt eşleştiğinde ne olacağı.',
+      satir(null, 'Panel kendiliğinden açılsın',
+            'Kapatırsanız paneli yalnız kısayolla açarsınız.',
+            anahtarKutu('ayPanel', a.panel_kendiliginden))
+    + satir(null, 'Doldurunca Enter’a bas',
+            'Bazı formlar Enter ile gönderilmez; o sitelerde kapatın.',
+            anahtarKutu('ayEnter', a.doldurunca_enter))
+    + satir(null, 'Doldurduktan sonra sessizlik',
+            'Aynı sitede panel bu süre boyunca kendiliğinden açılmaz.',
+            sayiKutu('aySessizlik', a.sessizlik_dk, 'dk', 1, 240)));
+
+  // ── Güvenlik ──────────────────────────────────────────────────────
+  h += bolum('Güvenlik', null,
+      satir(null, 'Otomatik kilitlenme',
+            '0 yazarsanız kilitlenmez. Kasa kilitliyken parola çözülemez.',
+            sayiKutu('ayKilit', a.otomatik_kilit_dk, 'dk', 0, 480))
+    + satir(null, 'Panoyu temizleme',
+            '0 yazarsanız temizlenmez. Kopyalanan parola bu süre sonunda panodan silinir.',
+            sayiKutu('ayPano', a.pano_temizleme_sn, 'sn', 0, 300))
+    + (mac ? satir(izinVar, 'Erişilebilirlik izni',
+            izinVar ? 'Doldurma çalışıyor.'
+                    : 'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listeden “−” ile kaldırıp “+” ile yeniden ekleyin.',
+            izinVar ? '' : '<button class="ikincil" id="aIzin">Aç</button>') : ''));
+
+  // ── Tarayıcı eklentisi ────────────────────────────────────────────
+  let eklentiIcerik =
+      satir(eklentiBagli, 'Bağlantı',
+            !kopruVar ? 'Yerel köprü açılamadı; eklenti kasaya bağlanamaz.'
+            : (eklentiBagli
+                ? 'Eklenti bağlı (yerel port '+kopruDurum.port+'). Panelden tıkladığınız kayıt tarayıcıda doldurulur.'
+                : 'Köprü açık (port '+kopruDurum.port+') ama eklenti son iki dakikadır uğramadı — kurulu değil ya da kapalı.'),
+            '')
+    + satir(eklentiSurum ? !!eklentiSurum.guncel : null, 'Sürüm', eklentiNotu(),
+            (eklentiSurum && eklentiSurum.yerel && !eklentiSurum.guncel)
+              ? '<button class="ikincil" id="aEklentiTazele">Güncelle</button>' : '')
+    + satir(null, 'Paketi indir',
+            'İndirilenler klasörüne açar ve klasörü önünüze getirir. Sonra Chrome’da '
+            + '<code>chrome://extensions</code> → “Geliştirici modu” → “Paketlenmemiş öğe yükle”.',
+            '<button class="ikincil" id="aEklentiIndir">İndir</button>')
+    + '<div class="bag"><code id="aZipBag">'+esc(zip)+'</code>'
+    + '<button class="ikincil" id="aZipKopyala">Kopyala</button></div>';
+
+  if(mac){
+    eklentiIcerik += satir(polVar, 'Yönetici kurulumu',
+        polVar ? 'Tarayıcı koruması kurulu: parola kasası kapalı, eklenti zorunlu.'
+               : 'Yönetici hakkıyla sistem geneli kurulum — personelin bir şey yapması gerekmez.',
+        '<button class="ikincil" id="aPolKur">Kur</button>'
+        + (sistemPaketVar
+            ? '<button class="ikincil" id="aEklentiPaketSil" style="margin-left:8px">Paketi kaldır</button>'
+            : '<button class="ikincil" id="aEklentiSistem" style="margin-left:8px">Paket kur</button>'));
+    eklentiIcerik += satir(null, 'Yapılandırma profili',
+        'Güncellemeden sonra eskisini temizlemek için.',
+        '<button class="ikincil" id="aProfilSil">Kaldır</button>');
+  }
+  h += bolum('Tarayıcı eklentisi',
+    'Eklentinin kendi girişi yoktur; kimliğini bu uygulamadan alır.', eklentiIcerik);
+
+  // ── Kasa ──────────────────────────────────────────────────────────
+  h += bolum('Kasa', null,
+      satir(null, 'Kasalar', 'Kişisel kasanız yalnız sizindir. Ortak kasalarda yetkiyi rol belirler.',
+            '<button class="ikincil" id="aKasalar">Aç</button>')
+    + satir(null, 'Cihazlar', 'Bu hesapla açık oturumlar. Kaybolan bir bilgisayarın erişimi buradan kesilir.',
+            '<button class="ikincil" id="aCihazlar">Aç</button>')
+    + satir(null, 'Çöp kutusu', 'Sildiğiniz kayıtlar burada bekler; kalıcı silme ayrı bir adım.',
+            '<button class="ikincil" id="aCop">Aç</button>'));
+
+  // ── Uygulama ──────────────────────────────────────────────────────
+  h += bolum('Uygulama', null,
+      satir(null, 'Sürüm', '<span id="surumAyar">—</span>',
+            '<button class="ikincil" id="aGuncelle">Denetle</button>'));
+
+  h += '<div class="durum" id="ayarDurum" style="margin-top:4px"></div>';
+  $('ayarGovde').innerHTML = h;
 
   surumYaz();
+  bagliAyarlar();
   if($('aIzin')) $('aIzin').onclick=function(){ invoke('izin_ayarlarini_ac').catch(function(){}); };
-  $('aPolKur').onclick=politikaKur;
-  $('aEklenti').onclick=eklentiKur;
+  if($('aPolKur')) $('aPolKur').onclick=politikaKur;
+  if($('aEklentiSistem')) $('aEklentiSistem').onclick=eklentiKur;
+  if($('aEklentiPaketSil')) $('aEklentiPaketSil').onclick=eklentiPaketSil;
+  if($('aProfilSil')) $('aProfilSil').onclick=profilKaldir;
   if($('aEklentiIndir')) $('aEklentiIndir').onclick=eklentiIndir;
   if($('aEklentiTazele')) $('aEklentiTazele').onclick=eklentiTazele;
+  $('aZipKopyala').onclick=async function(){
+    try{ await panoyaYaz(zip); durumYaz($('ayarDurum'),'Bağlantı kopyalandı.','iyi'); }
+    catch(e){ durumYaz($('ayarDurum'),String(e),'hata'); }
+  };
   $('aKasalar').onclick=kasalariAc;
   $('aCihazlar').onclick=cihazlariAc;
   $('aCop').onclick=copAc;
-  $('aProfilSil').onclick=profilKaldir;
   $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
 }
-$('ayarDugme').onclick=function(){ ayarCiz(); $('ayarKatman').classList.remove('gizli'); };
+
+/* Ayar denetimleri DEĞİŞİR DEĞİŞMEZ kaydediliyor.
+   "Kaydet" düğmesi koymak, kullanıcıyı unutup çıkabileceği bir adıma
+   mahkûm etmek olurdu. Sunucu tarafı sınırları yine kendi uyguluyor;
+   buradaki min/max yalnız yazmayı kolaylaştırıyor. */
+function bagliAyarlar(){
+  const bagla=function(id, alan, tur){
+    const el=$(id); if(!el) return;
+    el.onchange=async function(){
+      const yeni=Object.assign({}, ayarlar||{});
+      yeni[alan] = tur==='bool' ? el.checked : (parseInt(el.value,10)||0);
+      try{
+        ayarlar = await invoke('ayarlar_yaz',{ayar:yeni});
+        // Sunucu değeri kırpmış olabilir; ekrana kırpılmış hâli yaz.
+        if(tur!=='bool') el.value = ayarlar[alan];
+        durumYaz($('ayarDurum'),'Kaydedildi.','iyi');
+      }catch(e){ durumYaz($('ayarDurum'),'Kaydedilemedi: '+e,'hata'); }
+    };
+  };
+  bagla('ayPanel','panel_kendiliginden','bool');
+  bagla('ayEnter','doldurunca_enter','bool');
+  bagla('aySessizlik','sessizlik_dk','sayi');
+  bagla('ayKilit','otomatik_kilit_dk','sayi');
+  bagla('ayPano','pano_temizleme_sn','sayi');
+}
+
+$('ayarDugme').onclick=function(){ $('ayarKatman').classList.remove('gizli'); ayarCiz(); };
 $('ayarKapat').onclick=function(){ $('ayarKatman').classList.add('gizli'); };
 $('ayarTamam').onclick=function(){ $('ayarKatman').classList.add('gizli'); };
 $('cikisDugme').onclick=async function(){
@@ -837,13 +1000,13 @@ $('cikisDugme').onclick=async function(){
 };
 
 async function politikaKur(){
-  const b=$('aPolKur'); b.disabled=true; b.textContent='Kuruluyor…';
+  const b=$('aPolKur'); if(b){ b.disabled=true; b.textContent='Kuruluyor…'; }
   try{
     politikaDurum=await invoke('politika_kur');
-    uyariSayisi(); ayarCiz();
+    uyariSayisi(); await ayarCiz();
     durumYaz($('ayarDurum'),'Tarayıcı koruması kuruldu. İlk kurulum için Chrome’u bir kez kapatıp açın.','iyi');
   }catch(e){
-    ayarCiz();
+    await ayarCiz();
     // Modern macOS elle yazılan yönetilen tercihi yok sayıyor; o durumda
     // uygulama bir yapılandırma profili açıyor, onay kullanıcıya kalıyor.
     durumYaz($('ayarDurum'), String(e).indexOf('PROFIL_ONAYI')>=0
@@ -871,41 +1034,50 @@ function eklentiNotu(){
        + 'Chrome’a tanıttığınız klasör bu olmalı: <code>' + klasor + '</code>';
 }
 
+/** Yönetici kurulumunu geri al — sistem klasöründeki paketi siler. */
+async function eklentiPaketSil(){
+  if(!confirm('Sistem genelindeki eklenti paketi kaldırılsın mı? Chrome bir sonraki açılışta eklentiyi düşürür.')) return;
+  const b=$('aEklentiPaketSil'); b.disabled=true; b.textContent='Kaldırılıyor…';
+  try{ await invoke('eklenti_kaldir'); await ayarCiz();
+    durumYaz($('ayarDurum'),'Paket kaldırıldı. Chrome’u kapatıp açın.','iyi'); }
+  catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),String(e),'hata'); }
+}
+
 async function eklentiTazele(){
-  const b=$('aEklentiTazele'); b.disabled=true; b.textContent='Güncelleniyor…';
+  const b=$('aEklentiTazele'); if(b){ b.disabled=true; b.textContent='Güncelleniyor…'; }
   try{
     const yeni=await invoke('eklenti_tazele');
     eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
-    uyariSayisi(); ayarCiz();
+    uyariSayisi(); await ayarCiz();
     durumYaz($('ayarDurum'), yeni
       ? ('Paket ' + yeni + ' sürümüne yenilendi. Eklenti bir dakika içinde kendini yükler.')
       : 'Zaten güncel.', 'iyi');
-  }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Güncellenemedi: '+e,'hata'); }
+  }catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),'Güncellenemedi: '+e,'hata'); }
 }
 
 async function eklentiKur(){
   const b=$('aEklenti'); b.disabled=true; b.textContent='Kuruluyor…';
-  try{ await invoke('eklenti_kur'); ayarCiz();
+  try{ await invoke('eklenti_kur'); await ayarCiz();
     durumYaz($('ayarDurum'),'Eklenti paketi kuruldu. İlk kurulum için Chrome’u bir kez kapatıp açın; '
       + 'sonraki sürümleri Chrome kendisi alır.','iyi'); }
-  catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'Kurulamadı: '+e,'hata'); }
+  catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),'Kurulamadı: '+e,'hata'); }
 }
 async function eklentiIndir(){
-  const b=$('aEklentiIndir'); b.disabled=true; b.textContent='İndiriliyor…';
+  const b=$('aEklentiIndir'); if(b){ b.disabled=true; b.textContent='İndiriliyor…'; }
   try{
     const yol=await invoke('eklenti_indir');
     eklentiSurum=await invoke('eklenti_surum_durum').catch(function(){ return eklentiSurum; });
-    uyariSayisi(); ayarCiz();
+    uyariSayisi(); await ayarCiz();
     durumYaz($('ayarDurum'),'İndirildi: '+yol+' — klasör açıldı. Chrome’da chrome://extensions sayfasında '
       + '“Paketlenmemiş öğe yükle” ile bu klasörü seçin. Bu tek seferlik; sonraki sürümleri eklenti kendisi alır.','iyi');
-  }catch(e){ ayarCiz(); durumYaz($('ayarDurum'),'İndirilemedi: '+e,'hata'); }
+  }catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),'İndirilemedi: '+e,'hata'); }
 }
 async function profilKaldir(){
   if(!confirm('Yüklü tarayıcı koruması profili kaldırılsın mı?')) return;
-  const b=$('aProfilSil'); b.disabled=true; b.textContent='Kaldırılıyor…';
+  const b=$('aProfilSil'); if(b){ b.disabled=true; b.textContent='Kaldırılıyor…'; }
   try{ politikaDurum=await invoke('politika_profil_kaldir');
-    uyariSayisi(); ayarCiz(); durumYaz($('ayarDurum'),'Profil kaldırıldı.','iyi'); }
-  catch(e){ ayarCiz(); durumYaz($('ayarDurum'),String(e),'uyari'); }
+    uyariSayisi(); await ayarCiz(); durumYaz($('ayarDurum'),'Profil kaldırıldı.','iyi'); }
+  catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),String(e),'uyari'); }
 }
 
 /* ══ Liste penceresi ════════════════════════════════════════════════

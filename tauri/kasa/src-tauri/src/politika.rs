@@ -477,13 +477,20 @@ pub fn eklenti_dosyasi_var() -> bool {
     std::path::Path::new(&format!("{HARICI_DIZIN}/{EKLENTI_ID}.json")).exists()
 }
 
+/* WINDOWS'TA YÖNETİCİ KURULUMU YOK — AMA DÜĞME DE ÇALIŞMIYORDU.
+   Ayarlar'daki "Kur" düğmesi Windows'ta her zaman "bu platformda harici
+   eklenti kurulumu yok" hatası veriyordu. Çalışmayan bir düğme göstermek,
+   kullanıcıyı kendi hatası sanmaya iter.
+   Artık arayüz `sistem()` ile platformu öğrenip o düğmeyi hiç göstermiyor;
+   buradaki gövde de hata yerine İNDİRME yoluna düşüyor — biri yine de
+   çağırırsa iş görsün. */
 #[cfg(not(target_os = "macos"))]
 pub fn eklenti_kur() -> Result<(), String> {
-    Err("Bu platformda harici eklenti kurulumu yok; politika kullanılıyor.".into())
+    eklenti_indir().map(|_| ())
 }
 #[cfg(not(target_os = "macos"))]
 pub fn eklenti_kaldir() -> Result<(), String> {
-    Err("Bu platformda harici eklenti kurulumu yok.".into())
+    Err("Bu platformda yönetici kurulumu yok; eklentiyi Chrome'dan kaldırın.".into())
 }
 #[cfg(not(target_os = "macos"))]
 pub fn eklenti_dosyasi_var() -> bool {
@@ -587,6 +594,16 @@ pub fn eklenti_tazele() -> Result<Option<String>, String> {
     }
     eklenti_indir_sessiz()?;
     Ok(Some(uzak))
+}
+
+/// Paketin adresi — arayüz bunu kopyalanabilir bir bağlantı olarak gösteriyor.
+///
+/// Kullanıcının isteği: "eklentilere kasa uygulamasından link bazlı ulaşım
+/// verilebilsin". Bazı makinelerde indirme klasörünü açmak işe yaramıyor
+/// (uzak masaüstü, kısıtlı profil); elde bir bağlantı olması her zaman
+/// çalışan yol.
+pub fn eklenti_zip_adresi() -> &'static str {
+    EKLENTI_ZIP
 }
 
 /// Eklentiyi kullanıcının İndirilenler klasörüne indirir ve AÇAR.

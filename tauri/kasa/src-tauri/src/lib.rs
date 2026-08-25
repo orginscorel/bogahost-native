@@ -22,6 +22,7 @@
 
 mod alan;
 mod anahtarlik;
+mod ayarlar;
 mod guncelleme;
 mod kasa;
 mod kopru;
@@ -46,8 +47,9 @@ struct KilitDurum(Mutex<anahtarlik::Anahtarlik>);
 
 impl Default for KilitDurum {
     fn default() -> Self {
+        // Süre AYARDAN geliyor; sabit bir varsayılan yalnız ayar okunamazsa.
         Self(Mutex::new(anahtarlik::Anahtarlik::yeni(
-            anahtarlik::VARSAYILAN_KILIT_DK,
+            ayarlar::oku().otomatik_kilit_dk,
         )))
     }
 }
@@ -472,33 +474,53 @@ fn diger_cihazlari_kapat(uygulama: tauri::AppHandle) -> Result<i64, String> {
     kasa::diger_cihazlari_kapat(&uygulama.state::<Durum>())
 }
 
-/// Kasa kilidinin durumu.
+/// SİSTEM BİLGİSİ — arayüz neyin ÇALIŞTIĞINI bilsin.
 ///
-/// Anahtarlar bellekte `anahtarlik` modülünde duruyor; kilit açma akışı
-/// (ana parola ekranı) henüz yok, o yüzden bugün her zaman kilitli
-/// görünüyor ve arayüz bunu açıkça yazıyor. Uydurma bir "açık" durumu
-/// göstermektense doğruyu söylemek daha iyi.
+/// Ayarlar ekranı Windows'ta da "Yapılandırma profilini kaldır" gibi
+/// düğmeler gösteriyordu; basılınca "bu platformda yok" hatası dönüyordu.
+/// Çalışmayan bir düğme göstermek, kullanıcıyı kendi hatası sanmaya iter.
+/// Artık arayüz ne göstereceğini buradan öğreniyor.
 #[tauri::command(async)]
-fn kilit_durumu(uygulama: tauri::AppHandle) -> serde_json::Value {
-    // `State` ÖNCE BİR DEĞİŞKENE BAĞLANMALI.
-    // Tek satırda yazılınca geçici `State` ifadenin sonunda düşüyor, ama
-    // ondan alınan kilit sonraki satırlarda hâlâ kullanılıyor (E0716).
-    // Kodun geri kalanında bu desen tek ifadede bitiyor, o yüzden sorun
-    // çıkarmıyordu; burada kilit ifadeyi aşıyor.
-    let durum = uygulama.state::<KilitDurum>();
-    let mut a = durum.0.lock().unwrap();
+fn sistem() -> serde_json::Value {
     serde_json::json!({
-        "acik": a.acik_mi(),
-        "kalan_sn": a.kalan_sn(),
-        "otomatik_kilit_dk": anahtarlik::VARSAYILAN_KILIT_DK,
+        "platform": if cfg!(target_os = "macos") { "macos" }
+                    else if cfg!(windows) { "windows" }
+                    else { "diger" },
+        /// macOS'ta Erişilebilirlik izni gerekiyor; Windows'ta böyle bir izin yok.
+        "izin_gerekli": cfg!(target_os = "macos"),
+        /// Yapılandırma profili yalnız macOS'ta var.
+        "profil_destegi": cfg!(target_os = "macos"),
+        /// Yönetici hakkıyla sistem geneli eklenti kurulumu — yalnız macOS.
+        "yonetici_kurulumu": cfg!(target_os = "macos"),
+        "eklenti_zip": politika::eklenti_zip_adresi(),
     })
 }
 
-/// Kasayı hemen kilitle — bellekteki anahtarları sıfırlar.
 #[tauri::command(async)]
-fn kilitle(uygulama: tauri::AppHandle) {
-    uygulama.state::<KilitDurum>().0.lock().unwrap().kilitle();
+fn ayarlar_oku() -> ayarlar::Ayar {
+    ayarlar::oku()
 }
+
+/// Ayarları yaz ve ANINDA uygula.
+///
+/// Kaydedip "yeniden başlatın" demek, ayarı yarım uygulamaktır: kullanıcı
+/// kilit süresini değiştirip aynı oturumda denemek ister.
+#[tauri::command(async)]
+fn ayarlar_yaz(uygulama: tauri::AppHandle, ayar: ayarlar::Ayar) -> Result<ayarlar::Ayar, String> {
+    let a = ayar.duzelt();
+    ayarlar::yaz(&a)?;
+    {
+        let durum = uygulama.state::<KilitDurum>();
+        durum.0.lock().unwrap().kilit_suresini_ayarla(a.otomatik_kilit_dk);
+    }
+    Ok(a)
+}
+
+/* KİLİT DURUMU / KİLİTLE KOMUTLARI HENÜZ KAYITLI DEĞİL.
+   `anahtarlik` modülü kullanılıyor (kilit süresi ayardan geliyor) ama kilidi
+   AÇMA akışı — ana parola ekranı — Faz 3'ün kalan kısmı. Açma olmadan
+   "kilitle" düğmesi göstermek, hiç kilitlenmemiş bir kasayı kilitliyormuş
+   gibi yapmak olurdu. Komutlar akış gelince buraya dönecek. */
 
 // ── Faz 2b: kasa ve üye yönetimi ───────────────────────────────────────────
 
@@ -595,15 +617,22 @@ fn kullanici_adi(uygulama: tauri::AppHandle, id: i64) -> Result<String, String> 
 #[tauri::command(async)]
 fn panoya_sifre(uygulama: tauri::AppHandle, id: i64) -> Result<u64, String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
-    const TEMIZLEME_SN: u64 = 30;
+    // Süre ARTIK AYARDAN. Koda gömülü bir değer, kullanıcının
+    // değiştiremediği bir değerdir; 30 saniye herkese uymuyor.
+    let temizleme_sn = ayarlar::oku().pano_temizleme_sn;
 
     let (_, sifre) = kasa::ac(&uygulama.state::<Durum>(), id)?;
     uygulama.clipboard().write_text(sifre.clone()).map_err(|e| e.to_string())?;
 
     // Süre sonunda temizle — ama araya başka bir şey kopyalandıysa DOKUNMA
+    // 0 = "temizleme" demek; iplik açmanın anlamı yok.
+    if temizleme_sn == 0 {
+        return Ok(0);
+    }
+
     let u = uygulama.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(TEMIZLEME_SN));
+        std::thread::sleep(std::time::Duration::from_secs(temizleme_sn));
         if let Ok(mevcut) = u.clipboard().read_text() {
             if mevcut == sifre {
                 let _ = u.clipboard().write_text(String::new());
@@ -612,7 +641,7 @@ fn panoya_sifre(uygulama: tauri::AppHandle, id: i64) -> Result<u64, String> {
         let _ = u.emit("pano-temizlendi", ());
     });
 
-    Ok(TEMIZLEME_SN)
+    Ok(temizleme_sn)
 }
 
 // ── Tuş gönderme ───────────────────────────────────────────────────────────
@@ -744,7 +773,7 @@ pub fn run() {
             cihazlar, cihaz_iptal, diger_cihazlari_kapat,
             kasalar, kasa_olustur, kasa_sil, kasa_uyeler,
             uye_ekle, uye_rol, uye_cikar,
-            kilit_durumu, kilitle,
+            sistem, ayarlar_oku, ayarlar_yaz,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
@@ -1134,8 +1163,7 @@ fn panel_yerlestir(panel: &tauri::WebviewWindow) {
 /// çalışıyor; kullanıcı isterse kısayolla her zaman açabiliyor.
 static SON_DOLDURULAN: Mutex<Vec<(String, std::time::Instant)>> = Mutex::new(Vec::new());
 
-/// Doldurulan sitede panel ne kadar sessiz kalsın.
-const SESSIZLIK_DK: u64 = 20;
+/// Doldurulan sitede panel ne kadar sessiz kalsın — AYARDAN.
 
 /// Adresin alan adı — `https://a.com/x?y` → `a.com`
 fn alan_adi(u: &str) -> String {
@@ -1154,7 +1182,7 @@ pub(crate) fn az_once_dolduruldu(url: &str) -> bool {
         return false;
     }
     let mut liste = SON_DOLDURULAN.lock().unwrap();
-    let sure = std::time::Duration::from_secs(SESSIZLIK_DK * 60);
+    let sure = std::time::Duration::from_secs(ayarlar::oku().sessizlik_dk.max(1) * 60);
     liste.retain(|(_, t)| t.elapsed() < sure);
     liste.iter().any(|(a, _)| *a == alan)
 }
@@ -1195,6 +1223,11 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
 
     // Yazma izni yoksa panel göstermek boşuna umut olur.
     if !pencere::erisilebilirlik_izni_var() {
+        return;
+    }
+
+    // Kullanıcı panelin kendiliğinden açılmasını kapatmış olabilir.
+    if !ayarlar::oku().panel_kendiliginden {
         return;
     }
 
