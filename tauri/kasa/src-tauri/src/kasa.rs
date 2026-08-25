@@ -34,6 +34,9 @@ pub struct Kayit {
     /// Kayıt bu kullanıcıya mı ait? Düzenleme/silme buna bağlı.
     #[serde(default)]
     pub benim: bool,
+    /// Hangi kasada. Şifreleme bağlamı (AAD) buna bağlı olduğu için şart.
+    #[serde(default)]
+    pub kasa_id: Option<i64>,
     /// Son doldurma/açma zamanı (ISO 8601). Liste bağlamı için.
     #[serde(default)]
     pub son_kullanim: Option<String>,
@@ -286,6 +289,12 @@ pub fn oturum_gecerli(durum: &Durum) -> bool {
         .send()
         .map(|r| r.status().is_success())
         .unwrap_or(false)
+}
+
+/// Oturum sahibinin kimliği. AAD bağlamı `userId` içerdiği için şart:
+/// yanlış kimlikle şifrelenen kayıt bir daha açılamaz.
+pub fn me(durum: &Durum) -> Result<serde_json::Value, String> {
+    getir(durum, "/vault/api/me")
 }
 
 pub fn liste(durum: &Durum) -> Result<Vec<Kayit>, String> {
@@ -692,4 +701,55 @@ pub fn uye_rol(durum: &Durum, kasa: i64, user_id: i64, rol: &str) -> Result<(), 
 
 pub fn uye_cikar(durum: &Durum, kasa: i64, user_id: i64) -> Result<(), String> {
     eylem(durum, "DELETE", &format!("/vault/api/kasalar/{kasa}/uyeler/{user_id}")).map(|_| ())
+}
+
+// ── Faz 3: zero-knowledge uçları ───────────────────────────────────────────
+//
+// Bu bölüm yalnız TAŞIYOR. Şifreleme/çözme `kripto` ve `zarf` modüllerinde;
+// oradaki mantık bağımsız bir kasada test edildi. Burada kripto kararı yok.
+
+pub fn kripto_durum(durum: &Durum) -> Result<serde_json::Value, String> {
+    getir(durum, "/vault/api/kripto")
+}
+
+pub fn kripto_kur(durum: &Durum, govde: serde_json::Value) -> Result<(), String> {
+    govdeli(durum, "POST", "/vault/api/kripto/kur", govde).map(|_| ())
+}
+
+/// Kasanın anahtar zarfı — kendi zarfımız.
+pub fn kasa_anahtar_zarfi(durum: &Durum, kasa: i64) -> Result<serde_json::Value, String> {
+    getir(durum, &format!("/vault/api/kasalar/{kasa}/anahtar"))
+}
+
+/// Kasa anahtarını üyelere dağıt.
+pub fn kasa_anahtari_dagit(
+    durum: &Durum,
+    kasa: i64,
+    zarflar: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    govdeli(
+        durum,
+        "POST",
+        &format!("/vault/api/kasalar/{kasa}/anahtar"),
+        serde_json::json!({ "zarflar": zarflar }),
+    )
+}
+
+/// Kasa üyelerinin açık anahtarları.
+pub fn uye_anahtarlari(durum: &Durum, kasa: i64) -> Result<serde_json::Value, String> {
+    getir(durum, &format!("/vault/api/kasalar/{kasa}/uye-anahtarlari"))
+}
+
+/// Kaydın sürüm 2 zarfları.
+pub fn zarf_oku(durum: &Durum, id: i64) -> Result<serde_json::Value, String> {
+    getir(durum, &format!("/vault/api/items/{id}/zarf"))
+}
+
+pub fn zarf_yaz(durum: &Durum, id: i64, govde: serde_json::Value) -> Result<(), String> {
+    govdeli(durum, "PUT", &format!("/vault/api/items/{id}/zarf"), govde).map(|_| ())
+}
+
+/// Zarfın okunabildiğini doğrula — sunucu eski ciphertext'i o zaman siliyor.
+pub fn zarf_dogrula(durum: &Durum, id: i64) -> Result<(), String> {
+    eylem(durum, "POST", &format!("/vault/api/items/{id}/zarf/dogrula")).map(|_| ())
 }

@@ -256,6 +256,12 @@
             font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
             background:var(--kart2);border:1px solid var(--cizgi);border-radius:9px;
             padding:9px 11px;color:var(--sonuk)}
+  .uyariKutu{border:1px solid var(--uyari);background:var(--uyari-yumusak);border-radius:12px;
+             padding:12px 14px;font-size:12.5px;line-height:1.6;color:var(--uyari)}
+  .uyariKutu b{display:block;margin-bottom:4px}
+  .kurtarmaKod{display:block;margin-top:12px;padding:14px;border:1px solid var(--cizgi);
+               border-radius:12px;background:var(--kart2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+               font-size:13px;line-height:1.9;letter-spacing:.06em;word-break:break-all;color:var(--metin)}
   .isik{width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px}
   .isik.acik{background:var(--iyi);box-shadow:0 0 0 3px var(--iyi-yumusak)}
   .isik.kapali{background:var(--hata);box-shadow:0 0 0 3px var(--hata-yumusak)}
@@ -427,6 +433,59 @@
   </div>
 </div>
 
+<!-- ══ Ana parola: kurulum, kilit açma, kurtarma ══
+     Ana parola sunucuya HİÇ gitmiyor; buradan anahtar türetiliyor ve
+     kasa anahtarları burada açılıyor. Sunucu ciphertext'ten başka bir şey
+     görmüyor. -->
+<div class="katman gizli" id="kriptoKatman">
+  <div class="kart" style="max-width:430px">
+    <div class="kBaslik">
+      <span id="kriptoBaslik">Ana parola</span>
+      <button class="ikon gizli" id="kriptoKapat"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="kGovde">
+      <p class="durum" id="kriptoAnlat" style="margin-bottom:16px"></p>
+
+      <div class="alan" id="kriptoParolaAlan">
+        <label class="etiket" for="kriptoParola">Ana parola</label>
+        <input class="metin" type="password" id="kriptoParola" autocomplete="off">
+        <div class="gucCubuk"><i id="kriptoGuc"></i></div>
+      </div>
+      <div class="alan gizli" id="kriptoTekrarAlan">
+        <label class="etiket" for="kriptoTekrar">Ana parola (tekrar)</label>
+        <input class="metin" type="password" id="kriptoTekrar" autocomplete="off">
+      </div>
+      <div class="alan gizli" id="kriptoKurtarmaAlan">
+        <label class="etiket" for="kriptoKurtarma">Kurtarma anahtarı</label>
+        <input class="metin" type="text" id="kriptoKurtarma" spellcheck="false"
+               placeholder="XXXXX-XXXXX-…" autocomplete="off">
+      </div>
+
+      <div class="gizli" id="kurtarmaGoster">
+        <div class="uyariKutu">
+          <b>Bu anahtarı şimdi kaydedin — bir daha gösterilmeyecek.</b>
+          Ana parolanızı unutursanız kasanızı açmanın <b>tek yolu</b> budur.
+          Sunucuda yalnız onunla şifrelenmiş hâli var; anahtarın kendisi yok.
+        </div>
+        <code class="kurtarmaKod" id="kurtarmaKod"></code>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="ikincil" id="kurtarmaKopyala">Kopyala</button>
+          <button class="ikincil" id="kurtarmaIndir">Dosyaya kaydet</button>
+        </div>
+        <label class="onay" style="margin-top:12px">
+          <input type="checkbox" id="kurtarmaOnay"> Kaydettim, güvenli bir yerde duruyor
+        </label>
+      </div>
+
+      <div class="durum" id="kriptoDurum"></div>
+    </div>
+    <div class="kAyak">
+      <button class="ana" id="kriptoTamam">Devam</button>
+      <button class="ikincil gizli" id="kriptoKurtarmaGec">Kurtarma anahtarım var</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ Liste penceresi — cihazlar / çöp kutusu / kayıt geçmişi ══
      Üçü de "başlık + satırlar + satır başına eylem" biçiminde. Üç ayrı
      pencere yazmak üç kez aynı hatayı yapmak olurdu. -->
@@ -548,6 +607,19 @@ async function kasayiAc(){
   acilisiKapat();
 
   // Durum sorguları listeden SONRA: kullanıcı önce kayıtlarını görsün.
+  // ANA PAROLA AKIŞI — kasa açılır açılmaz.
+  // Kurulmamışsa kurulum, kurulu ama kilitliyse kilit açma. Kullanıcıyı
+  // "neden parolam görünmüyor" diye aratmıyoruz.
+  try{
+    kriptoDurumu = await invoke('kripto_durum');
+    if(!kriptoDurumu.kurulu){
+      kriptoAc('kur');
+    }else{
+      const kilit = await invoke('kilit_durumu').catch(function(){ return {acik:false}; });
+      if(!kilit.acik) kriptoAc('ac');
+    }
+  }catch(e){}
+
   izinDurum = await invoke('izinler').catch(function(){ return null; });
   izinSeridi();
   politikaDurum = await invoke('politika_durum').catch(function(){ return null; });
@@ -857,6 +929,7 @@ async function ayarCiz(){
   if(!ayarlar){
     try{ ayarlar = await invoke('ayarlar_oku'); }catch(e){ ayarlar = null; }
   }
+  try{ kriptoDurumu = await invoke('kripto_durum'); }catch(e){}
   // Yönetici paketi kurulu mu — düğmenin "kur" mu "kaldır" mı olacağını bu belirliyor.
   let sistemPaketVar = false;
   try{ sistemPaketVar = await invoke('eklenti_dosyasi_var'); }catch(e){}
@@ -891,6 +964,18 @@ async function ayarCiz(){
     + satir(null, 'Panoyu temizleme',
             '0 yazarsanız temizlenmez. Kopyalanan parola bu süre sonunda panodan silinir.',
             sayiKutu('ayPano', a.pano_temizleme_sn, 'sn', 0, 300))
+    + satir(kriptoDurumu ? !!kriptoDurumu.kurulu : null, 'Ana parola',
+            kriptoDurumu && kriptoDurumu.kurulu
+              ? 'Kurulu. Kayıtlarınız bu bilgisayarda şifreleniyor; sunucu açamıyor.'
+              : 'Kurulmadı. Kurulana kadar şifreleme sunucu tarafında kalır.',
+            kriptoDurumu && kriptoDurumu.kurulu
+              ? '<button class="ikincil" id="aKilitle">Kilitle</button>'
+              : '<button class="ikincil" id="aAnaParola">Kur</button>')
+    + ((kriptoDurumu && kriptoDurumu.kurulu && (kriptoDurumu.bekleyen_kayit||0) > 0)
+        ? satir(false, 'Taşınmamış kayıtlar',
+            (kriptoDurumu.bekleyen_kayit)+' kayıt hâlâ sunucu tarafı şifrelemede.',
+            '<button class="ikincil" id="aGoc">Taşı</button>')
+        : '')
     + (mac ? satir(izinVar, 'Erişilebilirlik izni',
             izinVar ? 'Doldurma çalışıyor.'
                     : 'Doldurma çalışmaz. Uygulama imzasız olduğu için her güncellemede kimliği değişir — listeden “−” ile kaldırıp “+” ile yeniden ekleyin.',
@@ -959,6 +1044,12 @@ async function ayarCiz(){
     try{ await panoyaYaz(zip); durumYaz($('ayarDurum'),'Bağlantı kopyalandı.','iyi'); }
     catch(e){ durumYaz($('ayarDurum'),String(e),'hata'); }
   };
+  if($('aAnaParola')) $('aAnaParola').onclick=function(){ kriptoAc('kur'); };
+  if($('aKilitle')) $('aKilitle').onclick=async function(){
+    await invoke('kilitle').catch(function(){});
+    durumYaz($('ayarDurum'),'Kasa kilitlendi. Parolalar çözülemez.','iyi');
+  };
+  if($('aGoc')) $('aGoc').onclick=gocEt;
   $('aKasalar').onclick=kasalariAc;
   $('aCihazlar').onclick=cihazlariAc;
   $('aCop').onclick=copAc;
@@ -1078,6 +1169,143 @@ async function profilKaldir(){
   try{ politikaDurum=await invoke('politika_profil_kaldir');
     uyariSayisi(); await ayarCiz(); durumYaz($('ayarDurum'),'Profil kaldırıldı.','iyi'); }
   catch(e){ await ayarCiz(); durumYaz($('ayarDurum'),String(e),'uyari'); }
+}
+
+/* ══ Ana parola / kilit ═════════════════════════════════════════════
+   Ana parola sunucuya HİÇ gitmiyor. Buradan türetilen anahtar bellekte
+   duruyor; kilitlenince siliniyor. Sunucu yalnız şifreli veriyi görüyor. */
+let kriptoDurumu = null, kriptoKip = 'kur';
+
+function kriptoAc(kip){
+  kriptoKip = kip;
+  const kur = kip === 'kur', kurtarma = kip === 'kurtarma';
+  $('kriptoBaslik').textContent = kur ? 'Ana parola belirleyin'
+    : (kurtarma ? 'Kurtarma anahtarı' : 'Kasanın kilidini açın');
+  $('kriptoAnlat').innerHTML = kur
+    ? 'Bu paroladan üretilen anahtarla kayıtlarınız <b>sizin bilgisayarınızda</b> şifrelenecek. '
+      + 'Sunucu bu parolayı hiç görmüyor ve şifreli veriyi açamıyor. Unutursanız yalnız kurtarma '
+      + 'anahtarıyla girebilirsiniz.'
+    : (kurtarma
+      ? 'Kurulumda size bir kez gösterilen 50 haneli anahtarı yazın. Tire ve büyük/küçük harf önemsiz.'
+      : 'Kayıtlarınızı açmak için ana parolanız gerekiyor.');
+  $('kriptoTekrarAlan').classList.toggle('gizli', !kur);
+  $('kriptoParolaAlan').classList.toggle('gizli', kurtarma);
+  $('kriptoKurtarmaAlan').classList.toggle('gizli', !kurtarma);
+  $('kriptoKurtarmaGec').classList.toggle('gizli', kip !== 'ac');
+  $('kriptoKapat').classList.toggle('gizli', kip === 'kur');
+  $('kurtarmaGoster').classList.add('gizli');
+  $('kriptoTamam').textContent = kur ? 'Kur' : 'Aç';
+  $('kriptoTamam').disabled = false;
+  $('kriptoParola').value=''; $('kriptoTekrar').value=''; $('kriptoKurtarma').value='';
+  gucCizEl('kriptoGuc', -1);
+  durumYaz($('kriptoDurum'),'');
+  $('kriptoKatman').classList.remove('gizli');
+  setTimeout(function(){ (kurtarma?$('kriptoKurtarma'):$('kriptoParola')).focus(); }, 60);
+}
+function kriptoKapat(){ $('kriptoKatman').classList.add('gizli'); }
+$('kriptoKapat').onclick=kriptoKapat;
+$('kriptoKurtarmaGec').onclick=function(){ kriptoAc('kurtarma'); };
+
+$('kriptoParola').addEventListener('input', async function(e){
+  if(!e.target.value){ gucCizEl('kriptoGuc',-1); return; }
+  try{ gucCizEl('kriptoGuc', await invoke('parola_gucu',{parola:e.target.value})); }catch(err){}
+});
+['kriptoParola','kriptoTekrar','kriptoKurtarma'].forEach(function(id){
+  $(id).addEventListener('keydown', function(e){ if(e.key==='Enter') $('kriptoTamam').click(); });
+});
+
+$('kriptoTamam').onclick=async function(){
+  const b=$('kriptoTamam'), d=$('kriptoDurum');
+
+  // Kurtarma anahtarı gösterildiyse ikinci basış "onayla" demek.
+  if(!$('kurtarmaGoster').classList.contains('gizli')){
+    if(!$('kurtarmaOnay').checked){
+      durumYaz(d,'Önce anahtarı kaydettiğinizi onaylayın.','hata'); return;
+    }
+    kriptoKapat();
+    await gocSor();
+    return;
+  }
+
+  b.disabled=true;
+  try{
+    if(kriptoKip==='kur'){
+      const p=$('kriptoParola').value;
+      if(p.length < 10){ durumYaz(d,'Ana parola en az 10 karakter olmalı.','hata'); return; }
+      if(p !== $('kriptoTekrar').value){ durumYaz(d,'İki parola aynı değil.','hata'); return; }
+      durumYaz(d,'Anahtarlar üretiliyor… (birkaç saniye)');
+      const kurtarma = await invoke('ana_parola_kur',{parola:p});
+      $('kurtarmaKod').textContent = kurtarma;
+      $('kurtarmaOnay').checked = false;
+      $('kurtarmaGoster').classList.remove('gizli');
+      $('kriptoParolaAlan').classList.add('gizli');
+      $('kriptoTekrarAlan').classList.add('gizli');
+      $('kriptoBaslik').textContent = 'Kurtarma anahtarınız';
+      $('kriptoAnlat').textContent = '';
+      $('kriptoTamam').textContent = 'Tamam';
+      durumYaz(d,'');
+    } else if(kriptoKip==='kurtarma'){
+      durumYaz(d,'Açılıyor…');
+      await invoke('kurtarma_ile_ac',{kurtarma:$('kriptoKurtarma').value});
+      kriptoKapat();
+      durumYaz($('ayarDurum'),'Kurtarma anahtarıyla açıldı. En kısa sürede yeni bir ana parola belirleyin.','uyari');
+      await yenile();
+    } else {
+      durumYaz(d,'Açılıyor…');
+      await invoke('kilit_ac',{parola:$('kriptoParola').value});
+      kriptoKapat();
+      await yenile();
+    }
+  }catch(e){ durumYaz(d,String(e),'hata'); }
+  finally{ b.disabled=false; }
+};
+
+$('kurtarmaKopyala').onclick=async function(){
+  try{ await panoyaYaz($('kurtarmaKod').textContent);
+       durumYaz($('kriptoDurum'),'Kopyalandı.','iyi'); }
+  catch(e){ durumYaz($('kriptoDurum'),String(e),'hata'); }
+};
+$('kurtarmaIndir').onclick=function(){
+  /* Dosyaya kaydetmek panoya almaktan güvenli: pano başka programlarca
+     okunabiliyor ve bir süre sonra temizleniyor. */
+  const metin='Bogahost Kasa — kurtarma anahtarı\n\n'+$('kurtarmaKod').textContent
+    + '\n\nBu anahtar ana parolanızı unuttuğunuzda kasanızı açmanın tek yoludur.\n'
+    + 'Kağıda yazıp güvenli bir yerde saklayın. Sunucuda bu anahtarın kendisi YOKTUR.\n';
+  const a=document.createElement('a');
+  a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(metin);
+  a.download='bogahost-kasa-kurtarma-anahtari.txt';
+  a.click();
+  durumYaz($('kriptoDurum'),'Dosya indirildi.','iyi');
+};
+
+function gucCizEl(id,g){
+  const el=$(id); if(!el) return;
+  if(g<0){ el.style.width='0'; return; }
+  const r=['var(--hata)','var(--uyari)','var(--vurgu)','var(--iyi)'];
+  el.style.width=((g+1)*25)+'%'; el.style.background=r[g]||r[0];
+}
+
+/** Taşınmamış kayıt varsa göçü öner. */
+async function gocSor(){
+  try{ kriptoDurumu = await invoke('kripto_durum'); }catch(e){ return; }
+  const bekleyen = kriptoDurumu.bekleyen_kayit || 0;
+  if(!bekleyen) return;
+  if(!confirm(bekleyen+' kaydınız hâlâ sunucu tarafı şifrelemede. Şimdi taşınsın mı?\n\n'
+    + 'Taşıma sırasında her kayıt sizin bilgisayarınızda yeniden şifrelenir; '
+    + 'eski kopya ancak yenisi okunabildiği doğrulandıktan sonra silinir.')) return;
+  await gocEt();
+}
+
+async function gocEt(){
+  durumYaz($('ayarDurum'),'Kayıtlar taşınıyor… bu biraz sürebilir.');
+  try{
+    const s=await invoke('kasa_goc');
+    let m = s.tasinan+' kayıt taşındı';
+    if(s.atlanan) m += ', '+s.atlanan+' atlandı';
+    if(s.hatalar && s.hatalar.length) m += ' — '+s.hatalar.length+' hata: '+s.hatalar[0];
+    durumYaz($('ayarDurum'), m, (s.hatalar&&s.hatalar.length)?'uyari':'iyi');
+    await yenile();
+  }catch(e){ durumYaz($('ayarDurum'),String(e),'hata'); }
 }
 
 /* ══ Liste penceresi ════════════════════════════════════════════════

@@ -27,6 +27,7 @@ mod guncelleme;
 mod kasa;
 mod kopru;
 mod kripto;
+mod zarf;
 mod politika;
 mod pencere;
 
@@ -522,6 +523,199 @@ fn ayarlar_yaz(uygulama: tauri::AppHandle, ayar: ayarlar::Ayar) -> Result<ayarla
    "kilitle" düğmesi göstermek, hiç kilitlenmemiş bir kasayı kilitliyormuş
    gibi yapmak olurdu. Komutlar akış gelince buraya dönecek. */
 
+// ── Faz 3: ana parola, kilit açma, göç ─────────────────────────────────────
+//
+// Kripto kararlarının hepsi `kripto` ve `zarf` modüllerinde ve orada
+// bağımsız kasada test edildi. Buradaki kod yalnız sırayı kuruyor.
+
+/// Oturumdaki kullanıcının kimliği — AAD bağlamı için gerekli.
+fn kullanici_kimligi(uygulama: &tauri::AppHandle) -> Result<i64, String> {
+    let d = uygulama.state::<Durum>();
+    let j = kasa::me(&d)?;
+    j["user_id"]
+        .as_i64()
+        .ok_or_else(|| "Kullanıcı kimliği alınamadı.".to_string())
+}
+
+#[tauri::command(async)]
+fn kripto_durum(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    kasa::kripto_durum(&uygulama.state::<Durum>())
+}
+
+/// ANA PAROLAYI KUR. Kurtarma anahtarı BİR KEZ dönüyor — saklanmıyor.
+#[tauri::command(async)]
+fn ana_parola_kur(uygulama: tauri::AppHandle, parola: String) -> Result<String, String> {
+    let uid = kullanici_kimligi(&uygulama)?;
+    let k = zarf::kurulum_hazirla(uid, &parola)?;
+    kasa::kripto_kur(&uygulama.state::<Durum>(), k.govde.clone())?;
+    {
+        let kd = uygulama.state::<KilitDurum>();
+        kd.0.lock().unwrap().ac(Some(k.kilit), k.ozel);
+    }
+    Ok(k.kurtarma_anahtari)
+}
+
+#[tauri::command(async)]
+fn kilit_ac(uygulama: tauri::AppHandle, parola: String) -> Result<(), String> {
+    let uid = kullanici_kimligi(&uygulama)?;
+    let kimlik = kasa::kripto_durum(&uygulama.state::<Durum>())?;
+    let (kilit, ozel) = zarf::kilidi_ac(uid, &parola, &kimlik)?;
+    let kd = uygulama.state::<KilitDurum>();
+    kd.0.lock().unwrap().ac(Some(kilit), ozel);
+    Ok(())
+}
+
+/// Kurtarma anahtarıyla aç — ana parola unutulduğunda.
+#[tauri::command(async)]
+fn kurtarma_ile_ac(uygulama: tauri::AppHandle, kurtarma: String) -> Result<(), String> {
+    let uid = kullanici_kimligi(&uygulama)?;
+    let kimlik = kasa::kripto_durum(&uygulama.state::<Durum>())?;
+    let ozel = zarf::kurtarma_ile_ac(uid, &kurtarma, &kimlik)?;
+    let kd = uygulama.state::<KilitDurum>();
+    // Kilit anahtarı YOK: kurtarmayla girildi. Ana parola değişimi yeni
+    // kilit üretecek; olmayan bir şeyi varmış gibi taşımıyoruz.
+    kd.0.lock().unwrap().ac(None, ozel);
+    Ok(())
+}
+
+#[tauri::command(async)]
+fn kilit_durumu(uygulama: tauri::AppHandle) -> serde_json::Value {
+    let durum = uygulama.state::<KilitDurum>();
+    let mut a = durum.0.lock().unwrap();
+    serde_json::json!({ "acik": a.acik_mi(), "kalan_sn": a.kalan_sn() })
+}
+
+#[tauri::command(async)]
+fn kilitle(uygulama: tauri::AppHandle) {
+    uygulama.state::<KilitDurum>().0.lock().unwrap().kilitle();
+}
+
+/// Kasanın anahtarını getir; yoksa ÜRET ve üyelere dağıt.
+///
+/// Kişisel kasada üye tek kişi olduğu için üretmek yeterli. Ortak kasada
+/// anahtar bütün üyelerin açık anahtarına ayrı ayrı mühürleniyor; ana
+/// parolasını henüz kurmamış üye anahtarsız kalıyor ve sunucu bunu
+/// bildiriyor — sessizce atlanmıyor.
+fn kasa_anahtari(uygulama: &tauri::AppHandle, kasa_id: i64) -> Result<[u8; 32], String> {
+    let uid = kullanici_kimligi(uygulama)?;
+
+    let ozel = {
+        let kd = uygulama.state::<KilitDurum>();
+        let mut a = kd.0.lock().unwrap();
+        if let Some(v) = a.kasa_al(kasa_id) {
+            return Ok(v);
+        }
+        a.ozel().ok_or("Kasa kilitli. Ana parolanızla açın.")?
+    };
+
+    let d = uygulama.state::<Durum>();
+    let bilgi = kasa::kasa_anahtar_zarfi(&d, kasa_id)?;
+
+    let vk = match bilgi["zarf"].as_str().filter(|z| !z.is_empty()) {
+        Some(z) => zarf::kasa_anahtari_ac(&ozel, z, kasa_id, uid)?,
+        None => {
+            // Anahtar hiç üretilmemiş — üretip üyelere dağıtıyoruz.
+            let yeni = kripto::anahtar_uret();
+            let uyeler = kasa::uye_anahtarlari(&d, kasa_id)?;
+            let mut zarflar = Vec::new();
+            if let Some(liste) = uyeler["uyeler"].as_array() {
+                for u in liste {
+                    let (Some(id), Some(acik)) =
+                        (u["user_id"].as_i64(), u["acik_anahtar"].as_str())
+                    else {
+                        continue;
+                    };
+                    if acik.is_empty() {
+                        continue;
+                    }
+                    let m = zarf::kasa_anahtari_muhurle(acik, &yeni, kasa_id, id)?;
+                    zarflar.push(serde_json::json!({ "user_id": id, "zarf": m }));
+                }
+            }
+            if zarflar.is_empty() {
+                return Err("Kasa anahtarı dağıtılamadı: hiçbir üyenin açık anahtarı yok.".into());
+            }
+            kasa::kasa_anahtari_dagit(&d, kasa_id, serde_json::Value::Array(zarflar))?;
+            yeni
+        }
+    };
+
+    uygulama.state::<KilitDurum>().0.lock().unwrap().kasa_koy(kasa_id, vk);
+    Ok(vk)
+}
+
+/// SÜRÜM 1 KAYITLARI ZERO-KNOWLEDGE'A TAŞI.
+///
+/// Her kayıt için: sunucudan düz metni al (sürüm 1'de sunucu hâlâ
+/// çözebiliyor), istemcide şifrele, zarfları yaz, GERİ OKUYUP ÇÖZ, ancak
+/// ondan sonra eski ciphertext'in silinmesini iste. Doğrulamadan silmek,
+/// çözülemeyen bir kayıt bırakma riski demekti.
+#[tauri::command(async)]
+fn kasa_goc(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let uid = kullanici_kimligi(&uygulama)?;
+    {
+        let kd = uygulama.state::<KilitDurum>();
+        if !kd.0.lock().unwrap().acik_mi() {
+            return Err("Kasa kilitli. Ana parolanızla açın.".into());
+        }
+    }
+
+    let kayitlar = kasa::liste(&uygulama.state::<Durum>())?;
+    let mut tasinan = 0u32;
+    let mut atlanan = 0u32;
+    let mut hatalar: Vec<String> = Vec::new();
+
+    for k in kayitlar {
+        if !k.benim {
+            atlanan += 1;                 // başkasının kaydını taşımak bize düşmez
+            continue;
+        }
+        let Some(kasa_id) = k.kasa_id else {
+            atlanan += 1;
+            continue;
+        };
+
+        let sonuc = (|| -> Result<bool, String> {
+            let d = uygulama.state::<Durum>();
+            let mevcut = kasa::zarf_oku(&d, k.id)?;
+            if mevcut["kripto_surum"].as_i64().unwrap_or(1) >= 2 {
+                return Ok(false);         // zaten taşınmış
+            }
+
+            let vk = kasa_anahtari(&uygulama, kasa_id)?;
+            let (kullanici, parola) = kasa::ac(&d, k.id)?;
+            let duz = zarf::DuzKayit {
+                parola: Some(parola),
+                kullanici: Some(kullanici),
+                ekstra: None,
+                notlar: None,
+            };
+            let z = zarf::sifrele(&vk, uid, kasa_id, k.id, &duz)?;
+            kasa::zarf_yaz(&d, k.id, serde_json::to_value(&z).map_err(|e| e.to_string())?)?;
+
+            // GERİ OKU VE ÇÖZ — silme isteği ancak bundan sonra.
+            let geri = kasa::zarf_oku(&d, k.id)?;
+            let gz = zarf::jsondan(&geri)?;
+            let acilan = zarf::coz(&vk, uid, kasa_id, k.id, &gz)?;
+            if acilan.parola != duz.parola {
+                return Err("Yazılan zarf geri okunduğunda eşleşmedi.".into());
+            }
+            kasa::zarf_dogrula(&d, k.id)?;
+            Ok(true)
+        })();
+
+        match sonuc {
+            Ok(true) => tasinan += 1,
+            Ok(false) => atlanan += 1,
+            Err(e) => hatalar.push(format!("{}: {e}", k.label)),
+        }
+    }
+
+    Ok(serde_json::json!({
+        "tasinan": tasinan, "atlanan": atlanan, "hatalar": hatalar,
+    }))
+}
+
 // ── Faz 2b: kasa ve üye yönetimi ───────────────────────────────────────────
 
 #[tauri::command(async)]
@@ -774,6 +968,8 @@ pub fn run() {
             kasalar, kasa_olustur, kasa_sil, kasa_uyeler,
             uye_ekle, uye_rol, uye_cikar,
             sistem, ayarlar_oku, ayarlar_yaz,
+            kripto_durum, ana_parola_kur, kilit_ac, kurtarma_ile_ac,
+            kilit_durumu, kilitle, kasa_goc,
             kayit_ekle, kayit_guncelle, kayit_sil,
             parola_uret, parola_gucu
         ])
