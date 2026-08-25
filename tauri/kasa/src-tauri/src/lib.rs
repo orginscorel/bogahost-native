@@ -232,7 +232,9 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
 
     // Doldurma /fill ucundan geçer: gizli kayıtta görüntüleme kapalı olsa
     // bile yazma çalışır ve her yazım denetime düşer.
-    let (kullanici, sifre) = match kasa::doldurmak_icin_ac(&uygulama.state::<Durum>(), id) {
+    let ogren = if h.url.is_none() { h.program.clone() } else { String::new() };
+    let (kullanici, sifre) =
+        match kasa::doldurmak_icin_ac_prog(&uygulama.state::<Durum>(), id, &ogren) {
         Ok(v) => v,
         Err(e) => return DoldurSonuc { tamam: false, mesaj: format!("Alınamadı: {e}") },
     };
@@ -307,9 +309,15 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
 
     match sonuc {
         Ok(()) => {
-            // Bu SİTE için panel bir süre kendiliğinden açılmasın.
-            if let Some(u) = &h.url {
-                dolduruldu_isaretle(u);
+            // Bu HEDEF için panel bir süre kendiliğinden açılmasın.
+            // Masaüstü programında adres yok; anahtar programın adı oluyor,
+            // yoksa bir programa doldurmak paneli hiçbir yerde susturmazdı.
+            match &h.url {
+                Some(u) => dolduruldu_isaretle(u),
+                None if !h.program.is_empty() => {
+                    dolduruldu_isaretle(&uygulama_anahtari(&h.program))
+                }
+                None => {}
             }
             DoldurSonuc { tamam: true, mesaj: "Dolduruldu.".into() }
         }
@@ -871,6 +879,20 @@ fn eslesenler(uygulama: tauri::AppHandle, url: String) -> Result<Vec<Kayit>, Str
     kasa::eslesenler(&uygulama.state::<Durum>(), &url)
 }
 
+/// Masaüstü programına göre eşleşen kayıtlar.
+///
+/// Tarayıcıda ölçüt adres; WinBox gibi programlarda adres diye bir şey yok.
+/// Panel bu yüzden eskiden masaüstü hedeflerinde HİÇ eşleştirme yapmıyor,
+/// kayıtların ilk on ikisini sıralıyordu — yani doğru kaydı bulmak yine
+/// kullanıcının işiydi.
+#[tauri::command(async)]
+fn eslesenler_uygulama(
+    uygulama: tauri::AppHandle,
+    program: String,
+    baslik: String,
+) -> Result<Vec<Kayit>, String> {
+    kasa::eslesenler_uygulama(&uygulama.state::<Durum>(), &program, &baslik)
+}
 /// Yalnızca kullanıcı adını döndürür — parola için ayrı komut yok, bilerek.
 ///
 /// Sunucuda da ayrı uç ve ayrı izin: parolayı göremeyen bir kullanıcı da
@@ -1033,6 +1055,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
+            eslesenler_uygulama,
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
@@ -1449,6 +1472,18 @@ static SON_DOLDURULAN: Mutex<Vec<(String, std::time::Instant)>> = Mutex::new(Vec
 /// Doldurulan sitede panel ne kadar sessiz kalsın — AYARDAN.
 
 /// Adresin alan adı — `https://a.com/x?y` → `a.com`
+/// Masaüstü programı için susturma anahtarı.
+///
+/// `alan_adi` iki nokta üstünde kestiği için "app:winbox" gibi bir önek TÜM
+/// programları tek anahtara indirirdi — bir programa doldurmak hepsini
+/// susturur. Tire kullanmak bunu engelliyor.
+pub(crate) fn uygulama_anahtari(program: &str) -> String {
+    let p: String = program
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '-' })
+        .collect();
+    format!("app-{}", p.to_ascii_lowercase())
+}
 fn alan_adi(u: &str) -> String {
     let s = u.split("://").nth(1).unwrap_or(u);
     let host = s.split(['/', '?', '#']).next().unwrap_or("");
@@ -1494,15 +1529,39 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
         return;
     }
 
-    // Adresi okunamayan hedefte (masaüstü programı) eşleştirecek bir şey yok.
-    // Panel açıksa KAPATILIR: başka bir programa geçildiğinde ekranda asılı
-    // kalması, yardım değil rahatsızlık olur.
-    let Some(url) = h.url.clone() else {
-        if acik {
-            let _ = panel.hide();
+    // MASAÜSTÜ PROGRAMI (adres yok).
+    //
+    // Buradaki eski davranış "eşleştirecek bir şey yok" deyip paneli kapatmaktı.
+    // Sonuç: tarayıcı dışındaki HER program kasanın kör noktasıydı — WinBox
+    // açıkken MikroTik kayıtları hiç önerilmedi, panel kendiliğinden hiç
+    // açılmadı. Artık ölçüt programın adı ve pencere başlığı.
+    if h.url.is_none() {
+        if !ayarlar::oku().panel_kendiliginden || !pencere::erisilebilirlik_izni_var() {
+            return;
         }
+        // Az önce bu programa doldurduysak ısrar etme.
+        if az_once_dolduruldu(&uygulama_anahtari(&h.program)) {
+            if acik {
+                let _ = panel.hide();
+            }
+            return;
+        }
+        let durum = uygulama.state::<Durum>();
+        let uyanlar = kasa::eslesenler_uygulama(&durum, &h.program, &h.baslik).unwrap_or_default();
+        if uyanlar.is_empty() {
+            if acik {
+                let _ = panel.hide();
+            }
+            return;
+        }
+        if !acik {
+            panel_yerlestir(&panel);
+            let _ = panel.show();
+        }
+        let _ = uygulama.emit("hizli-goster", ());
         return;
-    };
+    }
+    let url = h.url.clone().unwrap_or_default();
 
     // Yazma izni yoksa panel göstermek boşuna umut olur.
     if !pencere::erisilebilirlik_izni_var() {

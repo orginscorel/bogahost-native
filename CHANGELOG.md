@@ -1,3 +1,24 @@
+## 1.26.0
+
+### Eklendi
+- **Masaüstü programlarında otomatik eşleşme.** Kasa şimdiye kadar yalnız
+  tarayıcıyı tanıyordu: adres okunamayan her hedefte panel kapanıyor,
+  "eşleştirecek bir şey yok" deniyordu. WinBox açıkken MikroTik kayıtları
+  (yalnızca IP taşıyorlar) hiç önerilmedi; panel masaüstü programlarında
+  kendiliğinden hiç açılmadı. Artık ölçüt programın adı ve pencere başlığı.
+- **Bağ kendiliğinden öğreniliyor.** Bir kaydı bir programa elle doldurduğunuzda
+  o programın adı kayda yazılıyor; bir dahaki sefere kayıt kendiliğinden
+  öneriliyor. Her program için önceden ayar yapmayı beklemek, özelliğin hiç
+  kullanılmaması demekti. Yanlış öğrenilen desen panelden silinebilir.
+- Kayıt formunda **Masaüstü programları** alanı (virgülle ayrılmış desenler).
+
+### Düzeltildi
+- Panel masaüstü hedefinde eşleştirme yapmıyor, kayıtların ilk on ikisini
+  sıralıyordu — doğru kaydı bulmak yine kullanıcının işiydi.
+- Doldurma sonrası susturma anahtarı masaüstü programlarında **hepsini birden**
+  susturacaktı: `alan_adi` iki nokta üstünde kestiği için tüm programlar aynı
+  anahtara düşüyordu. Anahtar artık programa özgü.
+
 ## 1.25.3
 
 ### Düzeltildi

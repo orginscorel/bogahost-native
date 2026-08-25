@@ -31,6 +31,10 @@ pub struct Kayit {
     /// Sunucu gönderiyordu ama yapıda yoktu, arayüze hiç ulaşmıyordu.
     #[serde(default)]
     pub ip: Option<String>,
+    /// Bağlı olduğu masaüstü programları (virgülle). Tarayıcı olmayan
+    /// hedeflerde eşleşmenin TEK ölçütü budur.
+    #[serde(default)]
+    pub uygulama: Option<String>,
     /// Otomatik doldurma eşleşme kuralı: alan | host | yol | kapali.
     /// Kararı sunucu veriyor; bu alan istemcinin AYNI kuralı işletmesi için.
     #[serde(default)]
@@ -354,10 +358,53 @@ pub fn eslesenler(durum: &Durum, url: &str) -> Result<Vec<Kayit>, String> {
 /// açık. Böylece "göster/kopyala" ile "hedefe yaz" birbirinden ayrılıyor:
 /// personele bilginin kendisi verilmeden o bilgiyle iş yaptırılabiliyor.
 /// Her çağrı sunucuda ayrı bir eylem olarak denetime yazılır.
+/// Masaüstü programı için eşleşen kayıtlar.
+///
+/// Tarayıcıda ölçüt adres, burada programın adı ve pencere başlığı. Kararı
+/// yine SUNUCU veriyor — istemcinin ikinci bir kural işletmesi, iki tarafın
+/// zamanla ayrışması demek.
+pub fn eslesenler_uygulama(
+    durum: &Durum,
+    program: &str,
+    baslik: &str,
+) -> Result<Vec<Kayit>, String> {
+    let t = jeton_of(durum)?;
+    let j: serde_json::Value = istemci()
+        .get(format!("{SUNUCU}/vault/api/match"))
+        .query(&[("program", program), ("baslik", baslik)])
+        .bearer_auth(t)
+        .send()
+        .and_then(|r| r.json())
+        .map_err(|e| format!("Eslesme alinamadi: {e}"))?;
+
+    let mut cikti = Vec::new();
+    if let Some(dizi) = j["items"].as_array() {
+        for k in dizi {
+            if let Ok(kayit) = serde_json::from_value::<Kayit>(k.clone()) {
+                cikti.push(kayit);
+            }
+        }
+    }
+    Ok(cikti)
+}
 pub fn doldurmak_icin_ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
+    doldurmak_icin_ac_prog(durum, id, "")
+}
+
+/// Doldurmak için açar ve HANGİ PROGRAMA doldurulduğunu bildirir.
+///
+/// Sunucu bu bilgiyle kayıt–program bağını kendi öğreniyor; kullanıcı her
+/// program için önceden ayar yapmak zorunda kalmıyor. Program adı boşsa
+/// (tarayıcı ya da bilinmeyen hedef) hiçbir şey öğrenilmez.
+pub fn doldurmak_icin_ac_prog(
+    durum: &Durum,
+    id: i64,
+    program: &str,
+) -> Result<(String, String), String> {
     let t = jeton_of(durum)?;
     let y = istemci()
         .post(format!("{SUNUCU}/vault/api/fill/{id}"))
+        .query(&[("program", program)])
         .bearer_auth(t)
         .send()
         .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;

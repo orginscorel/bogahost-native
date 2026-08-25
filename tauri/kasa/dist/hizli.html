@@ -314,9 +314,21 @@ async function tazele(){
       gosterilen = (uyan||[]).filter(function(k){ return yolUyar(k.url, hedefSon.url); }).slice(0,12);
     }catch(e){ gosterilen=[]; }
   } else if(hedefSon && !hedefSon.url){
-    /* Masaüstü programında adres yok — eşleştirilecek bir şey de yok.
-       Burada kullanıcının seçmesi gerekiyor, o yüzden hepsini gösteriyoruz. */
-    try{ gosterilen = (await invoke('kayitlar')).slice(0,12); }catch(e){ gosterilen=[]; }
+    /* MASAÜSTÜ PROGRAMI. Adres yok ama program adı ve pencere başlığı var;
+       eşleştirmeyi sunucu onlara göre yapıyor. Eskiden burada hiç eşleştirme
+       yoktu, kayıtların ilk on ikisi sıralanıyordu — doğru kaydı bulmak yine
+       kullanıcının işiydi.
+       Eşleşme çıkmazsa listeye düşüyoruz: kullanıcı elle seçtiğinde bağ
+       öğreniliyor ve bir dahaki sefere bu program tanınıyor. */
+    try{
+      gosterilen = (await invoke('eslesenler_uygulama',{
+        program: hedefSon.program || '', baslik: hedefSon.baslik || ''
+      })) || [];
+    }catch(e){ gosterilen = []; }
+    if(!gosterilen.length){
+      try{ gosterilen = (await invoke('kayitlar')).slice(0,12); }catch(e){ gosterilen=[]; }
+      if(gosterilen.length) durumYaz((hedefSon.program||'Bu program')+' için kayıtlı eşleşme yok — seçtiğinizde öğrenilecek.');
+    }
   }
   ciz();
 }
