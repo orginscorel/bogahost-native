@@ -1,7 +1,7 @@
 {
     "name": "bogahost-tauri-kasa",
     "productName": "Bogahost Kasa",
-    "version": "1.28.0",
+    "version": "1.28.1",
     "private": true,
     "description": "Bogahost Kasa — masaustu programlarina (RDP, FileZilla, WinSCP, veritabani araclari) kasadaki kimlik bilgilerini yazan Windows uygulamasi. Tarayicilarda doldurmayi mevcut Chrome eklentisi yapar.",
     "scripts": {

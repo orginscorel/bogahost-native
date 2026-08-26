@@ -138,7 +138,18 @@ let ayarlar = null;
 
 function renk(ad){ let h=0; for(let i=0;i<ad.length;i++) h=(h*31+ad.charCodeAt(i))%360; return 'hsl('+h+' 48% 45%)'; }
 function basHarf(ad){ const p=ad.trim().split(/\s+/); return ((p[0]||'?').charAt(0)+((p[1]||'').charAt(0))).toUpperCase(); }
-function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+/* HTML KAÇIŞI — ÖZNİTELİK İÇİNDE DE GÜVENLİ.
+   Önceki hâli `textContent` → `innerHTML` ile çalışıyordu; tarayıcı bu yolda
+   yalnız & < > kaçırır, TIRNAKLARI KAÇIRMAZ. Çıktı `data-adres="…"` gibi bir
+   özniteliğe konduğunda, kayıt düzenleyebilen biri adrese çift tırnak koyup
+   öznitelikten çıkabilir ve uygulamanın içine HTML sokabilirdi — kasa
+   uygulamasının içinde, parolaya erişen komutların yanında. Tırnaklar da
+   kaçırılıyor; metin bağlamında görünüm değişmiyor. */
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
 function alanAdi(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return (u||'').slice(0,40); } }
 function durumYaz(m,t){ const e=$('durum'); e.className='durum'+(t?' '+t:''); e.textContent=m||''; }
 

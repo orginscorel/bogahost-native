@@ -1,3 +1,14 @@
+## 1.28.1
+
+### Güvenlik
+- **HTML kaçışı öznitelik içinde eksikti.** `esc()` çıktıyı `textContent` →
+  `innerHTML` yoluyla üretiyordu; tarayıcı bu yolda yalnız `&`, `<`, `>`
+  kaçırır, **tırnakları kaçırmaz**. Çıktı `data-adres="…"`, `data-kat="…"` gibi
+  özniteliklere konduğu için, kayıt düzenleyebilen biri adrese ya da kategoriye
+  çift tırnak koyup öznitelikten çıkabilir ve uygulama penceresine HTML
+  sokabilirdi — parolaya erişen komutların yanı başında. Tırnaklar da
+  kaçırılıyor; metin görünümü değişmiyor. Ana pencere ve hızlı panel, ikisi de.
+
 ## 1.28.0
 
 ### Düzeltildi
