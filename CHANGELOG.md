@@ -1,3 +1,25 @@
+## 1.27.0
+
+### Değişti — panelin açılma koşulu baştan yazıldı
+
+Eski koşul yalnızca **"eşleşen kayıt var mı"** idi. Odakta bir yazı alanı olup
+olmadığına hiç bakmıyordu; sayfada form olmasa, giriş sayfası bile olmasa panel
+ekranın sağ alt köşesinde açılıyor, kapatılınca geri geliyordu.
+
+- **Tarayıcıda panel artık hiç açılmıyor.** Doğru doldurma yeri sayfanın içidir:
+  eklenti parola alanını GÖRÜR ve menüsünü tam o kutunun altında açar. Uygulama
+  sayfanın içini göremediği için `doldur` zaten tarayıcıda tuş göndermiyor, işi
+  eklentiye devrediyordu — bir de köşede pencere açmak hiçbir işe yaramıyordu.
+- **Masaüstü programlarında panel, ancak bir metin/parola kutusuna
+  girdiğinizde açılıyor.** Odak alandan çıkınca kendiliğinden kapanıyor.
+- **Panel artık odaktaki kutunun ALTINDA açılıyor**, ekranın sağ alt köşesinde
+  değil — eklentinin davranışının masaüstü karşılığı. Altta yer yoksa kutunun
+  üstüne geçiyor, ekran dışına taşmıyor, çok ekranlı kurulumda doğru ekranda
+  kalıyor.
+- Alan tespiti yapılamayan platformda (Windows: UI Automation yok) **tahmin
+  yapılmıyor** — panel kendiliğinden açılmıyor, kısayol çalışmaya devam ediyor.
+  Yanlış zamanda açmaktansa hiç açmamak yeğdir.
+
 ## 1.26.1
 
 ### Düzeltildi

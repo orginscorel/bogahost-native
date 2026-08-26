@@ -1164,7 +1164,8 @@ fn kisayol_isle(uygulama: tauri::AppHandle, h: pencere::Hedef) {
             let _ = p.set_focus();
         };
         if let Some(p) = uygulama.get_webview_window("hizli") {
-            panel_yerlestir(&p);
+            // Kisayolla acilirken de odaktaki kutunun altina otursun.
+            panel_yerlestir_akilli(&p);
             hedefe_gonder(&p);
             let _ = uygulama.emit("hizli-goster", "elle");
         } else if let Some(p) = uygulama.get_webview_window("main") {
@@ -1454,6 +1455,45 @@ fn hedef_izle(uygulama: &tauri::AppHandle) {
 /// kapatıyor — giriş formunun üstüne oturuyor ve rahatsız ediyor. Sağ alt köşe
 /// göz ucuyla görülüyor ama çalışılan alanı örtmüyor; bildirim panellerinin
 /// orada olmasının sebebi de bu.
+/// Paneli ODAKTAKİ ALANIN ALTINA koy; alan bilinmiyorsa sağ alta düş.
+///
+/// Kullanıcının beğendiği davranış tarayıcı eklentisininki: menü, yazacağı
+/// kutunun hemen altında çıkıyor. Ekranın sağ alt köşesinde beliren bir kutu
+/// ise hem alakasız bir yerde duruyor hem de "yine mi sen" hissi veriyor.
+fn panel_yerlestir_akilli(panel: &tauri::WebviewWindow) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    let Some((ax, ay, _aw, ah)) = alan::odak_konumu() else {
+        panel_yerlestir(panel);
+        return;
+    };
+    let Ok(Some(ekran)) = panel.current_monitor() else {
+        panel_yerlestir(panel);
+        return;
+    };
+    let Ok(PhysicalSize { width: pw, height: ph }) = panel.outer_size() else {
+        panel_yerlestir(panel);
+        return;
+    };
+
+    // AX mantıksal nokta verir; pencere konumu fiziksel piksel ister.
+    let olcek = ekran.scale_factor();
+    let bosluk = 6.0 * olcek;
+    let mut x = (ax * olcek) as i32;
+    let mut y = ((ay + ah) * olcek + bosluk) as i32;
+
+    // Ekran dışına taşmasın: alt kenarda yer yoksa alanın ÜSTÜNE aç.
+    let PhysicalSize { width: ew, height: eh } = *ekran.size();
+    let k = ekran.position();
+    if y + ph as i32 > k.y + eh as i32 {
+        y = ((ay * olcek) - bosluk) as i32 - ph as i32;
+    }
+    x = x.clamp(k.x, k.x + ew as i32 - pw as i32);
+    y = y.clamp(k.y, k.y + eh as i32 - ph as i32);
+
+    let _ = panel.set_position(PhysicalPosition::new(x, y));
+}
+
 fn panel_yerlestir(panel: &tauri::WebviewWindow) {
     use tauri::{PhysicalPosition, PhysicalSize};
 
@@ -1551,8 +1591,29 @@ pub(crate) fn dolduruldu_isaretle(url: &str) {
 /// Ağ işi zaten arka plan ipliğinde, kullanıcı arayüzünü bekletmiyor.
 fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
     let Some(panel) = uygulama.get_webview_window("hizli") else { return };
-
     let acik = panel.is_visible().unwrap_or(false);
+    let kapat = || {
+        if acik {
+            let _ = panel.hide();
+        }
+    };
+
+    // Panel kullanıcının elindeyse (odakta) hiç karışma.
+    if acik && panel.is_focused().unwrap_or(false) {
+        return;
+    }
+
+    /* TARAYICIDA PANEL AÇILMAZ — İŞİ EKLENTİ YAPAR.
+       Doğru doldurma yeri sayfanın içidir: eklenti parola alanını GÖRÜR ve
+       menüsünü tam o kutunun altında açar. Uygulama sayfanın içini göremediği
+       için `doldur` da tarayıcıda tuş göndermiyor, işi eklentiye devrediyor.
+       Böyleyken bir de ekranın köşesinde pencere açmak hiçbir işe yaramayan
+       bir rahatsızlıktı: sayfada form olmasa, giriş sayfası bile olmasa
+       açılıyordu. Kısayol tarayıcıda da her zaman çalışır. */
+    if h.tarayici {
+        kapat();
+        return;
+    }
 
     /* Kullanıcı bu hedefte paneli eliyle kapattıysa geri getirme.
        Başka bir pencereye geçildiği anda kayıt temizlenir. */
@@ -1566,80 +1627,43 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
         }
     }
 
-    // Panel kullanıcının elindeyse (odakta) hiç karışma.
-    if acik && panel.is_focused().unwrap_or(false) {
+    if !ayarlar::oku().panel_kendiliginden || !pencere::erisilebilirlik_izni_var() {
         return;
     }
 
-    // MASAÜSTÜ PROGRAMI (adres yok).
-    //
-    // Buradaki eski davranış "eşleştirecek bir şey yok" deyip paneli kapatmaktı.
-    // Sonuç: tarayıcı dışındaki HER program kasanın kör noktasıydı — WinBox
-    // açıkken MikroTik kayıtları hiç önerilmedi, panel kendiliğinden hiç
-    // açılmadı. Artık ölçüt programın adı ve pencere başlığı.
-    if h.url.is_none() {
-        if !ayarlar::oku().panel_kendiliginden || !pencere::erisilebilirlik_izni_var() {
+    /* ÖNCE ALAN, SONRA KAYIT.
+       Eski koşul yalnızca "eşleşen kayıt var mı" idi; odakta bir yazı alanı
+       olup olmadığına HİÇ bakmıyordu. Bu yüzden panel, kullanıcı o programda
+       bambaşka bir iş yaparken de açılıyor, kapatılınca geri geliyordu.
+       Artık panel yalnız kullanıcı gerçekten bir metin/parola kutusuna
+       girdiğinde çıkıyor — eklentinin davranışının masaüstü karşılığı.
+
+       Tespit edilemeyen platformda (Windows: UI Automation yok, `Bilinmiyor`
+       döner) TAHMİN YAPILMIYOR: panel kendiliğinden açılmıyor, kısayol
+       çalışmaya devam ediyor. Yanlış zamanda açmaktansa hiç açmamak yeğdir. */
+    match alan::odakli_alan() {
+        alan::Uygun::Bos | alan::Uygun::Dolu => {}
+        _ => {
+            kapat();
             return;
         }
-        // Az önce bu programa doldurduysak ısrar etme.
-        if az_once_dolduruldu(&uygulama_anahtari(&h.program)) {
-            if acik {
-                let _ = panel.hide();
-            }
-            return;
-        }
-        let durum = uygulama.state::<Durum>();
-        let uyanlar = kasa::eslesenler_uygulama(&durum, &h.program, &h.baslik).unwrap_or_default();
-        if uyanlar.is_empty() {
-            if acik {
-                let _ = panel.hide();
-            }
-            return;
-        }
-        if !acik {
-            panel_yerlestir(&panel);
-            let _ = panel.show();
-        }
-        let _ = uygulama.emit("hizli-goster", "oto");
-        return;
-    }
-    let url = h.url.clone().unwrap_or_default();
-
-    // Yazma izni yoksa panel göstermek boşuna umut olur.
-    if !pencere::erisilebilirlik_izni_var() {
-        return;
     }
 
-    // Kullanıcı panelin kendiliğinden açılmasını kapatmış olabilir.
-    if !ayarlar::oku().panel_kendiliginden {
-        return;
-    }
-
-    // Bu sitede az önce dolduruldu — panel ısrar etmesin.
-    if az_once_dolduruldu(&url) {
-        if acik {
-            let _ = panel.hide();
-        }
+    // Az önce bu hedefe doldurduysak ısrar etme.
+    if az_once_dolduruldu(&hedef_anahtari(h)) {
+        kapat();
         return;
     }
 
     let durum = uygulama.state::<Durum>();
-    let Ok(eslesenler) = kasa::eslesenler(&durum, &url) else { return };
-    let uyanlar: Vec<_> = eslesenler
-        .into_iter()
-        .filter(|k| yol_uyar(k, &url))
-        .collect();
-
+    let uyanlar = kasa::eslesenler_uygulama(&durum, &h.program, &h.baslik).unwrap_or_default();
     if uyanlar.is_empty() {
-        // Bu adres için kayıt yok — açıksa kapat, kapalıysa açma.
-        if acik {
-            let _ = panel.hide();
-        }
+        kapat();
         return;
     }
 
     if !acik {
-        panel_yerlestir(&panel);
+        panel_yerlestir_akilli(&panel);
         let _ = panel.show();
     }
     let _ = uygulama.emit("hizli-goster", "oto");

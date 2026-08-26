@@ -141,3 +141,94 @@ pub fn aciklama(u: &Uygun) -> String {
         Uygun::Bilinmiyor => String::new(),
     }
 }
+
+// ── Odaktaki alanın ekrandaki yeri ─────────────────────────────────────────
+
+/// Odaktaki metin alanının ekran dikdörtgeni: (x, y, genişlik, yükseklik),
+/// mantıksal nokta cinsinden, sol-üst köşe başlangıçlı.
+///
+/// NEDEN: panel ekranın sağ altında açılıyordu. Kullanıcının beğendiği davranış
+/// tarayıcı eklentisininki — menü, yazacağı alanın hemen ALTINDA çıkıyor.
+/// Masaüstü programında da aynısını yapabilmek için alanın nerede olduğunu
+/// bilmek gerekiyor.
+///
+/// Erişilebilirlik API'si zaten açık (yazmak için alınmış izin); ek izin yok.
+#[cfg(target_os = "macos")]
+pub fn odak_konumu() -> Option<(f64, f64, f64, f64)> {
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::string::{CFString, CFStringRef};
+    use std::os::raw::c_void;
+
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    struct CGPoint { x: f64, y: f64 }
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    struct CGSize { width: f64, height: f64 }
+
+    // AXValueType: 1 = CGPoint, 2 = CGSize
+    const AX_POINT: u32 = 1;
+    const AX_SIZE: u32 = 2;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXUIElementCreateSystemWide() -> CFTypeRef;
+        fn AXUIElementCopyAttributeValue(
+            element: CFTypeRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> i32;
+        fn AXValueGetValue(value: CFTypeRef, tur: u32, hedef: *mut c_void) -> bool;
+        fn AXValueGetTypeID() -> usize;
+        fn CFGetTypeID(cf: CFTypeRef) -> usize;
+    }
+
+    unsafe {
+        let sistem = AXUIElementCreateSystemWide();
+        if sistem.is_null() {
+            return None;
+        }
+        let anahtar = CFString::new("AXFocusedUIElement");
+        let mut odak: CFTypeRef = std::ptr::null();
+        let hata = AXUIElementCopyAttributeValue(sistem, anahtar.as_concrete_TypeRef(), &mut odak);
+        CFRelease(sistem);
+        if hata != 0 || odak.is_null() {
+            return None;
+        }
+
+        // TİP KONTROLÜ ŞART: AXPosition her öğede AXValue olarak gelmez.
+        // Tip bakmadan AXValueGetValue çağırmak tanımsız davranıştır.
+        let mut oku = |ad: &str, tur: u32, hedef: *mut c_void| -> bool {
+            let k = CFString::new(ad);
+            let mut v: CFTypeRef = std::ptr::null();
+            if AXUIElementCopyAttributeValue(odak, k.as_concrete_TypeRef(), &mut v) != 0
+                || v.is_null()
+            {
+                return false;
+            }
+            if CFGetTypeID(v) != AXValueGetTypeID() {
+                CFRelease(v);
+                return false;
+            }
+            let tamam = AXValueGetValue(v, tur, hedef);
+            CFRelease(v);
+            tamam
+        };
+
+        let mut nokta = CGPoint::default();
+        let mut boyut = CGSize::default();
+        let p_ok = oku("AXPosition", AX_POINT, &mut nokta as *mut _ as *mut c_void);
+        let b_ok = oku("AXSize", AX_SIZE, &mut boyut as *mut _ as *mut c_void);
+        CFRelease(odak);
+
+        if !p_ok || !b_ok || boyut.width <= 1.0 || boyut.height <= 1.0 {
+            return None;
+        }
+        Some((nokta.x, nokta.y, boyut.width, boyut.height))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn odak_konumu() -> Option<(f64, f64, f64, f64)> {
+    None
+}

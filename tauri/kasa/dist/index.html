@@ -947,7 +947,9 @@ async function ayarCiz(){
   // ── Doldurma ──────────────────────────────────────────────────────
   h += bolum('Doldurma', 'Kayıt eşleştiğinde ne olacağı.',
       satir(null, 'Panel kendiliğinden açılsın',
-            'Kapatırsanız paneli yalnız kısayolla açarsınız.',
+            'Yalnız bir metin ya da parola kutusuna girdiğinizde ve o programa ait kayıt varsa açılır. '
+            + 'Tarayıcıda panel açılmaz; orada işi eklenti sayfanın içinde yapar. '
+            + 'Kapatırsanız paneli yalnız kısayolla açarsınız.',
             anahtarKutu('ayPanel', a.panel_kendiliginden))
     + satir(null, 'Doldurunca Enter’a bas',
             'Bazı formlar Enter ile gönderilmez; o sitelerde kapatın.',
