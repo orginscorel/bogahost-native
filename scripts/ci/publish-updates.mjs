@@ -307,10 +307,14 @@ for (const app of APPS) {
 // 4) ESKI manifest (v1.1.0 istemcileri bu adresi okur — KORUNUYOR)
 // ---------------------------------------------------------------------------
 // https://bogahost.com/native/latest.json  ==  https://native.bogahost.com/latest.json
+// `url` KIMLIK SORMAYAN bir adres olmali. Once `${BASE_URL}/` yaziliyordu ama
+// native.bogahost.com'un kok dizini Basic Auth arkasinda (401): yedek yola
+// dusen kullanici "yeni surum var" bildirimini goruyor, tikladiginda parola
+// duvarina carpiyordu. Depo public oldugu icin Releases sayfasi herkese acik.
 writeJson('latest.json', {
   version: VERSION,
   notes: NOTES,
-  url: `${BASE_URL}/`,
+  url: 'https://github.com/orginscorel/bogahost-native/releases',
 });
 
 // ---------------------------------------------------------------------------
