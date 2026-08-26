@@ -77,6 +77,45 @@ pub struct Durum {
     pub bilet: Mutex<Option<String>>,
 }
 
+/// Yanıtı JSON olarak oku — okunamıyorsa NEDENİNİ söyle.
+///
+/// BİLDİRİLEN HATA: "Sunucuya ulasilamadi: error decoding response body".
+/// Bu metin reqwest'in `.json()` çağrısının ham hatasıydı ve kullanıcıya
+/// hiçbir şey anlatmıyordu. Gerçek sebep ölçüldü: Cloudflare, uygulamanın
+/// isteğini `cf-mitigated: challenge` ile 403 + HTML olarak karşılıyor.
+/// Origin aynı isteğe 401 + JSON dönüyor, yani sunucu sağlam; araya giren
+/// güvenlik katmanı istemciyi tarayıcı sanıp doğrulama sayfası gönderiyor.
+///
+/// Tarayıcı olmayan bir istemci bu doğrulamayı geçemez. Yapılabilecek tek
+/// dürüst şey, olanı olduğu gibi söylemek ve çözümün nerede olduğunu
+/// göstermek: Cloudflare'de `/vault/api/*` için bir "Skip" kuralı.
+fn json_oku(y: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
+    let kod = y.status();
+    let tur = y
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let cf_engel = y.headers().contains_key("cf-mitigated");
+
+    let govde = y.text().unwrap_or_default();
+
+    if cf_engel || (!tur.contains("json") && govde.trim_start().starts_with('<')) {
+        return Err(format!(
+            "Cloudflare güvenlik doğrulaması isteği engelledi (HTTP {}). \
+             Sunucu değil, önündeki güvenlik katmanı reddediyor. \
+             Cloudflare'de dcim.bogahost.com/vault/api/* için \"Skip\" kuralı eklenmeli.",
+            kod.as_u16()
+        ));
+    }
+
+    serde_json::from_str(&govde).map_err(|_| {
+        let ozet: String = govde.chars().take(120).collect();
+        format!("Sunucu JSON döndürmedi (HTTP {}): {ozet}", kod.as_u16())
+    })
+}
+
 fn istemci() -> reqwest::blocking::Client {
     /* ACCEPT BAŞLIĞI EKSİKTİ — GERÇEK BİR HATA.
        Bu başlık olmadan Laravel doğrulama hatalarında JSON yerine bir HTML
@@ -201,12 +240,13 @@ pub fn giris(durum: &Durum, kullanici: &str, sifre: &str, cihaz: &str) -> GirisS
         .json(&serde_json::json!({ "kullanici": kullanici, "sifre": sifre, "cihaz": cihaz }))
         .send();
 
-    let j: serde_json::Value = match y.and_then(|r| r.json()) {
+    let j: serde_json::Value = match y.map_err(|e| e.to_string())
+        .and_then(json_oku) {
         Ok(v) => v,
         Err(e) => {
             return GirisSonuc {
                 tamam: false, iki_adim: false, kurulum_gerekli: false, kullanici: None,
-                hata: Some(format!("Sunucuya ulasilamadi: {e}")),
+                hata: Some(e),
             }
         }
     };
@@ -250,12 +290,13 @@ pub fn dogrula(durum: &Durum, kod: &str) -> GirisSonuc {
         .json(&serde_json::json!({ "bilet": bilet, "kod": kod }))
         .send();
 
-    let j: serde_json::Value = match y.and_then(|r| r.json()) {
+    let j: serde_json::Value = match y.map_err(|e| e.to_string())
+        .and_then(json_oku) {
         Ok(v) => v,
         Err(e) => {
             return GirisSonuc {
                 tamam: false, iki_adim: false, kurulum_gerekli: false, kullanici: None,
-                hata: Some(format!("Sunucuya ulasilamadi: {e}")),
+                hata: Some(e),
             }
         }
     };
@@ -311,7 +352,8 @@ pub fn liste(durum: &Durum) -> Result<Vec<Kayit>, String> {
         .get(format!("{SUNUCU}/vault/api/items"))
         .bearer_auth(t)
         .send()
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(json_oku)
         .map_err(|e| format!("Liste alinamadi: {e}"))?;
 
     let mut cikti = Vec::new();
@@ -338,7 +380,8 @@ pub fn eslesenler(durum: &Durum, url: &str) -> Result<Vec<Kayit>, String> {
         .query(&[("url", url)])
         .bearer_auth(t)
         .send()
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(json_oku)
         .map_err(|e| format!("Eslesme alinamadi: {e}"))?;
 
     let mut cikti = Vec::new();
@@ -374,7 +417,8 @@ pub fn eslesenler_uygulama(
         .query(&[("program", program), ("baslik", baslik)])
         .bearer_auth(t)
         .send()
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(json_oku)
         .map_err(|e| format!("Eslesme alinamadi: {e}"))?;
 
     let mut cikti = Vec::new();
@@ -410,7 +454,9 @@ pub fn doldurmak_icin_ac_prog(
         .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
 
     let durum_kodu = y.status();
-    let j: serde_json::Value = y.json().map_err(|e| format!("Yanit okunamadi: {e}"))?;
+    // Durum kodu YUKARIDA okundu; govdeyi ortak okuyucudan gecir ki
+    // Cloudflare doğrulama sayfası da adıyla bildirilsin.
+    let j: serde_json::Value = json_oku(y)?;
 
     if j["ok"].as_bool() != Some(true) {
         return Err(j["error"]
@@ -462,7 +508,9 @@ pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
         .map_err(|e| format!("Sunucuya ulasilamadi: {e}"))?;
 
     let durum_kodu = y.status();
-    let j: serde_json::Value = y.json().map_err(|e| format!("Yanit okunamadi: {e}"))?;
+    // Durum kodu YUKARIDA okundu; govdeyi ortak okuyucudan gecir ki
+    // Cloudflare doğrulama sayfası da adıyla bildirilsin.
+    let j: serde_json::Value = json_oku(y)?;
 
     if j["ok"].as_bool() != Some(true) {
         return Err(j["error"]
@@ -487,7 +535,9 @@ pub fn ac(durum: &Durum, id: i64) -> Result<(String, String), String> {
 /// demek yerine sebebi göstermek kullanıcıyı çözüme götürür.
 fn yaniti_coz(y: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
     let kod = y.status();
-    let j: serde_json::Value = y.json().map_err(|e| format!("Yanit okunamadi: {e}"))?;
+    // Durum kodu YUKARIDA okundu; govdeyi ortak okuyucudan gecir ki
+    // Cloudflare doğrulama sayfası da adıyla bildirilsin.
+    let j: serde_json::Value = json_oku(y)?;
     if j["ok"].as_bool() != Some(true) {
         return Err(j["error"]
             .as_str()

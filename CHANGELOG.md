@@ -1,3 +1,22 @@
+## 1.27.1
+
+### Düzeltildi
+- **"Sunucuya ulasilamadi: error decoding response body"** — bu metin reqwest'in
+  ham hatasıydı ve hiçbir şey anlatmıyordu. Gerçek sebep ölçüldü: Cloudflare,
+  uygulamanın isteğini `cf-mitigated: challenge` ile **403 + HTML** olarak
+  karşılıyor; origin ise aynı isteğe **401 + JSON** dönüyor. Yani sunucu
+  sağlam, araya giren güvenlik katmanı istemciyi tarayıcı sanıyor. Yanıtlar
+  artık ortak bir okuyucudan geçiyor ve bu durum adıyla bildiriliyor:
+  hangi katmanın reddettiği ve çözümün nerede olduğu yazıyor.
+  (Kalıcı çözüm Cloudflare'de `/vault/api/*` için bir "Skip" kuralıdır;
+  uygulama tarafında tarayıcı doğrulaması geçilemez.)
+- **Ana parola doğru girilse de "hatalı" deniyordu.** Sunucu "kurulu mu"
+  sorusunu `kripto_surum > 0` ile yanıtlıyordu; oysa o sütunun VARSAYILANI 1,
+  yani hiç ana parola kurmamış herkes için de "kurulu" dönüyordu. Uygulama
+  kilit açma ekranını gösteriyor, ortada açılacak bir zarf olmadığı için de
+  hiçbir parola geçmiyordu. Kurulu olmanın tek kanıtı artık özel anahtar
+  zarfının varlığı.
+
 ## 1.27.0
 
 ### Değişti — panelin açılma koşulu baştan yazıldı
