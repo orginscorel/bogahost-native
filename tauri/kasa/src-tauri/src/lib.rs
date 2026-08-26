@@ -1019,6 +1019,14 @@ fn yaz(kullanici: &str, sifre: &str, enter_bas: bool) -> Result<(), String> {
         match alan::odakli_alan() {
             alan::Uygun::Bos => {}
             alan::Uygun::Bilinmiyor => {}
+            /* GÖREMİYORUZ — engel değil.
+               Alanlarını AX'e açmayan bir programda (WinBox: AXWindow)
+               kullanıcı adı zaten yazıldı; parolayı reddetmek yarım
+               doldurulmuş bir form ve bir hata mesajı bırakırdı.
+               Asıl korunan durum — parolanın arama kutusuna gitmesi —
+               tarayıcılarda yaşanmıştı ve orada rol DOĞRU okunuyor;
+               üstelik tarayıcıda doldurmayı artık eklenti yapıyor. */
+            alan::Uygun::Belirsiz(_) => {}
             alan::Uygun::Dolu => {
                 return Err(
                     "Kullanıcı adı yazıldı ama sonraki alan boş değil; parola yazılmadı. \
