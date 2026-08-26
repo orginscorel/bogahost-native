@@ -1,3 +1,24 @@
+## 1.28.0
+
+### Düzeltildi
+- **"Tıklıyorum açılmıyor."** Her aç/kapa tıklaması bütün listenin HTML'ini
+  baştan kuruyordu. Sonuçları: liste başa sarıyor, tıklanan satır ayağınızın
+  altından kayıyor, arka arkaya tıklamalarda olay kayboluyor ve araya giren bir
+  yenileme açık kaydı kapatıyordu. Artık her kaydın ayrıntısı baştan çiziliyor
+  ama gizli duruyor; tıklama yalnızca bir sınıf değiştiriyor. DOM yıkılmadığı
+  için kaybolacak tıklama da yok.
+
+### Eklendi
+- **Adresler uygulamanın içinden görülüp açılabiliyor.** Kaydın ayrıntısındaki
+  adres artık tıklanabilir ve eylem satırında **Tarayıcıda aç** düğmesi var;
+  adres sistem tarayıcısında açılır, kasanın kendi penceresinde değil.
+- **"Adresli" süzgeci** — tarayıcıda gidebileceğiniz kayıtları tek bakışta
+  gösterir; SSH, cihaz ve lisans kayıtları aradan çıkar.
+- Güvenlik: yalnız `http`/`https` açılır (`file:`, `javascript:`, `data:`
+  reddedilir), boşluk/kontrol karakteri taşıyan adres reddedilir. Windows'ta
+  `cmd /C start` yerine `rundll32` kullanılıyor — `&` içeren bir adres `cmd`
+  altında komut ayracına dönüşürdü.
+
 ## 1.27.1
 
 ### Düzeltildi

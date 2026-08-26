@@ -165,7 +165,12 @@
   .kayit.acik .ok{transform:rotate(180deg)}
 
   /* Detay YERİNDE açılıyor — ayrı bir panele gitmek yerine. */
-  .detay{border-top:1px solid var(--cizgi);padding:2px 15px 14px}
+  /* Ayrıntı her kayıtta ÇİZİLİ ama gizli; açmak yalnızca bir sınıf değişimi.
+     Yeniden çizim olmadığı için tıklama kaybolmuyor, liste başa sarmıyor. */
+  .adresBag{color:var(--vurgu);text-decoration:none;border-bottom:1px solid transparent;word-break:break-all}
+  .adresBag:hover,.adresBag:focus-visible{border-bottom-color:var(--vurgu)}
+  .detay{display:none;border-top:1px solid var(--cizgi);padding:2px 15px 14px}
+  .kayit.acik .detay{display:block}
   .dSatir{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--cizgi);font-size:13.5px}
   .dSatir:last-of-type{border-bottom:0}
   .dEt{width:96px;flex:none;font-size:11px;color:var(--silik);text-transform:uppercase;
@@ -645,7 +650,9 @@ async function yenile(){
 function suzulmus(){
   const s=$('ara').value.trim().toLowerCase();
   return kayitlar.filter(function(k){
-    if(kategori!=='hepsi' && ((k.category||'').trim()||'kategorisiz')!==kategori) return false;
+    // "adresli" gerçek bir kategori değil, adres taşıyan kayıtların süzgeci.
+    if(kategori==='adresli'){ if(!k.url) return false; }
+    else if(kategori!=='hepsi' && ((k.category||'').trim()||'kategorisiz')!==kategori) return false;
     if(!s) return true;
     return ((k.label||'')+' '+(k.username||'')+' '+(k.domain||'')+' '+(k.category||'')).toLowerCase().indexOf(s)>=0;
   });
@@ -658,10 +665,15 @@ function ciz(){
     if(kats.indexOf(c)<0) kats.push(c);
   });
   kats.sort();
-  $('cipler').innerHTML = (kats.length>1)
-    ? ['hepsi'].concat(kats).map(function(c){
+  /* "Adresli" filtresi: kullanıcının tarayıcıda gidebileceği kayıtları tek
+     bakışta görmesi için. Adresi olmayan kayıtlar (SSH, cihaz, lisans)
+     aradan çıkıyor. Adresli kayıt yoksa çip de çıkmıyor. */
+  const adresliVar = kayitlar.some(function(k){ return !!k.url; });
+  const secenekler = ['hepsi'].concat(adresliVar ? ['adresli'] : []).concat(kats);
+  $('cipler').innerHTML = (kats.length>1 || adresliVar)
+    ? secenekler.map(function(c){
         return '<button class="cip'+(kategori===c?' secili':'')+'" data-kat="'+esc(c)+'">'
-             + esc(c==='hepsi'?'Hepsi':c)+'</button>';
+             + esc(c==='hepsi'?'Hepsi':(c==='adresli'?'Adresli':c))+'</button>';
       }).join('')
     : '';
   Array.prototype.forEach.call($('cipler').querySelectorAll('[data-kat]'), function(b){
@@ -678,10 +690,27 @@ function ciz(){
     return;
   }
   $('liste').innerHTML = g.map(kayitHtml).join('');
+
+  /* AÇ/KAPA ARTIK LİSTEYİ BAŞTAN ÇİZMİYOR.
+     Eskiden her tıklama `ciz()` çağırıp bütün listenin innerHTML'ini yeniden
+     kuruyordu. Sonuçları bildirildi: liste başa sarıyor, tıklanan satır
+     ayağınızın altından kayıyor, arka arkaya tıklamalarda olay kayboluyor ve
+     araya giren bir `yenile()` açık kaydı kapatıyordu — yani "tıklıyorum
+     açılmıyor".
+     Artık her kaydın ayrıntısı BAŞTAN çiziliyor ama gizli duruyor; tıklama
+     yalnızca bir sınıf değiştiriyor. DOM yıkılmadığı için kaybolacak tıklama
+     da yok. */
   Array.prototype.forEach.call($('liste').querySelectorAll('[data-ac]'), function(el){
     el.onclick=function(){
-      acikId = (acikId===Number(el.dataset.ac)) ? null : Number(el.dataset.ac);
-      ciz();
+      const id = Number(el.dataset.ac);
+      const kart = el.parentNode;
+      const acilacak = acikId !== id;
+      // Açık olan başka kaydı kapat (tek kayıt açık kalsın).
+      Array.prototype.forEach.call($('liste').querySelectorAll('.kayit.acik'), function(k){
+        if(k !== kart) k.classList.remove('acik');
+      });
+      kart.classList.toggle('acik', acilacak);
+      acikId = acilacak ? id : null;
     };
   });
   bagla();
@@ -717,10 +746,17 @@ function kayitHtml(k){
     +     '<svg class="ok" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>'
     +   '</div></div>';
 
-  if(acik){
+  {
     h += '<div class="detay">'
       + ds('Kullanıcı', k.username||'—','mono')
-      + ds('Adres', k.url||k.domain||'—')
+      /* ADRES ARTIK TIKLANABILIR. Kullanici kasadaki adresi uygulamanın
+         içinden görüp doğrudan gidebilsin diye; adres sistem tarayıcısında
+         açılır, kasanın kendi penceresinde DEĞİL. */
+      + (k.url
+          ? '<div class="dSatir"><div class="dEt">Adres</div><div class="dDg">'
+            + '<a href="#" class="adresBag" data-adres="'+esc(k.url)+'" title="Tarayıcıda aç">'
+            + esc(k.url)+'</a></div></div>'
+          : ds('Adres', k.domain||'—'))
       + (k.ip?ds('IP',k.ip,'mono'):'')
       + ds('Şifre', k.gizli ? 'gizli kayıt — kimse göremez, yalnızca doldurulur'
           : (!gorunur ? 'görme yetkiniz yok — doldurabilirsiniz'
@@ -731,6 +767,7 @@ function kayitHtml(k){
       + (iz ? ds('Yetkiniz', yetkiOzeti(iz)) : '')
       + '<div class="eylem">'
       +   '<button class="ana" data-doldur="'+k.id+'">Doldur</button>'
+      +   (k.url ? '<button class="ikincil" data-git="'+k.id+'">Tarayıcıda aç</button>' : '')
       /* DÜĞMELER SUNUCUDAN GELEN İZİNLERE BAĞLI.
          Bu satırlar eski hâlinde kalmıştı: kullanıcı adı kopyalama PAROLA
          GÖRME yetkisine bağlıydı. "Yalnız kullanan" rolündeki biri kullanıcı
@@ -802,6 +839,20 @@ function bagla(){
       durumYaz(d,'Şifre kopyalandı — '+sn+' sn sonra silinecek.','iyi'); }
     catch(err){ durumYaz(d,String(err),'hata'); }
   };});
+  /* Adres bağlantıları ve "Tarayıcıda aç" düğmesi.
+     stopPropagation ŞART: bunlar kaydın ayrıntısının içinde, tıklama üstteki
+     aç/kapa satırına sıçrarsa kayıt kapanır ve adres açılmamış gibi görünür. */
+  const adresAc = async function(e, adres){
+    e.preventDefault(); e.stopPropagation();
+    if(!adres) return;
+    try{ await invoke('adres_ac',{adres:adres}); }
+    catch(err){ alert('Açılamadı: '+err); }
+  };
+  her('[data-adres]', function(b){ b.onclick=function(e){ adresAc(e, b.dataset.adres); };});
+  her('[data-git]', function(b){ b.onclick=function(e){
+    const k=bul(b.dataset.git); adresAc(e, k && k.url);
+  };});
+
   her('[data-gecmis]', function(b){ b.onclick=function(e){
     e.stopPropagation(); gecmisAc(bul(b.dataset.gecmis));
   };});

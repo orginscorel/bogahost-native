@@ -892,6 +892,47 @@ fn panel_reddet(uygulama: tauri::AppHandle) {
     }
 }
 
+/// Kaydın adresini SİSTEM TARAYICISINDA aç.
+///
+/// Kullanıcı kasadaki adresleri uygulamanın içinden görüp gidebilsin diye.
+/// Adres uygulamanın kendi penceresinde AÇILMAZ: burası bir tarayıcı değil ve
+/// parola yöneticisinin içinde rastgele sayfa açmak, kasayı bir tarayıcıya
+/// çevirmek olurdu.
+///
+/// GÜVENLİK: adres sunucudan geliyor ama yine de doğrulanıyor. Yalnız
+/// http/https kabul ediliyor — `file://`, `javascript:` ve benzerleri
+/// reddediliyor. Boşluk/kontrol karakteri taşıyan adres de reddediliyor.
+/// Komutlar kabuk üzerinden DEĞİL, doğrudan argümanla çağrılıyor; Windows'ta
+/// `cmd /C start` yerine `rundll32` kullanılmasının sebebi de bu — `&` içeren
+/// bir adres `cmd` altında komut ayracına dönüşürdü.
+#[tauri::command(async)]
+fn adres_ac(adres: String) -> Result<(), String> {
+    let a = adres.trim();
+    let kucuk = a.to_ascii_lowercase();
+    if !(kucuk.starts_with("http://") || kucuk.starts_with("https://")) {
+        return Err("Yalnız http ve https adresleri açılabilir.".into());
+    }
+    if a.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("Adres geçersiz karakter içeriyor.".into());
+    }
+    if a.len() > 2000 {
+        return Err("Adres çok uzun.".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    let sonuc = std::process::Command::new("open").arg(a).spawn();
+
+    #[cfg(target_os = "windows")]
+    let sonuc = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", a])
+        .spawn();
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let sonuc = std::process::Command::new("xdg-open").arg(a).spawn();
+
+    sonuc.map(|_| ()).map_err(|e| format!("Tarayıcı açılamadı: {e}"))
+}
+
 /// Masaüstü programına göre eşleşen kayıtlar.
 ///
 /// Tarayıcıda ölçüt adres; WinBox gibi programlarda adres diye bir şey yok.
@@ -1068,7 +1109,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
-            eslesenler_uygulama, panel_reddet,
+            eslesenler_uygulama, panel_reddet, adres_ac,
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,
