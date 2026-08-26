@@ -22,6 +22,11 @@ pub enum Uygun {
     Dolu,
     /// Metin alanı değil (düğme, bağlantı, sayfa gövdesi, liste…).
     AlanDegil(String),
+    /// Odakta bir KAPSAYICI var (pencere, grup, kaydırma alanı) — yani
+    /// uygulama alanlarını erişilebilirlik katmanına HİÇ açmıyor.
+    /// "Alan yok" DEĞİL, "göremiyoruz" demek. İkisini ayırmamak,
+    /// WinBox gibi programlarda özelliği tamamen öldürüyordu.
+    Belirsiz(String),
     /// Tespit edilemedi (izin yok, platform desteklemiyor).
     Bilinmiyor,
 }
@@ -32,6 +37,18 @@ pub const PAROLA_ROLU: &str = "AXSecureTextField";
 
 /// Metin kabul eden roller. AXComboBox ve AXTextArea da yazılabilir.
 const YAZILABILIR: [&str; 4] = ["AXTextField", PAROLA_ROLU, "AXTextArea", "AXComboBox"];
+
+/// KAPSAYICI ROLLER — "alan değil" ile karıştırılmamalı.
+///
+/// Qt, Java ve kendi çizimini yapan arayüzler alanlarını AX'e açmıyor;
+/// odak sorulduğunda pencerenin kendisi dönüyor. Bunu "odakta metin alanı
+/// yok" saymak, o programlarda hem paneli hiç göstermemek hem de
+/// doldurmayı reddetmek demekti — bildirilen durum buydu:
+/// "Odakta bir metin alanı yok (AXWindow)".
+const KAPSAYICI: [&str; 7] = [
+    "AXWindow", "AXGroup", "AXScrollArea", "AXSplitGroup",
+    "AXApplication", "AXUnknown", "AXLayoutArea",
+];
 
 // ── macOS ──────────────────────────────────────────────────────────────────
 
@@ -116,7 +133,11 @@ pub fn odakli_alan() -> Uygun {
     };
 
     if !YAZILABILIR.contains(&rol.as_str()) {
-        return Uygun::AlanDegil(if rol.is_empty() { "bilinmeyen".into() } else { rol });
+        // Kapsayıcı ya da boş rol: "alan yok" DEĞİL, "göremiyoruz".
+        if rol.is_empty() || KAPSAYICI.contains(&rol.as_str()) {
+            return Uygun::Belirsiz(if rol.is_empty() { "bilinmeyen".into() } else { rol });
+        }
+        return Uygun::AlanDegil(rol);
     }
 
     // Parola alanı değerini VERMEZ (None döner) — boş saymak doğru, oraya
@@ -135,6 +156,10 @@ pub fn aciklama(u: &Uygun) -> String {
             "Odaktaki alanda zaten veri var — üstüne yazmadım. Alanı temizleyip tekrar deneyin."
                 .into()
         }
+        Uygun::Belirsiz(rol) => format!(
+            "Bu programın alanları erişilebilirlik katmanına açık değil ({rol}). \
+             Doldurulacak kutuya tıklayıp tekrar deneyin."
+        ),
         Uygun::AlanDegil(rol) => format!(
             "Odakta bir metin alanı yok ({rol}). Doldurulacak kullanıcı adı alanına tıklayıp tekrar deneyin."
         ),
@@ -214,6 +239,14 @@ pub fn odak_konumu() -> Option<(f64, f64, f64, f64)> {
             CFRelease(v);
             tamam
         };
+
+        /* KONUM YALNIZ GERÇEK ALAN İÇİN.
+           Kapsayıcı roller de AXPosition/AXSize taşır ama o, pencerenin
+           kendi dikdörtgenidir; panel pencerenin ALTINA düşerdi. */
+        if !matches!(odakli_alan(), Uygun::Bos | Uygun::Dolu) {
+            CFRelease(odak);
+            return None;
+        }
 
         let mut nokta = CGPoint::default();
         let mut boyut = CGSize::default();

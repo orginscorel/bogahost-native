@@ -1682,12 +1682,18 @@ fn panel_belirt(uygulama: &tauri::AppHandle, h: &pencere::Hedef) {
        Tespit edilemeyen platformda (Windows: UI Automation yok, `Bilinmiyor`
        döner) TAHMİN YAPILMIYOR: panel kendiliğinden açılmıyor, kısayol
        çalışmaya devam ediyor. Yanlış zamanda açmaktansa hiç açmamak yeğdir. */
-    match alan::odakli_alan() {
-        alan::Uygun::Bos | alan::Uygun::Dolu => {}
-        _ => {
-            kapat();
-            return;
-        }
+    /* KANIT YÜKÜ DOĞRU TARAFTA OLMALI.
+       Bir önceki sürüm panelin çıkması için "burada metin alanı var" KANITI
+       istiyordu. Ölçüldü ki bu kanıt çoğu masaüstü programında hiç yok: Qt,
+       Java ve kendi çizimini yapan arayüzler alanlarını erişilebilirlik
+       katmanına açmıyor, odak sorulduğunda pencerenin kendisi (`AXWindow`)
+       dönüyor. Sonuç: panel HİÇBİR programda çıkmadı ve WinBox'ta doldurma da
+       reddedildi. Kanıtın yokluğu, alanın yokluğu değildir.
+       Artık yalnızca KESİN OLARAK başka bir şey odaktaysa (düğme, liste,
+       bağlantı) susuyoruz. */
+    if matches!(alan::odakli_alan(), alan::Uygun::AlanDegil(_)) {
+        kapat();
+        return;
     }
 
     // Az önce bu hedefe doldurduysak ısrar etme.

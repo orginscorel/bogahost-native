@@ -1,3 +1,24 @@
+## 1.29.1
+
+### Düzeltildi
+- **Panel hiçbir programda çıkmıyordu ve WinBox'ta doldurma reddediliyordu.**
+  1.27.0, panelin çıkması için *"burada metin alanı var"* kanıtı istiyordu.
+  Ölçüldü ki bu kanıt çoğu masaüstü programında hiç yok: Qt, Java ve kendi
+  çizimini yapan arayüzler alanlarını erişilebilirlik katmanına açmıyor,
+  odak sorulduğunda pencerenin kendisi (`AXWindow`) dönüyor. **Kanıtın
+  yokluğu, alanın yokluğu değildir** — kanıt yükü yanlış taraftaydı.
+
+  Artık üç durum ayrı: *alan var* · *alan değil* · *göremiyoruz*. Panel yalnız
+  **kesin olarak başka bir şey** odaktayken (düğme, liste, bağlantı) susuyor;
+  göremediğimiz durumda çıkıyor. Doldurma da aynı kuralla: kullanıcı Doldur'a
+  bastıysa niyeti açıktır, göremiyor olmamız engel değil.
+- **Tab ile kutu arama artık boşuna çalışmıyor.** Alanları göremediğimiz bir
+  programda Tab'a basmak kutuları boş boş gezmekten başka bir şey yapmıyordu;
+  bu arama yalnız kesin "alan değil" hâlinde anlamlı.
+- Panel, alanı gerçekten görebildiğimizde kutunun altına oturuyor; kapsayıcı
+  rolde pencerenin kendi dikdörtgeni geldiği için artık köşe yerleşimine
+  düşüyor — panel pencerenin altına kaymıyor.
+
 ## 1.29.0
 
 ### Düzeltildi
