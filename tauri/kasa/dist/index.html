@@ -551,6 +551,7 @@ function esc(s){
 function durumYaz(el,m,t){ if(!el) return; el.className='durum'+(t?' '+t:''); el.textContent=m||''; }
 function yerelOku(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function yerelYaz(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function yerelSil(k){ try{ localStorage.removeItem(k); }catch(e){} }
 const mac = navigator.platform.toLowerCase().indexOf('mac') >= 0;
 
 /** "3 gün önce" — listede kesin tarihten daha okunur. */
@@ -629,7 +630,8 @@ async function kasayiAc(){
   try{
     kriptoDurumu = await invoke('kripto_durum');
     if(!kriptoDurumu.kurulu){
-      kriptoAc('kur');
+      // Kullanıcı daha önce "sonra" dediyse ısrar etme.
+      if(yerelOku('kripto_kurulum_ertelendi') !== '1') kriptoAc('kur');
     }else{
       const kilit = await invoke('kilit_durumu').catch(function(){ return {acik:false}; });
       if(!kilit.acik) kriptoAc('ac');
@@ -1256,13 +1258,16 @@ let kriptoDurumu = null, kriptoKip = 'kur';
 
 function kriptoAc(kip){
   kriptoKip = kip;
+  // Kullanıcı bilerek geldiyse erteleme kaydı anlamını yitirir.
+  if(kip === 'kur') yerelSil('kripto_kurulum_ertelendi');
   const kur = kip === 'kur', kurtarma = kip === 'kurtarma';
   $('kriptoBaslik').textContent = kur ? 'Ana parola belirleyin'
     : (kurtarma ? 'Kurtarma anahtarı' : 'Kasanın kilidini açın');
   $('kriptoAnlat').innerHTML = kur
     ? 'Bu paroladan üretilen anahtarla kayıtlarınız <b>sizin bilgisayarınızda</b> şifrelenecek. '
       + 'Sunucu bu parolayı hiç görmüyor ve şifreli veriyi açamıyor. Unutursanız yalnız kurtarma '
-      + 'anahtarıyla girebilirsiniz.'
+      + 'anahtarıyla girebilirsiniz.<br><br><b>Zorunlu değil:</b> şimdi kapatabilirsiniz, kasa '
+      + 'çalışmaya devam eder. Ayarlar &rarr; Ana parola bölümünden istediğiniz zaman kurabilirsiniz.'
     : (kurtarma
       ? 'Kurulumda size bir kez gösterilen 50 haneli anahtarı yazın. Tire ve büyük/küçük harf önemsiz.'
       : 'Kayıtlarınızı açmak için ana parolanız gerekiyor.');
@@ -1270,7 +1275,13 @@ function kriptoAc(kip){
   $('kriptoParolaAlan').classList.toggle('gizli', kurtarma);
   $('kriptoKurtarmaAlan').classList.toggle('gizli', !kurtarma);
   $('kriptoKurtarmaGec').classList.toggle('gizli', kip !== 'ac');
-  $('kriptoKapat').classList.toggle('gizli', kip === 'kur');
+  /* KURULUM EKRANI ARTIK KAPATILABİLİR.
+     Kapat düğmesi kurulum kipinde GİZLENİYORDU; ekrana düşen kullanıcının
+     çıkış yolu yoktu. Ana parola ZORUNLU DEĞİL: kayıtlar sunucu tarafı
+     şifrelemeyle çalışmaya devam ediyor, ana parola bunları uçtan uca
+     şifrelemeye TAŞIMAK için. Zorunlu olmayan bir adımda kullanıcıyı
+     ekranda kilitlemek hata. */
+  $('kriptoKapat').classList.remove('gizli');
   $('kurtarmaGoster').classList.add('gizli');
   $('kriptoTamam').textContent = kur ? 'Kur' : 'Aç';
   $('kriptoTamam').disabled = false;
@@ -1280,8 +1291,19 @@ function kriptoAc(kip){
   $('kriptoKatman').classList.remove('gizli');
   setTimeout(function(){ (kurtarma?$('kriptoKurtarma'):$('kriptoParola')).focus(); }, 60);
 }
-function kriptoKapat(){ $('kriptoKatman').classList.add('gizli'); }
+function kriptoKapat(){
+  /* Kurulum ekranı kapatıldıysa bir daha KENDİLİĞİNDEN açılmaz.
+     Ana parola zorunlu değil; her açılışta aynı ekranı göstermek, panelin
+     ısrar etmesiyle aynı rahatsızlık. Ayarlar → Ana parola her zaman açık.
+     Kilit AÇMA ekranı bu kuralın dışında: orada veri gerçekten şifreli. */
+  if(kriptoKip === 'kur') yerelYaz('kripto_kurulum_ertelendi', '1');
+  $('kriptoKatman').classList.add('gizli');
+}
 $('kriptoKapat').onclick=kriptoKapat;
+/* Esc de kapatsın: bir pencereden çıkmanın en beklenen yolu. */
+$('kriptoKatman').addEventListener('keydown', function(e){
+  if(e.key==='Escape'){ e.preventDefault(); kriptoKapat(); }
+});
 $('kriptoKurtarmaGec').onclick=function(){ kriptoAc('kurtarma'); };
 
 $('kriptoParola').addEventListener('input', async function(e){

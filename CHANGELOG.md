@@ -1,3 +1,22 @@
+## 1.29.0
+
+### Düzeltildi
+- **"Ana parola zaten kurulu" deyip ekrandan çıkartmıyordu.** İki ayrı hatanın
+  üst üste binmesiydi:
+  1. Sunucu "kurulu mu" sorusunu üç ayrı yerde `kripto_surum > 0` ile
+     yanıtlıyordu; o sütunun **varsayılanı 1**, yani hiç ana parola kurmamış
+     herkes "kurulu" görünüyordu. Kurulum isteği bu yüzden *"zaten kurulu"*
+     diye reddediliyordu. Ölçüt artık özel anahtar zarfının varlığı ve karar
+     tek yerde (`kimlikKurulu`).
+  2. Kurulum ekranında **kapat düğmesi gizleniyordu** — ekrana düşen
+     kullanıcının çıkış yolu yoktu. Ana parola zorunlu değil: kayıtlar sunucu
+     tarafı şifrelemeyle çalışmaya devam eder, ana parola bunları uçtan uca
+     şifrelemeye *taşımak* içindir.
+- **Kurulum ekranı artık ısrar etmiyor.** Kapatırsanız bir daha kendiliğinden
+  açılmaz; **Ayarlar → Ana parola** her zaman açık. Kilit *açma* ekranı bu
+  kuralın dışında — orada veri gerçekten şifreli.
+- Esc tuşu da ekranı kapatıyor.
+
 ## 1.28.1
 
 ### Güvenlik
