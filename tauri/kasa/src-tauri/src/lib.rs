@@ -298,7 +298,28 @@ fn doldur(uygulama: tauri::AppHandle, id: i64, enter_bas: bool) -> DoldurSonuc {
         return DoldurSonuc { tamam: false, mesaj: alan::aciklama(&uygun) };
     }
 
-    let sonuc = yaz(&kullanici, &sifre, enter_bas);
+    /* GİRİŞ PROFİLİ — programın girişte neyi hangi sırayla istediği.
+       Tek varsayımlı doldurma ("kullanıcı, Tab, parola") programların çoğunda
+       tutmuyordu: WinBox önce ADRES ister, PuTTY kullanıcı adını terminale
+       sorar. Profil bulunamazsa ya da profil boşsa eski yol kullanılır —
+       yeni bir mekanizma eski çalışan akışı düşürmemeli. */
+    let profil = {
+        let durum = uygulama.state::<Durum>();
+        kasa::giris_profilleri(&durum)
+            .ok()
+            .and_then(|liste| profil_sec(&liste, &h.program, &h.baslik).cloned())
+    };
+    let kayit = kasa::liste(&uygulama.state::<Durum>())
+        .unwrap_or_default()
+        .into_iter()
+        .find(|k| k.id == id);
+
+    let sonuc = match &profil {
+        Some(p) if !p.adimlar.is_empty() => {
+            yaz_profil(p, &kullanici, &sifre, kayit.as_ref(), enter_bas)
+        }
+        _ => yaz(&kullanici, &sifre, enter_bas),
+    };
 
     // Parola bellekten düşsün (Rust burada zaten bırakır; niyet açık olsun diye)
     drop(sifre);
@@ -933,6 +954,24 @@ fn adres_ac(adres: String) -> Result<(), String> {
     sonuc.map(|_| ()).map_err(|e| format!("Tarayıcı açılamadı: {e}"))
 }
 
+/// Giriş profilleri — hangi program girişte neyi hangi sırayla istiyor.
+/// Ayarlar ekranı bunu listeleyip kullanıcıya "bu program tanınıyor"
+/// diyebilsin diye. Parola içermez, yalnız tariftir.
+#[tauri::command(async)]
+fn giris_profilleri(uygulama: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let durum = uygulama.state::<Durum>();
+    let liste = kasa::giris_profilleri(&durum)?;
+    Ok(serde_json::json!(liste
+        .iter()
+        .map(|p| serde_json::json!({
+            "ad": p.ad,
+            "desenler": p.desenler,
+            "aciklama": p.aciklama,
+            "adim": p.adimlar.len(),
+        }))
+        .collect::<Vec<_>>()))
+}
+
 /// Masaüstü programına göre eşleşen kayıtlar.
 ///
 /// Tarayıcıda ölçüt adres; WinBox gibi programlarda adres diye bir şey yok.
@@ -995,6 +1034,135 @@ fn panoya_sifre(uygulama: tauri::AppHandle, id: i64) -> Result<u64, String> {
 ///
 /// Karakterler doğrudan gönderilir (sanal tuş kodu değil), böylece Türkçe Q/F
 /// veya başka bir klavye düzeni parolayı bozmaz.
+/// Program adına uyan giriş profilini seç.
+///
+/// Küçük `sira` önce denenir; `*` deseni son çaredir. Eşleşme küçük harfte ve
+/// "içeriyor" kuralıyla: "winbox" deseni "WinBox64.exe" ile de tutar.
+pub(crate) fn profil_sec<'a>(
+    profiller: &'a [kasa::GirisProfili],
+    program: &str,
+    baslik: &str,
+) -> Option<&'a kasa::GirisProfili> {
+    let p = program.to_lowercase();
+    let b = baslik.to_lowercase();
+    let mut sirali: Vec<&kasa::GirisProfili> = profiller.iter().collect();
+    sirali.sort_by_key(|x| x.sira);
+
+    // Önce gerçek desenler; joker en sonda ayrı denenir ki özel profiller
+    // sıra numarasından bağımsız olarak öne geçsin.
+    for x in &sirali {
+        for d in x.desenler.split(',') {
+            let d = d.trim().to_lowercase();
+            if d.is_empty() || d == "*" {
+                continue;
+            }
+            if (!p.is_empty() && p.contains(&d)) || (!b.is_empty() && b.contains(&d)) {
+                return Some(x);
+            }
+        }
+    }
+    sirali
+        .into_iter()
+        .find(|x| x.desenler.split(',').any(|d| d.trim() == "*"))
+}
+
+/// Bir adımın yazacağı metni kayıttan çöz.
+fn adim_degeri(kaynak: &str, kullanici: &str, sifre: &str, k: Option<&kasa::Kayit>) -> String {
+    match kaynak {
+        "kullanici" => kullanici.to_string(),
+        "parola" => sifre.to_string(),
+        "ip" => k
+            .and_then(|x| x.ip.clone())
+            // IP yoksa alan adına düş: WinBox'a alan adı da yazılabilir.
+            .or_else(|| k.and_then(|x| x.domain.clone()))
+            .unwrap_or_default(),
+        "alan" => k.and_then(|x| x.domain.clone()).unwrap_or_default(),
+        "url" => k.and_then(|x| x.url.clone()).unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// Profildeki adımları sırayla uygula.
+///
+/// GÜVENLİK: `parola` yazan her adımın önünde aynı denetim var — rolü
+/// gerçekten okuyabiliyorsak ve odak bir parola alanı DEĞİLSE yazmıyoruz.
+/// Göremediğimiz programlarda (AXWindow) engellemiyoruz; orada tespit imkânı
+/// yok ve reddetmek özelliği tamamen öldürüyordu.
+fn yaz_profil(
+    profil: &kasa::GirisProfili,
+    kullanici: &str,
+    sifre: &str,
+    kayit: Option<&kasa::Kayit>,
+    enter_bas: bool,
+) -> Result<(), String> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+
+    let mut e = Enigo::new(&Settings::default()).map_err(|x| x.to_string())?;
+
+    for adim in &profil.adimlar {
+        match adim.tur.as_str() {
+            "temizle" => {
+                // Alanda eski değer varsa üstüne eklemek yerine değiştir.
+                #[cfg(target_os = "macos")]
+                let secme = Key::Meta;
+                #[cfg(not(target_os = "macos"))]
+                let secme = Key::Control;
+                let _ = e.key(secme, Direction::Press);
+                let _ = e.key(Key::Unicode('a'), Direction::Click);
+                let _ = e.key(secme, Direction::Release);
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let _ = e.key(Key::Delete, Direction::Click);
+            }
+            "yaz" => {
+                let kaynak = adim.kaynak.clone().unwrap_or_default();
+                let metin = adim_degeri(&kaynak, kullanici, sifre, kayit);
+                if metin.is_empty() {
+                    continue;   // boş değer için tuşa basmaya gerek yok
+                }
+                if kaynak == "parola" {
+                    let rol_okunabilir = matches!(
+                        alan::odakli_alan(),
+                        alan::Uygun::Bos | alan::Uygun::Dolu | alan::Uygun::AlanDegil(_)
+                    );
+                    if rol_okunabilir && !alan::parola_alani_mi() {
+                        return Err(
+                            "Odaktaki alan bir parola alanı değil; parola YAZILMADI. \
+                             Parola kutusuna tıklayıp tekrar deneyin."
+                                .into(),
+                        );
+                    }
+                }
+                e.text(&metin).map_err(|x| x.to_string())?;
+            }
+            "tus" => {
+                // Enter adımı kullanıcının ayarına bağlıysa ve ayar kapalıysa atla.
+                if adim.enter_ayardan && !enter_bas {
+                    continue;
+                }
+                let t = adim.tus.clone().unwrap_or_default();
+                let tus = match t.as_str() {
+                    "tab" => Key::Tab,
+                    "enter" => Key::Return,
+                    "space" => Key::Space,
+                    "asagi" => Key::DownArrow,
+                    "yukari" => Key::UpArrow,
+                    _ => continue,
+                };
+                e.key(tus, Direction::Click).map_err(|x| x.to_string())?;
+            }
+            "bekle" => {
+                let ms = adim.ms.unwrap_or(200).min(5000);
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+                continue;   // kendi beklemesi var, aşağıdakini tekrarlama
+            }
+            _ => continue,
+        }
+        // Adımlar arası kısa nefes: odak değişiminin oturması için.
+        std::thread::sleep(std::time::Duration::from_millis(90));
+    }
+    Ok(())
+}
+
 fn yaz(kullanici: &str, sifre: &str, enter_bas: bool) -> Result<(), String> {
     use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
@@ -1052,7 +1220,16 @@ fn yaz(kullanici: &str, sifre: &str, enter_bas: bool) -> Result<(), String> {
            Rol okunamıyorsa (Windows'ta AX yok) engellemiyoruz: orada
            tespit imkânı yok ve çalışan bir akışı hiç çalıştırmamak çözüm
            değil. macOS'ta izin varsa kural kesin. */
-        if alan::odakli_rol().is_some() && !alan::parola_alani_mi() {
+        /* KURAL YALNIZ ROLÜ GERÇEKTEN OKUYABİLDİĞİMİZDE İŞLER.
+           `odakli_rol().is_some()` yetmiyordu: alanlarını AX'e açmayan bir
+           programda odak sorulduğunda `AXWindow` dönüyor — yani rol OKUNUYOR
+           ama bir şey ANLATMIYOR. Bu koşul WinBox'ta parolayı reddediyordu.
+           Artık ölçüt kapsayıcı olmayan, gerçek bir öğe görmüş olmak. */
+        let rol_okunabilir = matches!(
+            alan::odakli_alan(),
+            alan::Uygun::Bos | alan::Uygun::Dolu | alan::Uygun::AlanDegil(_)
+        );
+        if rol_okunabilir && !alan::parola_alani_mi() {
             return Err(
                 "Odaktaki alan bir parola alanı değil; parola YAZILMADI. \
                  Şifrenin açıkta görünmemesi için yalnızca parola kutularına yazılıyor."
@@ -1117,7 +1294,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             giris_yap, kod_dogrula, oturum_var, oturumu_kapat,
             kayitlar, hedef, izinler, pencereler, hedef_sec, eslesenler,
-            eslesenler_uygulama, panel_reddet, adres_ac,
+            eslesenler_uygulama, panel_reddet, adres_ac, giris_profilleri,
             doldur, kullanici_adi, panoya_sifre,
             guncelleme_ara, guncelleme_uygula, izin_ayarlarini_ac,
             politika_durum, politika_kur, politika_profil_kaldir,

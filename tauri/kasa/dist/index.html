@@ -365,6 +365,9 @@
     <input class="metin" type="text" id="ara" placeholder="Ara  ( / )">
   </div>
   <div class="bosluk"></div>
+  <button class="ikon" id="adresDugme" title="Adresler — girebileceğiniz sistemler">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg>
+  </button>
   <button class="ikon" id="yeniDugme" title="Yeni kayıt">
     <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
   </button>
@@ -1010,6 +1013,11 @@ async function ayarCiz(){
 
   // ── Doldurma ──────────────────────────────────────────────────────
   h += bolum('Doldurma', 'Kayıt eşleştiğinde ne olacağı.',
+      satir(null, 'Tanınan programlar',
+            'WinBox, FileZilla, PuTTY, uzak masaüstü ve terminal girişlerinde alan sırası biliniyor; '
+            + 'kasa her programa kendi düzeninde dolduruyor.',
+            '<button class="ikincil" id="aProfiller">Gör</button>')
+    +
       satir(null, 'Panel kendiliğinden açılsın',
             'Yalnız bir metin ya da parola kutusuna girdiğinizde ve o programa ait kayıt varsa açılır. '
             + 'Tarayıcıda panel açılmaz; orada işi eklenti sayfanın içinde yapar. '
@@ -1085,7 +1093,9 @@ async function ayarCiz(){
 
   // ── Kasa ──────────────────────────────────────────────────────────
   h += bolum('Kasa', null,
-      satir(null, 'Kasalar', 'Kişisel kasanız yalnız sizindir. Ortak kasalarda yetkiyi rol belirler.',
+      satir(null, 'Adresler', 'Girebileceğiniz bütün sistemlerin adresleri tek listede.',
+            '<button class="ikincil" id="aAdresler">Aç</button>')
+    +       satir(null, 'Kasalar', 'Kişisel kasanız yalnız sizindir. Ortak kasalarda yetkiyi rol belirler.',
             '<button class="ikincil" id="aKasalar">Aç</button>')
     + satir(null, 'Cihazlar', 'Bu hesapla açık oturumlar. Kaybolan bir bilgisayarın erişimi buradan kesilir.',
             '<button class="ikincil" id="aCihazlar">Aç</button>')
@@ -1126,6 +1136,8 @@ async function ayarCiz(){
   $('aKasalar').onclick=kasalariAc;
   $('aCihazlar').onclick=cihazlariAc;
   $('aCop').onclick=copAc;
+  if($('aAdresler')) $('aAdresler').onclick=adreslerAc;
+  if($('aProfiller')) $('aProfiller').onclick=profillerAc;
   $('aGuncelle').onclick=function(){ guncellemeAra($('ayarDurum')); };
   $('aTani').onclick=async function(){
     try{
@@ -1421,6 +1433,7 @@ function listeAc(baslik, ekEylem){
 }
 function listeKapat(){ $('listeKatman').classList.add('gizli'); }
 $('listeKapat').onclick=listeKapat;
+$('adresDugme').onclick=adreslerAc;
 $('listeTamam').onclick=listeKapat;
 
 function listeBos(metin){
@@ -1580,6 +1593,68 @@ async function digerCihazlar(b){
 }
 
 /* ── Çöp kutusu ── */
+/**
+ * ADRESLER — çalışanın gidebileceği bütün adresler tek listede.
+ *
+ * Kayıtları tek tek açıp adresi aramak yerine, erişimi olan kişinin
+ * "nereye girebilirim" sorusunu bir bakışta yanıtlıyor. Parola geçmiyor:
+ * yalnızca etiket, kullanıcı adı ve adres. Aç düğmesi sistem tarayıcısında
+ * açar, kasanın kendi penceresinde değil.
+ */
+function adreslerAc(){
+  listeAc('Adresler', null);
+  const adresli = kayitlar.filter(function(k){ return !!k.url; });
+  if(!adresli.length){
+    listeBos('Adresi olan kayıt yok');
+    return;
+  }
+  // Alan adına göre grupla ki aynı sistemin kayıtları yan yana dursun.
+  adresli.sort(function(a,b){
+    const x=(a.domain||'')+' '+(a.label||''), y=(b.domain||'')+' '+(b.label||'');
+    return x.localeCompare(y,'tr');
+  });
+  listeCiz(adresli.map(function(k){
+    const iz = Array.isArray(k.izinler) ? k.izinler : null;
+    const doldurabilir = iz ? iz.indexOf('doldur')>=0 : true;
+    return {
+      ad: k.label || '(adsız)',
+      alt: [k.username, k.url].filter(Boolean).join('  ·  '),
+      rozet: doldurabilir ? null : 'yalnız görüntüleme',
+      eylemler: [
+        { ad:'Aç', calistir: async function(b){
+            b.disabled=false;
+            try{ await invoke('adres_ac',{adres:k.url}); }
+            catch(e){ durumYaz($('listeDurum'), String(e), 'hata'); } } },
+        { ad:'Adresi kopyala', calistir: async function(b){
+            b.disabled=false;
+            try{ await panoyaYaz(k.url); durumYaz($('listeDurum'),'Adres kopyalandı.','iyi'); }
+            catch(e){ durumYaz($('listeDurum'), String(e), 'hata'); } } },
+      ],
+    };
+  }));
+}
+
+/**
+ * TANINAN PROGRAMLAR — hangi programda alan sırasının bilindiği.
+ *
+ * Doldurma eskiden tek varsayıma dayanıyordu: "kullanıcı adı, Tab, parola".
+ * Programların çoğunda tutmuyor. Bu liste hangi programın kendi düzeniyle
+ * doldurulduğunu gösterir; sıra sunucuda veri olarak durur, yanlışsa yeni
+ * sürüm beklemeden düzeltilebilir.
+ */
+async function profillerAc(){
+  listeAc('Tanınan programlar', null);
+  try{
+    const p = await invoke('giris_profilleri');
+    if(!p || !p.length){ listeBos('Profil bulunamadı'); return; }
+    listeCiz(p.map(function(x){
+      return { ad: x.ad,
+               alt: [x.desenler, x.aciklama].filter(Boolean).join('  ·  '),
+               rozet: x.adim + ' adım', eylemler: [] };
+    }));
+  }catch(e){ listeHata(e); }
+}
+
 async function copAc(){
   listeAc('Çöp kutusu', null);
   try{

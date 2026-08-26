@@ -401,6 +401,70 @@ pub fn eslesenler(durum: &Durum, url: &str) -> Result<Vec<Kayit>, String> {
 /// açık. Böylece "göster/kopyala" ile "hedefe yaz" birbirinden ayrılıyor:
 /// personele bilginin kendisi verilmeden o bilgiyle iş yaptırılabiliyor.
 /// Her çağrı sunucuda ayrı bir eylem olarak denetime yazılır.
+/// Bir giriş profilinin tek adımı.
+#[derive(serde::Deserialize, Clone, Debug, Default)]
+pub struct GirisAdimi {
+    /// yaz | tus | bekle | temizle
+    pub tur: String,
+    /// `yaz` için: kullanici | parola | ip | alan | url | ekstra
+    #[serde(default)]
+    pub kaynak: Option<String>,
+    /// `tus` için: tab | enter | space | asagi | yukari
+    #[serde(default)]
+    pub tus: Option<String>,
+    /// `bekle` için milisaniye.
+    #[serde(default)]
+    pub ms: Option<u64>,
+    /// Bu adım kullanıcının "doldurunca Enter'a bas" ayarına uyar.
+    #[serde(default)]
+    pub enter_ayardan: bool,
+}
+
+/// Bir programın girişte neyi hangi sırayla istediğinin tarifi.
+///
+/// Doldurma tek bir varsayıma dayanıyordu: "kullanıcı adını yaz, Tab, parola".
+/// Gerçek programların çoğunda tutmuyor — WinBox önce ADRES ister, PuTTY
+/// kullanıcı adını terminale sorar, uzak masaüstü parolayı ayrı pencerede
+/// ister. Sıra artık sunucuda veri olarak duruyor: yanlış bir sırayı düzeltmek
+/// yeni sürüm gerektirmiyor.
+#[derive(serde::Deserialize, Clone, Debug, Default)]
+pub struct GirisProfili {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub ad: String,
+    /// Virgülle ayrılmış program/pencere desenleri. `*` = her şey (son çare).
+    #[serde(default)]
+    pub desenler: String,
+    #[serde(default)]
+    pub aciklama: Option<String>,
+    #[serde(default)]
+    pub sira: i64,
+    #[serde(default)]
+    pub adimlar: Vec<GirisAdimi>,
+}
+
+pub fn giris_profilleri(durum: &Durum) -> Result<Vec<GirisProfili>, String> {
+    let t = jeton_of(durum)?;
+    let j: serde_json::Value = istemci()
+        .get(format!("{SUNUCU}/vault/api/giris-profilleri"))
+        .bearer_auth(t)
+        .send()
+        .map_err(|e| e.to_string())
+        .and_then(json_oku)
+        .map_err(|e| format!("Giris profilleri alinamadi: {e}"))?;
+
+    let mut cikti = Vec::new();
+    if let Some(dizi) = j["profiller"].as_array() {
+        for p in dizi {
+            if let Ok(x) = serde_json::from_value::<GirisProfili>(p.clone()) {
+                cikti.push(x);
+            }
+        }
+    }
+    Ok(cikti)
+}
+
 /// Masaüstü programı için eşleşen kayıtlar.
 ///
 /// Tarayıcıda ölçüt adres, burada programın adı ve pencere başlığı. Kararı

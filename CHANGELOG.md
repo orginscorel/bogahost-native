@@ -1,3 +1,35 @@
+## 1.30.0
+
+### Eklendi — giriş profilleri
+Doldurma tek bir varsayıma dayanıyordu: *"kullanıcı adını yaz, Tab'a bas,
+parolayı yaz"*. Gerçek programların çoğunda tutmuyor. Artık her program kendi
+düzeniyle dolduruluyor:
+
+| Program | Sıra |
+|---|---|
+| MikroTik WinBox | adres → Login → Password |
+| FileZilla | sunucu → kullanıcı → parola |
+| PuTTY | yalnız adres (kullanıcıyı terminal sorar) |
+| Terminal / SSH | kullanıcı → Enter → **bekle** → parola → Enter |
+| Uzak masaüstü | bilgisayar → kullanıcı (parolayı Windows ayrı sorar) |
+| vSphere / vCenter | kullanıcı → parola |
+| Tanınmayan program | kullanıcı → parola (eski davranış) |
+
+Sıra **veritabanında** duruyor: yanlış bir düzeni düzeltmek ya da yeni program
+eklemek yeni sürüm gerektirmiyor. Ayarlar → Doldurma → **Tanınan programlar**
+listeyi gösterir.
+
+### Eklendi — Adresler
+Üst çubuktaki küre düğmesi, girebileceğiniz bütün sistemleri tek listede
+gösterir: etiket, kullanıcı adı, adres. **Aç** sistem tarayıcısında açar,
+**Adresi kopyala** panoya alır. Parola bu listeden geçmez. Ayarlar → Kasa →
+Adresler'den de açılır.
+
+### Düzeltildi
+- **WinBox'ta parola hâlâ reddediliyordu.** `odakli_rol().is_some()` kontrolü
+  `AXWindow` için de doğru dönüyordu — yani rol *okunuyor* ama bir şey
+  *anlatmıyor*. Ölçüt artık kapsayıcı olmayan gerçek bir öğe görmüş olmak.
+
 ## 1.29.1
 
 ### Düzeltildi
